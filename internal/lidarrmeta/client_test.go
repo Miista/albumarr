@@ -200,6 +200,11 @@ func TestPickEdition(t *testing.T) {
 	ed := func(id, date string, n int) Edition {
 		return Edition{ID: id, Date: date, TrackCount: n, Tracks: make([]Track, n)}
 	}
+	edf := func(id, date, format string, n int) Edition {
+		e := ed(id, date, n)
+		e.Format = format
+		return e
+	}
 	cases := []struct {
 		name string
 		in   []Edition
@@ -210,6 +215,11 @@ func TestPickEdition(t *testing.T) {
 		{"tie goes to the shorter list", []Edition{ed("deluxe", "1990", 27), ed("std", "2000", 12)}, "std"},
 		{"undated sorts last", []Edition{ed("nodate", "", 12), ed("dated", "2005", 12)}, "dated"},
 		{"single edition", []Edition{ed("only", "", 5)}, "only"},
+		{"a CD beats an earlier cassette", []Edition{edf("tape", "1997-01-01", "Cassette", 12), edf("cd", "1997-06-16", "CD", 12)}, "cd"},
+		{"digital media counts like a CD", []Edition{edf("vinyl", "1997-01-01", `12" Vinyl`, 12), edf("web", "2010", "Digital Media", 12)}, "web"},
+		{"earliest CD among CDs", []Edition{edf("cd2", "2005", "CD", 12), edf("cd1", "1997", "CD", 12), edf("tape", "1990", "Cassette", 12)}, "cd1"},
+		{"no CD at all falls back to the earliest", []Edition{edf("v2", "2005", `12" Vinyl`, 12), edf("tape", "1990", "Cassette", 12)}, "tape"},
+		{"a more common track count still wins over format", []Edition{edf("cd-deluxe", "1990", "CD", 27), edf("tape-a", "1991", "Cassette", 12), edf("tape-b", "1992", "Cassette", 12)}, "tape-a"},
 		{"editions without tracks are ignored", []Edition{ed("empty", "1990", 0), ed("real", "2000", 9)}, "real"},
 	}
 	for _, c := range cases {

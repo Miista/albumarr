@@ -331,3 +331,15 @@ func TestDetailRejectsInvalidIDsWithoutCallingAnyone(t *testing.T) {
 		t.Errorf("invalid IDs reached the sources: meta=%d lib=%d", meta.calls, lib.albumCalls.Load())
 	}
 }
+
+func TestEditionTracksAreNumberedByPositionNotByVinylNumbering(t *testing.T) {
+	m := okcMeta()
+	m.Editions = []lidarrmeta.Edition{{ID: "tape", Date: "1997", Tracks: []lidarrmeta.Track{
+		{Disc: 1, Number: "A1", Position: 1, Title: "Airbag"},
+		{Disc: 1, Number: "B1", Position: 2, Title: "Paranoid Android"},
+	}}}
+	d, _ := New(&fakeSearch{}, &fakeMeta{album: m}, &fakeLib{states: map[string]*lidarr.AlbumState{}}).Detail(context.Background(), id1)
+	if got := d.Tracks.Tracks; len(got) != 2 || got[0].Number != "1" || got[1].Number != "2" {
+		t.Errorf("tracks should be numbered 1, 2, not A1, B1: %+v", got)
+	}
+}

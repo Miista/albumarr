@@ -10,6 +10,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -310,7 +311,13 @@ func editionTrackList(eds []lidarrmeta.Edition) TrackList {
 	}
 	tracks := make([]Track, 0, len(pick.Tracks))
 	for _, t := range pick.Tracks {
-		tracks = append(tracks, Track{Disc: t.Disc, Number: t.Number, Title: t.Title, DurationMs: t.DurationMs})
+		// Number by position: a vinyl or cassette edition's own numbering ("A1")
+		// would look odd next to the CD-style lists everywhere else.
+		number := t.Number
+		if t.Position > 0 {
+			number = strconv.Itoa(t.Position)
+		}
+		tracks = append(tracks, Track{Disc: t.Disc, Number: number, Title: t.Title, DurationMs: t.DurationMs})
 	}
 	return TrackList{
 		Source: SourceEdition,

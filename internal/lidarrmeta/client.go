@@ -288,7 +288,9 @@ func parse(body []byte) (Album, error) {
 
 // PickEdition chooses the representative edition among those that have
 // tracks: the one with the most common track count (ties go to the shorter
-// list), and among those the earliest. ok is false when none has tracks.
+// list); among those a CD or digital release before a cassette or vinyl one,
+// whose track numbering ("A1") and sequencing are less typical; then the
+// earliest. ok is false when none has tracks.
 func PickEdition(eds []Edition) (pick Edition, ok bool) {
 	counts := map[int]int{}
 	for _, e := range eds {
@@ -306,12 +308,30 @@ func PickEdition(eds []Edition) (pick Edition, ok bool) {
 		if len(e.Tracks) != best || best == 0 {
 			continue
 		}
-		// Dates are ISO prefixes ("1997", "1997-05-21"); an empty date sorts last.
-		if !ok || (e.Date != "" && (pick.Date == "" || e.Date < pick.Date)) {
+		if !ok || preferred(e, pick) {
 			pick, ok = e, true
 		}
 	}
 	return pick, ok
+}
+
+// preferred reports whether edition a should be picked over b.
+func preferred(a, b Edition) bool {
+	if ra, rb := formatRank(a.Format), formatRank(b.Format); ra != rb {
+		return ra < rb
+	}
+	// Dates are ISO prefixes ("1997", "1997-05-21"); an empty date sorts last.
+	if a.Date == "" || b.Date == "" {
+		return a.Date != "" && b.Date == ""
+	}
+	return a.Date < b.Date
+}
+
+func formatRank(format string) int {
+	if strings.Contains(format, "CD") || strings.Contains(format, "Digital") {
+		return 0
+	}
+	return 1
 }
 
 func nonNil(s []string) []string {
