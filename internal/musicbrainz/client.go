@@ -87,6 +87,12 @@ func New(contact string) (*Client, error) {
 	return NewWithBase(DefaultBase, contact, minGap)
 }
 
+// NewAt is New for a MusicBrainz at another base URL, such as a self-hosted
+// mirror. The one-request-per-second queue stays: it is harmless there.
+func NewAt(base, contact string) (*Client, error) {
+	return NewWithBase(base, contact, minGap)
+}
+
 // NewWithBase is New with an explicit base URL and request gap, for tests.
 func NewWithBase(base, contact string, gap time.Duration) (*Client, error) {
 	ua, err := UserAgent(contact)

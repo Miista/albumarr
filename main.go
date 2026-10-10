@@ -58,7 +58,18 @@ func main() {
 	// MusicBrainz requires a contact in the User-Agent. There is deliberately
 	// no default: it is the operator's to choose, and it is only ever sent to
 	// MusicBrainz.
-	mb, err := musicbrainz.New(os.Getenv("ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT"))
+	contact := os.Getenv("ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT")
+	mbURL := os.Getenv("ALBUMREQ_SETTING_MUSICBRAINZ_URL") // default: the public MusicBrainz
+	var (
+		mb  *musicbrainz.Client
+		err error
+	)
+	if mbURL != "" {
+		requireHTTPURL(logger, "ALBUMREQ_SETTING_MUSICBRAINZ_URL", mbURL)
+		mb, err = musicbrainz.NewAt(mbURL, contact)
+	} else {
+		mb, err = musicbrainz.New(contact)
+	}
 	if err != nil {
 		logger.Fatal().Msg("ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT must be set to an email address or a project URL: MusicBrainz requires a way to contact whoever runs an application")
 	}
