@@ -156,9 +156,11 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
   .topbar { padding: 14px 16px; }
   main { padding: 24px 16px 60px; gap: 22px; }
   h1 { font-size: 26px; }
-  .poster-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 18px 10px; }
-  .cover-kind { font-size: 10px; padding: 3px 8px; }
-  /* 3 columns on a phone leaves ~112px per card: "PROCESSING" has to fit. */
-  .cover-status { font-size: 10px; letter-spacing: .02em; gap: 4px; padding: 3px 7px 3px 6px; }
-  .cover-status .dot { width: 6px; height: 6px; }
+  .poster-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 18px 12px; }
+}
+
+/* On a phone, two albums side by side: big enough for the cover and for the
+   pills at their normal size. Three across was too cramped. */
+@media (max-width: 480px) {
+  .poster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
