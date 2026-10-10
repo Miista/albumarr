@@ -42,7 +42,9 @@ body {
   border-radius: 8px;
   color: var(--text);
   padding: 9px 14px;
-  font-size: 15px;
+  /* iOS Safari auto-zooms the viewport on focus for any input rendering
+     below 16px — keep this at or above that or every tap zooms the page. */
+  font-size: 16px;
 }
 .search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
