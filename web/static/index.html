@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>albumreq</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app" class="page" v-scope="App()" @vue:mounted="mounted" v-cloak>
+
+  <header class="topbar">
+    <div class="brand">albumreq</div>
+    <form class="search" @submit.prevent="search">
+      <input type="search" v-model="query" @input="onInput" placeholder="Search albums" aria-label="Search albums" autofocus autocomplete="off">
+    </form>
+  </header>
+
+  <main>
+    <p class="state" v-if="!searched && !loading && !error">Search for an album to see whether it is already in your library.</p>
+    <p class="state" v-if="loading">Searching&hellip;</p>
+    <p class="state error" v-if="error" role="alert">{{ error }}</p>
+    <p class="state" v-if="searched && !loading && !error && albums.length === 0">No albums found for &ldquo;{{ shownQuery }}&rdquo;.</p>
+
+    <ul class="grid" v-if="albums.length">
+      <li class="card" v-for="a in albums" :key="a.id">
+        <div class="cover">
+          <img v-if="a.cover" :src="a.cover" :alt="'Cover of ' + a.title" loading="lazy" @error="a.cover = ''">
+          <div v-else class="cover-empty" aria-hidden="true">&#9834;</div>
+          <span class="badge type">{{ a.type || 'Album' }}</span>
+          <span class="badge status" v-if="a.status" :class="a.status">{{ statusLabel(a.status) }}</span>
+        </div>
+        <div class="meta">
+          <div class="title" :title="a.title">{{ a.title }}</div>
+          <div class="artist" :title="a.artist">{{ a.artist }}</div>
+          <div class="sub">
+            <span v-if="a.year">{{ a.year }}</span>
+            <span v-for="t in a.secondaryTypes" class="tag">{{ t }}</span>
+          </div>
+        </div>
+      </li>
+    </ul>
+  </main>
+
+</div>
+
+<script src="vendor/petite-vue.iife.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
