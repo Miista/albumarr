@@ -100,7 +100,7 @@
             <div class="genres" v-if="detail.genres.length"><span class="tag" v-for="g in detail.genres">{{ g }}</span></div>
             <p class="overview" v-if="detail.overview">{{ detail.overview }}</p>
             <p class="overview" v-if="detail.disambiguation">{{ detail.disambiguation }}</p>
-            <p class="note-text" v-if="!detail.metadataOk">Details are unavailable right now. The metadata service did not answer.</p>
+            <p class="note-text" v-if="!detail.metadataOk">Details are not available for this album right now: the metadata service has none, or did not answer.</p>
             <p class="note-text" v-if="!detail.libraryOk">Lidarr could not be reached, so library status is not shown.</p>
             <a class="ext-link" :href="detail.musicbrainzUrl" target="_blank" rel="noopener noreferrer">View on MusicBrainz &#8599;</a>
           </div>
