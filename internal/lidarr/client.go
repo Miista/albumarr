@@ -12,14 +12,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// coverPrefix is the only path Cover will fetch. Lidarr serves album art
-// through this proxy, so the browser never talks to third-party hosts.
-const coverPrefix = "/MediaCoverProxy/"
+// coverPath matches the only paths Cover will fetch. Lidarr serves art for
+// albums it does not have yet through /MediaCoverProxy/<hash>, and art it has
+// already cached for library albums from /MediaCover/Albums/<id>/<file>, so
+// the browser never talks to third-party hosts.
+var coverPath = regexp.MustCompile(`^(/MediaCoverProxy/[A-Za-z0-9/._-]+|/MediaCover/Albums/[0-9]+/[A-Za-z0-9._-]+)$`)
 
 const (
 	maxCoverBytes = 5 << 20
@@ -69,12 +72,15 @@ type Image struct {
 	URL       string `json:"url"`
 }
 
-// CoverPath returns the cover-art proxy path for the album, or "" when it has
-// none (or the path is not one Cover would fetch).
+// CoverPath returns the cover-art path for the album, or "" when it has none
+// (or the path is not one Cover would fetch). Lidarr appends a cache-busting
+// ?lastWrite=… to library covers; it is dropped here, and the frontend's own
+// caching headers take over.
 func (a LookupAlbum) CoverPath() string {
 	for _, img := range a.Images {
-		if img.CoverType == "cover" && ValidCoverPath(img.URL) {
-			return img.URL
+		p, _, _ := strings.Cut(img.URL, "?")
+		if img.CoverType == "cover" && ValidCoverPath(p) {
+			return p
 		}
 	}
 	return ""
@@ -146,26 +152,15 @@ func (c *Client) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
 	return out, nil
 }
 
-// ValidCoverPath reports whether p is a plain cover-proxy path: the fixed
-// prefix, then only path-safe characters. This is what keeps Cover from being
-// steered at any other URL on (or off) the Lidarr host.
+// ValidCoverPath reports whether p is a plain Lidarr cover path (see
+// coverPath): a fixed prefix, then only path-safe characters. This is what
+// keeps Cover from being steered at any other URL on (or off) the Lidarr host.
 func ValidCoverPath(p string) bool {
-	if !strings.HasPrefix(p, coverPrefix) || len(p) > 300 || strings.Contains(p, "..") {
-		return false
-	}
-	for _, r := range p {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case r == '/', r == '.', r == '_', r == '-':
-		default:
-			return false
-		}
-	}
-	return true
+	return len(p) <= 300 && !strings.Contains(p, "..") && coverPath.MatchString(p)
 }
 
-// Cover fetches a cover image from Lidarr's cover proxy. The proxy needs no
-// credentials, so the API key is deliberately not sent.
+// Cover fetches a cover image from Lidarr. Both cover routes are served
+// without credentials, so the API key is deliberately not sent.
 func (c *Client) Cover(ctx context.Context, path string) ([]byte, string, error) {
 	if !ValidCoverPath(path) {
 		return nil, "", ErrInvalidCoverPath

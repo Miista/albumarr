@@ -119,6 +119,8 @@ func TestValidCoverPath(t *testing.T) {
 	valid := []string{
 		"/MediaCoverProxy/2f4978c9de87043e/abc.jpg",
 		"/MediaCoverProxy/2f4978c9de87043eabfeb71bfbc5d27b87895eddd31",
+		"/MediaCover/Albums/1/cover.jpg",
+		"/MediaCover/Albums/42/cover-500.jpg",
 	}
 	invalid := map[string]string{
 		"empty":             "",
@@ -133,6 +135,13 @@ func TestValidCoverPath(t *testing.T) {
 		"backslash":         `/MediaCoverProxy/a\b`,
 		"too long":          "/MediaCoverProxy/" + strings.Repeat("a", 300),
 		"prefix only case":  "/mediacoverproxy/abc",
+		// Library covers: only /MediaCover/Albums/<numeric id>/<file>.
+		"artist cover":           "/MediaCover/Artists/1/poster.jpg",
+		"non-numeric album id":   "/MediaCover/Albums/abc/cover.jpg",
+		"no file name":           "/MediaCover/Albums/1/",
+		"library traversal":      "/MediaCover/Albums/1/../../../api/v1/system/status",
+		"nested library path":    "/MediaCover/Albums/1/x/cover.jpg",
+		"library with cache key": "/MediaCover/Albums/1/cover.jpg?lastWrite=639272402010999060",
 	}
 	for _, p := range valid {
 		if !ValidCoverPath(p) {
@@ -207,5 +216,22 @@ func TestLookupAlbumCoverPath(t *testing.T) {
 	}
 	if got := (LookupAlbum{Images: []Image{{CoverType: "cover", URL: "https://evil.example/x.jpg"}}}).CoverPath(); got != "" {
 		t.Errorf("CoverPath() = %q, want empty for a non-proxy URL", got)
+	}
+}
+
+// Albums already in the library carry a local cover path with a cache-busting
+// query, not a proxy hash. Regression: these showed no cover art.
+func TestLookupAlbumCoverPathForLibraryAlbum(t *testing.T) {
+	a := LookupAlbum{Images: []Image{
+		{CoverType: "cover", URL: "/MediaCover/Albums/1/cover.jpg?lastWrite=639272402010999060"},
+		{CoverType: "disc", URL: "/MediaCover/Albums/1/disc.jpg"},
+	}}
+	if got := a.CoverPath(); got != "/MediaCover/Albums/1/cover.jpg" {
+		t.Errorf("CoverPath() = %q, want the path without its query", got)
+	}
+
+	hostile := LookupAlbum{Images: []Image{{CoverType: "cover", URL: "/MediaCover/Albums/1/../../../api/v1/system/status?x=1"}}}
+	if got := hostile.CoverPath(); got != "" {
+		t.Errorf("CoverPath() = %q, want empty for a traversal path", got)
 	}
 }
