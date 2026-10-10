@@ -36,8 +36,9 @@ be linked and the browser's Back button closes it.
 
 ## Where the data comes from
 
-Three sources, each doing what it is best at. Albums are identified everywhere
-by their MusicBrainz release-group ID.
+Three sources, each doing what it is best at (Lidarr's hosted service supplies
+both details and covers). Albums are identified everywhere by their MusicBrainz
+release-group ID.
 
 | Source | Used for | Why |
 |---|---|---|
@@ -93,7 +94,7 @@ Layout:
 - `internal/lidarrmeta` — an album, its editions and tracks, from Lidarr's metadata service
 - `internal/coverart` — cover images through Lidarr's image CDN
 - `internal/lidarr` — your Lidarr: library state, queue, library tracks
-- `internal/catalog` — combines the four, and degrades when one is missing
+- `internal/catalog` — combines them, and degrades when one is missing
 - `internal/api` — HTTP handlers
 - `web/static` — the petite-vue frontend
 
