@@ -1,132 +1,164 @@
+/* Geist, self-hosted (OFL-1.1 — see vendor/fonts/LICENSE-Geist.txt). Same
+   design language as reaparr: tokens, page gradient, topbar, search box and
+   poster cards are borrowed from its stylesheet. */
+@font-face { font-family: Geist; font-weight: 400; font-display: swap; src: url(vendor/fonts/geist-sans-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: Geist; font-weight: 600; font-display: swap; src: url(vendor/fonts/geist-sans-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: Geist; font-weight: 700; font-display: swap; src: url(vendor/fonts/geist-sans-latin-700-normal.woff2) format('woff2'); }
+
 :root {
-  --bg: #0d0e12;
-  --bg-elevated: #16171d;
-  --border: #26272f;
-  --text: #e6e6ea;
-  --text-dim: #8a8b96;
-  --accent: #7c6cf0;
-  --green: #3fb97a;
-  --amber: #e0a43a;
-  --red: #e5645f;
-  --blue: #5b9cf0;
+  --bg: #0a0b0f;
+  --text: #e8e9ee;
+  --muted: #9a9cab;
+  --muted-2: #8e91a1;
+  --faint: #6f7282;
+  --border: #1f2129;
+  --border-2: #262935;
+  --field: #0c0d12;
+
+  --violet: oklch(0.6 0.2 290);
+  --red: oklch(0.62 0.2 25);
+  --red-text: oklch(0.75 0.17 25);
+  --green: oklch(0.8 0.16 155);
+  --amber: oklch(0.82 0.15 80);
+  --cyan: oklch(0.8 0.12 200);
 }
 
 * { box-sizing: border-box; }
-[v-cloak] { display: none; }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   margin: 0;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
   background: var(--bg);
-  z-index: 10;
-}
-.brand { font-weight: 700; letter-spacing: 0.02em; }
-
-.search { flex: 1; max-width: 560px; }
-.search input {
-  width: 100%;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
   color: var(--text);
-  padding: 9px 14px;
+  font-family: Geist, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+input::placeholder { color: #5d6070; }
+button { font: inherit; }
+[v-cloak] { display: none; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.page {
+  min-height: 100vh;
+  background: radial-gradient(1200px 500px at 50% -200px, oklch(0.3 0.12 290 / .55), transparent 70%), var(--bg);
+}
+
+/* Header */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 18px 32px; border-bottom: 1px solid #1c1e26; backdrop-filter: blur(8px);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
+.brand-icon {
+  width: 38px; height: 38px; border-radius: 11px;
+  background: linear-gradient(160deg, #f1eef8, #c9c0e4);
+  box-shadow: 0 0 24px oklch(0.65 0.22 300 / .45);
+  display: flex; align-items: center; justify-content: center; color: oklch(0.35 0.15 290);
+}
+
+main {
+  max-width: 960px; margin: 0 auto; padding: 40px 24px 80px;
+  display: flex; flex-direction: column; gap: 28px;
+}
+
+.title-block { display: flex; flex-direction: column; gap: 6px; }
+h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
+.lede { margin: 0; color: var(--muted); font-size: 15px; }
+
+/* Search */
+.search-box { position: relative; }
+.input {
+  font-family: inherit;
   /* iOS Safari auto-zooms the viewport on focus for any input rendering
      below 16px — keep this at or above that or every tap zooms the page. */
   font-size: 16px;
+  padding: 12px 44px 12px 40px; border-radius: 10px;
+  border: 1px solid var(--border-2); background: var(--field); color: var(--text); outline: none; min-width: 0; width: 100%;
 }
-.search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-
-main { padding: 24px; max-width: 1400px; margin: 0 auto; }
-
-.state { color: var(--text-dim); margin: 48px 0; text-align: center; }
-.state.error { color: var(--red); }
-
-.grid {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 20px;
+.input:focus { border-color: oklch(0.65 0.2 290); box-shadow: 0 0 0 4px oklch(0.6 0.2 290 / .2); }
+.input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted-2); pointer-events: none; }
+.search-clear {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; padding: 0; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: #3a3d4c; color: var(--text); transition: background .15s;
 }
+.search-clear:hover { background: oklch(0.55 0.2 290); color: #fff; }
 
-.card { min-width: 0; }
+.error-text { margin: 0; color: var(--red-text); font-size: 14px; }
+.searching { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted-2); font-size: 14px; padding: 8px 0; }
+.spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.2); border-top-color: #fff; animation: spin .7s linear infinite; }
 
+/* Empty states */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 56px 24px; border-radius: 18px;
+  border: 1px dashed var(--border-2); background: #0e0f14; text-align: center;
+}
+.empty .icon {
+  width: 72px; height: 72px; border-radius: 20px; background: linear-gradient(160deg, #f1eef8, #c9c0e4);
+  display: flex; align-items: center; justify-content: center; color: oklch(0.35 0.15 290);
+  box-shadow: 0 0 32px oklch(0.65 0.22 300 / .35);
+}
+.empty .title { font-size: 18px; font-weight: 600; }
+.empty .sub { font-size: 14px; color: var(--muted-2); max-width: 360px; }
+
+/* Album poster grid (Seerr-style cards) */
+.poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 22px 16px; }
+.poster-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .cover {
-  position: relative;
-  aspect-ratio: 1 / 1;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
+  position: relative; aspect-ratio: 1 / 1; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(160deg, oklch(0.32 0.08 var(--hue) / .6), oklch(0.2 0.04 var(--hue) / .6));
+  border: 1px solid rgba(255,255,255,.06); box-shadow: 0 10px 30px -14px rgba(0,0,0,.8);
+  transition: transform .12s;
 }
-.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cover-empty {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 48px;
-  color: var(--border);
+.poster-card:hover .cover { transform: translateY(-2px); }
+.cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover-fallback {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px;
+  text-align: center; font-weight: 600; font-size: 14px; color: oklch(0.85 0.1 var(--hue)); overflow-wrap: anywhere;
 }
 
-.badge {
-  position: absolute;
-  top: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  background: rgba(13, 14, 18, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+/* Type pill, coloured like Seerr's media-kind pill. */
+.cover-kind {
+  position: absolute; top: 8px; left: 8px; padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: #fff;
+  background: oklch(0.52 0.19 262 / .92); box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
-.badge.type { left: 8px; color: var(--text); }
-.badge.status { right: 8px; }
-.badge.status::before {
-  content: "";
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-right: 6px;
-  background: currentColor;
-}
-.badge.status.available { color: var(--green); }
-.badge.status.processing { color: var(--amber); }
-.badge.status.requested { color: var(--blue); }
-.badge.status.notfound { color: var(--red); }
+.cover-kind.ep { background: oklch(0.55 0.2 300 / .92); }
+.cover-kind.single { background: oklch(0.5 0.12 190 / .92); }
+.cover-kind.broadcast, .cover-kind.other { background: oklch(0.4 0.02 270 / .92); }
 
-.meta { padding: 8px 2px 0; }
-.title, .artist {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Status pill, styled like reaparr's run-pill: tinted, bordered, with a dot. */
+.cover-status {
+  position: absolute; bottom: 8px; left: 8px; max-width: calc(100% - 16px); display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--pill-color); background: var(--pill-bg); border: 1px solid var(--pill-border);
+  backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(0,0,0,.4);
 }
-.title { font-weight: 600; font-size: 14px; }
-.artist { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
-.sub { color: var(--text-dim); font-size: 12px; margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
-.tag {
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 5px;
-}
+.cover-status { white-space: nowrap; }
+.cover-status .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--pill-color); }
+.cover-status.available { --pill-color: var(--green); --pill-bg: oklch(0.22 0.05 155 / .9); --pill-border: oklch(0.5 0.12 155 / .6); }
+.cover-status.processing { --pill-color: var(--amber); --pill-bg: oklch(0.24 0.05 80 / .9); --pill-border: oklch(0.5 0.12 80 / .6); }
+.cover-status.requested { --pill-color: var(--cyan); --pill-bg: oklch(0.22 0.05 200 / .9); --pill-border: oklch(0.5 0.12 200 / .6); }
+.cover-status.notfound { --pill-color: var(--red-text); --pill-bg: oklch(0.24 0.06 25 / .9); --pill-border: oklch(0.5 0.14 25 / .6); }
 
-@media (max-width: 520px) {
-  .topbar { padding: 10px 14px; gap: 12px; }
-  main { padding: 14px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; }
+.meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.meta .title, .meta .artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta .title { font-weight: 600; font-size: 14px; }
+.meta .artist { color: var(--muted); font-size: 13px; }
+.meta .sub { color: var(--faint); font-size: 12px; margin-top: 2px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.tag { border: 1px solid var(--border-2); border-radius: 6px; padding: 0 6px; color: var(--muted-2); }
+
+@media (max-width: 640px) {
+  .topbar { padding: 14px 16px; }
+  main { padding: 24px 16px 60px; gap: 22px; }
+  h1 { font-size: 26px; }
+  .poster-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 18px 10px; }
+  .cover-kind { font-size: 10px; padding: 3px 8px; }
+  /* 3 columns on a phone leaves ~112px per card: "PROCESSING" has to fit. */
+  .cover-status { font-size: 10px; letter-spacing: .02em; gap: 4px; padding: 3px 7px 3px 6px; }
+  .cover-status .dot { width: 6px; height: 6px; }
 }

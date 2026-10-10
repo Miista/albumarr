@@ -11,36 +11,57 @@
 <div id="app" class="page" v-scope="App()" @vue:mounted="mounted" v-cloak>
 
   <header class="topbar">
-    <div class="brand">albumreq</div>
-    <form class="search" @submit.prevent="search">
-      <input type="search" v-model="query" @input="onInput" placeholder="Search albums" aria-label="Search albums" autofocus autocomplete="off">
-    </form>
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 3v11.55A4 4 0 1 0 11 18V8h6V3H9z"></path></svg>
+      </div>
+      <span>albumreq</span>
+    </div>
   </header>
 
   <main>
-    <p class="state" v-if="!searched && !loading && !error">Search for an album to see whether it is already in your library.</p>
-    <p class="state" v-if="loading">Searching&hellip;</p>
-    <p class="state error" v-if="error" role="alert">{{ error }}</p>
-    <p class="state" v-if="searched && !loading && !error && albums.length === 0">No albums found for &ldquo;{{ shownQuery }}&rdquo;.</p>
+    <div class="title-block">
+      <h1>Find an album</h1>
+      <p class="lede">Search MusicBrainz through Lidarr and see what you already have.</p>
+    </div>
 
-    <ul class="grid" v-if="albums.length">
-      <li class="card" v-for="a in albums" :key="a.id">
-        <div class="cover">
-          <img v-if="a.cover" :src="a.cover" :alt="'Cover of ' + a.title" loading="lazy" @error="a.cover = ''">
-          <div v-else class="cover-empty" aria-hidden="true">&#9834;</div>
-          <span class="badge type">{{ a.type || 'Album' }}</span>
-          <span class="badge status" v-if="a.status" :class="a.status">{{ statusLabel(a.status) }}</span>
+    <form class="search-box" @submit.prevent="search" role="search">
+      <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.8"></circle><path d="M10.6 10.6L14 14"></path></svg>
+      <input class="input" type="search" v-model="query" @input="onInput" @keydown.escape="clear" placeholder="Search albums…" aria-label="Search albums" autofocus autocomplete="off">
+      <button type="button" class="search-clear" v-if="query" @click="clear" aria-label="Clear search">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"></path></svg>
+      </button>
+    </form>
+
+    <p class="error-text" v-if="error" role="alert">{{ error }}</p>
+    <div class="searching" v-if="loading"><span class="spinner"></span>Searching…</div>
+
+    <div class="poster-grid" v-if="albums.length">
+      <div class="poster-card" v-for="a in albums" :key="a.id" :title="a.title + (a.year ? ' (' + a.year + ')' : '')">
+        <div class="cover" :style="{ '--hue': hueFor(a.title) }">
+          <span class="cover-fallback">{{ a.title }}</span>
+          <img v-if="a.cover" :src="a.cover" :alt="'Cover of ' + a.title" loading="lazy" @error="$event.target.remove()">
+          <span class="cover-kind" :class="kindClass(a)">{{ a.type || 'Album' }}</span>
+          <span class="cover-status" v-if="a.status" :class="a.status"><span class="dot"></span>{{ statusLabel(a.status) }}</span>
         </div>
         <div class="meta">
-          <div class="title" :title="a.title">{{ a.title }}</div>
-          <div class="artist" :title="a.artist">{{ a.artist }}</div>
+          <div class="title">{{ a.title }}</div>
+          <div class="artist">{{ a.artist }}</div>
           <div class="sub">
             <span v-if="a.year">{{ a.year }}</span>
             <span v-for="t in a.secondaryTypes" class="tag">{{ t }}</span>
           </div>
         </div>
-      </li>
-    </ul>
+      </div>
+    </div>
+
+    <div class="empty" v-else-if="!loading && !error">
+      <div class="icon">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 3v11.55A4 4 0 1 0 11 18V8h6V3H9z"></path></svg>
+      </div>
+      <span class="title">{{ searched ? 'Nothing found' : 'Search for an album' }}</span>
+      <span class="sub">{{ searched ? 'No albums found for “' + shownQuery + '”. Try the artist and title together.' : 'See at a glance whether it is already in your library.' }}</span>
+    </div>
   </main>
 
 </div>

@@ -70,8 +70,27 @@ function App() {
       }
     },
 
+    clear() {
+      this.query = '';
+      this.search();
+    },
+
     statusLabel(s) {
       return STATUS_LABELS[s] || s;
+    },
+
+    // kindClass maps an album type to its pill colour class (album, ep, ...).
+    kindClass(a) {
+      return (a.type || 'album').toLowerCase().replace(/[^a-z]/g, '');
+    },
+
+    // hueFor picks a stable hue per title for the cover fallback, the same
+    // palette reaparr uses.
+    hueFor(title) {
+      const hues = [290, 150, 60, 200, 25, 330];
+      let h = 0;
+      for (const c of title || '') h = (h * 31 + c.charCodeAt(0)) >>> 0;
+      return hues[h % hues.length];
     },
   };
 }
