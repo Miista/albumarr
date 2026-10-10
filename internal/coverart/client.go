@@ -1,7 +1,9 @@
-// Package coverart fetches album cover images from the Cover Art Archive,
-// MetaBrainz's sister project to MusicBrainz (the covers MusicBrainz's own
-// pages show), keyed by release-group ID. albumreq serves them itself, so the
-// browser never talks to archive.org, and caches them in memory.
+// Package coverart fetches album cover images by release-group ID. By default
+// it asks Lidarr's image CDN, a cache in front of the Cover Art Archive (the
+// MetaBrainz project whose covers MusicBrainz's own pages show), which is far
+// more dependable than archive.org's storage nodes. albumreq serves the
+// images itself, so the browser never talks to either, and keeps them in
+// memory.
 package coverart
 
 import (
@@ -19,8 +21,9 @@ import (
 )
 
 const (
-	// DefaultBase is the public Cover Art Archive.
-	DefaultBase = "https://coverartarchive.org"
+	// DefaultBase is Lidarr's image CDN, caching the Cover Art Archive. The
+	// paths below it are the archive's own: /release-group/<id>/front-<size>.
+	DefaultBase = "https://images.lidarr.audio/cache/https://coverartarchive.org"
 
 	maxImage    = 3 << 20
 	maxCacheB   = 48 << 20 // bytes of images kept in memory
@@ -55,10 +58,14 @@ type entry struct {
 	exp  time.Time
 }
 
-// New returns a Client for the public Cover Art Archive. userAgent should come
-// from musicbrainz.UserAgent.
-func New(userAgent string) *Client {
-	return NewWithBase(DefaultBase, userAgent, hostAllowed)
+// New returns a Client for DefaultBase, or for base when it is not empty. The
+// User-Agent identifies albumreq without any contact, since neither the CDN
+// nor the archive asks for one.
+func New(base string) *Client {
+	if base == "" {
+		base = DefaultBase
+	}
+	return NewWithBase(base, musicbrainz.AnonymousUserAgent, hostAllowed)
 }
 
 // NewWithBase is New with an explicit base URL and redirect policy, for tests.
@@ -88,7 +95,7 @@ func NewWithBase(base, userAgent string, allow func(host string) bool) *Client {
 }
 
 func hostAllowed(host string) bool {
-	return host == "coverartarchive.org" || host == "archive.org" || strings.HasSuffix(host, ".archive.org")
+	return host == "images.lidarr.audio" || host == "coverartarchive.org" || host == "archive.org" || strings.HasSuffix(host, ".archive.org")
 }
 
 // Front returns the front cover of release group id at 250 or 500 pixels.

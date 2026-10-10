@@ -199,12 +199,12 @@ func TestRedirectsStayOnAllowedHosts(t *testing.T) {
 }
 
 func TestDefaultHostPolicy(t *testing.T) {
-	for _, h := range []string{"coverartarchive.org", "archive.org", "dn710005.ca.archive.org", "ia800.us.archive.org"} {
+	for _, h := range []string{"images.lidarr.audio", "coverartarchive.org", "archive.org", "dn710005.ca.archive.org", "ia800.us.archive.org"} {
 		if !hostAllowed(h) {
 			t.Errorf("%s should be allowed", h)
 		}
 	}
-	for _, h := range []string{"evil.example", "archive.org.evil.example", "notarchive.org", "evilarchive.org", "169.254.169.254", "localhost:8686", ""} {
+	for _, h := range []string{"evil.example", "archive.org.evil.example", "notarchive.org", "evilarchive.org", "images.lidarr.audio.evil.example", "evilimages.lidarr.audio", "169.254.169.254", "localhost:8686", ""} {
 		if hostAllowed(h) {
 			t.Errorf("%s must be refused", h)
 		}
