@@ -13,33 +13,48 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/lidarr"
+	"github.com/Miista/albumreq/internal/coverart"
 )
 
-type fakeSearch struct {
-	albums []catalog.Album
-	err    error
-	called int
+const id1 = "b1392450-e666-3926-a536-22c65f834433"
+
+type fakeCatalog struct {
+	res          catalog.SearchResult
+	detail       catalog.Detail
+	searchErr    error
+	detailErr    error
+	searchCalls  int
+	detailCalls  int
+	lastDetailID string
 }
 
-func (f *fakeSearch) Search(context.Context, string) ([]catalog.Album, error) {
-	f.called++
-	return f.albums, f.err
+func (f *fakeCatalog) Search(context.Context, string) (catalog.SearchResult, error) {
+	f.searchCalls++
+	return f.res, f.searchErr
+}
+
+func (f *fakeCatalog) Detail(_ context.Context, id string) (catalog.Detail, error) {
+	f.detailCalls++
+	f.lastDetailID = id
+	return f.detail, f.detailErr
 }
 
 type fakeCovers struct {
-	data []byte
-	ct   string
-	err  error
+	data     []byte
+	ct       string
+	err      error
+	lastSize int
+	lastID   string
 }
 
-func (f fakeCovers) Cover(context.Context, string) ([]byte, string, error) {
+func (f *fakeCovers) Front(_ context.Context, id string, size int) ([]byte, string, error) {
+	f.lastID, f.lastSize = id, size
 	return f.data, f.ct, f.err
 }
 
-func newMux(s Searcher, c CoverFetcher) *http.ServeMux {
+func newMux(c Catalog, cv CoverFetcher) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(s, c, zerolog.Nop()).Routes(mux)
+	New(c, cv, zerolog.Nop()).Routes(mux)
 	return mux
 }
 
@@ -49,35 +64,39 @@ func get(mux http.Handler, target string) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestSearchReturnsAlbums(t *testing.T) {
-	fs := &fakeSearch{albums: []catalog.Album{{ID: "a", Title: "OK Computer", Status: catalog.StatusAvailable}}}
-	rec := get(newMux(fs, fakeCovers{}), "/api/search?q=ok+computer")
+func TestSearchReturnsAlbumsAndLibraryState(t *testing.T) {
+	fc := &fakeCatalog{res: catalog.SearchResult{
+		Albums:    []catalog.Album{{ID: "a", Title: "OK Computer", Status: catalog.StatusAvailable}},
+		LibraryOK: true,
+	}}
+	rec := get(newMux(fc, &fakeCovers{}), "/api/search?q=ok+computer")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	var body struct {
-		Query  string          `json:"query"`
-		Albums []catalog.Album `json:"albums"`
+		Query     string          `json:"query"`
+		Albums    []catalog.Album `json:"albums"`
+		LibraryOK bool            `json:"libraryOk"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Query != "ok computer" || len(body.Albums) != 1 || body.Albums[0].Status != catalog.StatusAvailable {
+	if body.Query != "ok computer" || len(body.Albums) != 1 || body.Albums[0].Status != catalog.StatusAvailable || !body.LibraryOK {
 		t.Errorf("unexpected body: %s", rec.Body)
 	}
 }
 
 func TestSearchWithNoHitsEncodesAnEmptyList(t *testing.T) {
-	rec := get(newMux(&fakeSearch{albums: []catalog.Album{}}, fakeCovers{}), "/api/search?q=nothing")
+	rec := get(newMux(&fakeCatalog{res: catalog.SearchResult{Albums: []catalog.Album{}}}, &fakeCovers{}), "/api/search?q=nothing")
 	if !strings.Contains(rec.Body.String(), `"albums":[]`) {
 		t.Errorf("want an empty array, got %s", rec.Body)
 	}
 }
 
 func TestSearchRejectsBadQueries(t *testing.T) {
-	fs := &fakeSearch{}
-	mux := newMux(fs, fakeCovers{})
+	fc := &fakeCatalog{}
+	mux := newMux(fc, &fakeCovers{})
 	for name, target := range map[string]string{
 		"missing":       "/api/search",
 		"empty":         "/api/search?q=",
@@ -90,18 +109,17 @@ func TestSearchRejectsBadQueries(t *testing.T) {
 			t.Errorf("%s: status = %d, want 400", name, rec.Code)
 		}
 	}
-	if fs.called != 0 {
-		t.Errorf("rejected queries reached Lidarr %d times", fs.called)
+	if fc.searchCalls != 0 {
+		t.Errorf("rejected queries reached the catalog %d times", fc.searchCalls)
 	}
-	// The boundary itself is fine.
 	if rec := get(mux, "/api/search?q="+strings.Repeat("a", maxQueryLen)); rec.Code != http.StatusOK {
 		t.Errorf("a %d-char query: status = %d, want 200", maxQueryLen, rec.Code)
 	}
 }
 
 func TestSearchHidesUpstreamErrorDetail(t *testing.T) {
-	fs := &fakeSearch{err: errors.New("dial tcp 192.0.2.10:8686: connection refused")}
-	rec := get(newMux(fs, fakeCovers{}), "/api/search?q=radiohead")
+	fc := &fakeCatalog{searchErr: errors.New("dial tcp 192.0.2.10:8686: connection refused")}
+	rec := get(newMux(fc, &fakeCovers{}), "/api/search?q=radiohead")
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", rec.Code)
 	}
@@ -110,29 +128,89 @@ func TestSearchHidesUpstreamErrorDetail(t *testing.T) {
 	}
 }
 
+func TestAlbumDetail(t *testing.T) {
+	fc := &fakeCatalog{detail: catalog.Detail{
+		Album:      catalog.Album{ID: id1, Title: "OK Computer"},
+		Genres:     []string{"Rock"},
+		MetadataOK: true,
+		Tracks:     catalog.TrackList{Source: catalog.SourceEdition, Tracks: []catalog.Track{{Disc: 1, Number: "1", Title: "Airbag"}}},
+	}}
+	rec := get(newMux(fc, &fakeCovers{}), "/api/album/"+id1)
+	if rec.Code != http.StatusOK || fc.lastDetailID != id1 {
+		t.Fatalf("status = %d, id = %q", rec.Code, fc.lastDetailID)
+	}
+	var d struct {
+		Title      string `json:"title"`
+		MetadataOK bool   `json:"metadataOk"`
+		TrackList  struct {
+			Source string `json:"source"`
+			Tracks []struct {
+				Title string `json:"title"`
+			} `json:"tracks"`
+		} `json:"trackList"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Title != "OK Computer" || !d.MetadataOK || d.TrackList.Source != "edition" || len(d.TrackList.Tracks) != 1 || d.TrackList.Tracks[0].Title != "Airbag" {
+		t.Errorf("unexpected body: %s", rec.Body)
+	}
+}
+
+func TestAlbumDetailErrors(t *testing.T) {
+	bad := get(newMux(&fakeCatalog{detailErr: catalog.ErrInvalidID}, &fakeCovers{}), "/api/album/not-a-uuid")
+	if bad.Code != http.StatusBadRequest {
+		t.Errorf("invalid id: status = %d, want 400", bad.Code)
+	}
+	down := get(newMux(&fakeCatalog{detailErr: errors.New("dial tcp 192.0.2.10:8686: refused")}, &fakeCovers{}), "/api/album/"+id1)
+	if down.Code != http.StatusBadGateway || strings.Contains(down.Body.String(), "192.0.2.10") {
+		t.Errorf("upstream failure: status = %d body = %q", down.Code, down.Body)
+	}
+}
+
 func TestCover(t *testing.T) {
-	ok := get(newMux(&fakeSearch{}, fakeCovers{data: []byte("img"), ct: "image/jpeg"}), "/api/cover?p=/MediaCoverProxy/a/b.jpg")
+	fcv := &fakeCovers{data: []byte("img"), ct: "image/jpeg"}
+	ok := get(newMux(&fakeCatalog{}, fcv), "/api/cover/"+id1)
 	if ok.Code != http.StatusOK || ok.Body.String() != "img" || ok.Header().Get("Content-Type") != "image/jpeg" {
 		t.Errorf("ok case: %d %q %q", ok.Code, ok.Body, ok.Header().Get("Content-Type"))
 	}
-	if !strings.Contains(ok.Header().Get("Cache-Control"), "max-age") {
-		t.Errorf("Cache-Control = %q", ok.Header().Get("Cache-Control"))
+	if !strings.Contains(ok.Header().Get("Cache-Control"), "max-age") || fcv.lastSize != 250 || fcv.lastID != id1 {
+		t.Errorf("Cache-Control = %q, size = %d, id = %q", ok.Header().Get("Cache-Control"), fcv.lastSize, fcv.lastID)
 	}
 
-	bad := get(newMux(&fakeSearch{}, fakeCovers{err: lidarr.ErrInvalidCoverPath}), "/api/cover?p=/api/v1/album")
-	if bad.Code != http.StatusBadRequest {
-		t.Errorf("invalid path: status = %d, want 400", bad.Code)
+	get(newMux(&fakeCatalog{}, fcv), "/api/cover/"+id1+"?size=500")
+	if fcv.lastSize != 500 {
+		t.Errorf("size = %d, want 500", fcv.lastSize)
 	}
+}
 
-	down := get(newMux(&fakeSearch{}, fakeCovers{err: errors.New("connection refused")}), "/api/cover?p=/MediaCoverProxy/a")
+func TestCoverRefusals(t *testing.T) {
+	fcv := &fakeCovers{}
+	for _, size := range []string{"1200", "0", "-250", "abc", "250px", "250%20"} {
+		fcv.lastSize = -1
+		if rec := get(newMux(&fakeCatalog{}, fcv), "/api/cover/"+id1+"?size="+size); rec.Code != http.StatusBadRequest {
+			t.Errorf("size=%s: status = %d, want 400", size, rec.Code)
+		}
+		if fcv.lastSize != -1 {
+			t.Errorf("size=%s reached the fetcher", size)
+		}
+	}
+	if rec := get(newMux(&fakeCatalog{}, &fakeCovers{err: coverart.ErrInvalid}), "/api/cover/nope"); rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid id: status = %d, want 400", rec.Code)
+	}
+	none := get(newMux(&fakeCatalog{}, &fakeCovers{err: coverart.ErrNoCover}), "/api/cover/"+id1)
+	if none.Code != http.StatusNotFound || !strings.Contains(none.Header().Get("Cache-Control"), "max-age") {
+		t.Errorf("no cover: status = %d, Cache-Control = %q", none.Code, none.Header().Get("Cache-Control"))
+	}
+	down := get(newMux(&fakeCatalog{}, &fakeCovers{err: errors.New("connection refused")}), "/api/cover/"+id1)
 	if down.Code != http.StatusBadGateway || strings.Contains(down.Body.String(), "refused") {
 		t.Errorf("upstream failure: status = %d body = %q", down.Code, down.Body)
 	}
 }
 
 func TestOnlyGetIsAllowed(t *testing.T) {
-	mux := newMux(&fakeSearch{}, fakeCovers{})
-	for _, path := range []string{"/api/search?q=radiohead", "/api/cover?p=/MediaCoverProxy/a", "/healthz"} {
+	mux := newMux(&fakeCatalog{}, &fakeCovers{})
+	for _, path := range []string{"/api/search?q=radiohead", "/api/album/" + id1, "/api/cover/" + id1, "/healthz"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
 		if rec.Code != http.StatusMethodNotAllowed {
@@ -142,7 +220,7 @@ func TestOnlyGetIsAllowed(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	if rec := get(newMux(&fakeSearch{}, fakeCovers{}), "/healthz"); rec.Code != http.StatusOK {
+	if rec := get(newMux(&fakeCatalog{}, &fakeCovers{}), "/healthz"); rec.Code != http.StatusOK {
 		t.Errorf("status = %d", rec.Code)
 	}
 }

@@ -1,7 +1,7 @@
 // Package lidarr is a minimal, read-only client for the slice of Lidarr's v1
-// API albumreq needs: album lookup (MusicBrainz search through Lidarr), the
-// state of albums already in the library, the download queue, and the
-// cover-art proxy. Only GET requests are ever issued.
+// API albumreq needs: whether an album (by MusicBrainz release-group ID) is in
+// the library, the download queue, and a library album's tracks. Only GET
+// requests are ever issued.
 package lidarr
 
 import (
@@ -9,30 +9,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// coverPath matches the only paths Cover will fetch. Lidarr serves art for
-// albums it does not have yet through /MediaCoverProxy/<hash>, and art it has
-// already cached for library albums from /MediaCover/Albums/<id>/<file>, so
-// the browser never talks to third-party hosts.
-var coverPath = regexp.MustCompile(`^(/MediaCoverProxy/[A-Za-z0-9/._-]+|/MediaCover/Albums/[0-9]+/[A-Za-z0-9._-]+)$`)
-
 const (
-	maxCoverBytes = 5 << 20
 	queuePageSize = 200
 	maxQueuePages = 10
 )
-
-// ErrInvalidCoverPath is returned by Cover for any path that is not a plain
-// Lidarr cover-proxy path.
-var ErrInvalidCoverPath = errors.New("invalid cover path")
 
 // Client talks to one Lidarr instance.
 type Client struct {
@@ -50,42 +37,6 @@ func New(baseURL, apiKey string) *Client {
 	}
 }
 
-// LookupAlbum is one hit from album/lookup. ID is non-nil when the album is
-// already known to this Lidarr (in its library, monitored or not).
-type LookupAlbum struct {
-	ID             *int     `json:"id"`
-	Title          string   `json:"title"`
-	ForeignAlbumID string   `json:"foreignAlbumId"`
-	AlbumType      string   `json:"albumType"`
-	SecondaryTypes []string `json:"secondaryTypes"`
-	ReleaseDate    string   `json:"releaseDate"`
-	Images         []Image  `json:"images"`
-	Artist         struct {
-		Name      string `json:"artistName"`
-		ForeignID string `json:"foreignArtistId"`
-	} `json:"artist"`
-}
-
-// Image is one piece of artwork attached to a lookup result.
-type Image struct {
-	CoverType string `json:"coverType"`
-	URL       string `json:"url"`
-}
-
-// CoverPath returns the cover-art path for the album, or "" when it has none
-// (or the path is not one Cover would fetch). Lidarr appends a cache-busting
-// ?lastWrite=… to library covers; it is dropped here, and the frontend's own
-// caching headers take over.
-func (a LookupAlbum) CoverPath() string {
-	for _, img := range a.Images {
-		p, _, _ := strings.Cut(img.URL, "?")
-		if img.CoverType == "cover" && ValidCoverPath(p) {
-			return p
-		}
-	}
-	return ""
-}
-
 // AlbumState is the library state of one album in Lidarr.
 type AlbumState struct {
 	ID             int    `json:"id"`
@@ -94,35 +45,22 @@ type AlbumState struct {
 	Statistics     struct {
 		TrackFileCount  int     `json:"trackFileCount"`
 		TotalTrackCount int     `json:"totalTrackCount"`
+		SizeOnDisk      int64   `json:"sizeOnDisk"`
 		PercentOfTracks float64 `json:"percentOfTracks"`
 	} `json:"statistics"`
 }
 
-// Lookup searches MusicBrainz, through Lidarr, for albums matching term.
-func (c *Client) Lookup(ctx context.Context, term string) ([]LookupAlbum, error) {
-	var out []LookupAlbum
-	err := c.get(ctx, "/api/v1/album/lookup", url.Values{"term": {term}}, &out)
-	return out, err
-}
-
-// Albums returns the library state of the given Lidarr album IDs.
-func (c *Client) Albums(ctx context.Context, ids []int) (map[int]AlbumState, error) {
-	out := make(map[int]AlbumState, len(ids))
-	if len(ids) == 0 {
-		return out, nil
-	}
-	q := url.Values{}
-	for _, id := range ids {
-		q.Add("albumIds", strconv.Itoa(id))
-	}
+// AlbumByForeignID returns the library state of the album with the given
+// MusicBrainz release-group ID, or nil when Lidarr does not know it.
+func (c *Client) AlbumByForeignID(ctx context.Context, foreignID string) (*AlbumState, error) {
 	var states []AlbumState
-	if err := c.get(ctx, "/api/v1/album", q, &states); err != nil {
+	if err := c.get(ctx, "/api/v1/album", url.Values{"foreignAlbumId": {foreignID}}, &states); err != nil {
 		return nil, err
 	}
-	for _, s := range states {
-		out[s.ID] = s
+	if len(states) == 0 {
+		return nil, nil
 	}
-	return out, nil
+	return &states[0], nil
 }
 
 // QueuedAlbumIDs returns the IDs of every album with an item in Lidarr's
@@ -152,43 +90,21 @@ func (c *Client) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
 	return out, nil
 }
 
-// ValidCoverPath reports whether p is a plain Lidarr cover path (see
-// coverPath): a fixed prefix, then only path-safe characters. This is what
-// keeps Cover from being steered at any other URL on (or off) the Lidarr host.
-func ValidCoverPath(p string) bool {
-	return len(p) <= 300 && !strings.Contains(p, "..") && coverPath.MatchString(p)
+// LibraryTrack is one track of a library album, for the release Lidarr has
+// selected for it.
+type LibraryTrack struct {
+	Medium     int    `json:"mediumNumber"`
+	Number     string `json:"trackNumber"`
+	Title      string `json:"title"`
+	DurationMs int    `json:"duration"`
+	HasFile    bool   `json:"hasFile"`
 }
 
-// Cover fetches a cover image from Lidarr. Both cover routes are served
-// without credentials, so the API key is deliberately not sent.
-func (c *Client) Cover(ctx context.Context, path string) ([]byte, string, error) {
-	if !ValidCoverPath(path) {
-		return nil, "", ErrInvalidCoverPath
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("fetching cover: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("fetching cover: lidarr returned %s", resp.Status)
-	}
-	ct := resp.Header.Get("Content-Type")
-	if !strings.HasPrefix(ct, "image/") {
-		return nil, "", fmt.Errorf("fetching cover: unexpected content type %q", ct)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxCoverBytes+1))
-	if err != nil {
-		return nil, "", fmt.Errorf("reading cover: %w", err)
-	}
-	if len(data) > maxCoverBytes {
-		return nil, "", fmt.Errorf("cover larger than %d bytes", maxCoverBytes)
-	}
-	return data, ct, nil
+// Tracks returns the tracks of the library album with the given Lidarr ID.
+func (c *Client) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error) {
+	var out []LibraryTrack
+	err := c.get(ctx, "/api/v1/track", url.Values{"albumId": {strconv.Itoa(albumID)}}, &out)
+	return out, err
 }
 
 // get issues an authenticated GET and decodes the JSON response into out.

@@ -2,70 +2,81 @@ package lidarr
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 )
 
 const testKey = "s3cret-key"
 
-func TestLookupSendsKeyAndTerm(t *testing.T) {
+func TestAlbumByForeignIDSendsKeyAndID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/album/lookup" {
+		if r.URL.Path != "/api/v1/album" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		if got := r.Header.Get("X-Api-Key"); got != testKey {
 			t.Errorf("X-Api-Key = %q", got)
 		}
-		if got := r.URL.Query().Get("term"); got != "ok computer" {
-			t.Errorf("term = %q", got)
+		if got := r.URL.Query().Get("foreignAlbumId"); got != "abc-123" {
+			t.Errorf("foreignAlbumId = %q", got)
 		}
-		fmt.Fprint(w, `[{"id":7,"title":"OK Computer","foreignAlbumId":"abc","albumType":"Album","artist":{"artistName":"Radiohead","foreignArtistId":"xyz"}}]`)
+		fmt.Fprint(w, `[{"id":7,"monitored":true,"lastSearchTime":"2026-10-10T15:16:09Z",
+			"statistics":{"trackFileCount":12,"totalTrackCount":12,"sizeOnDisk":277095930,"percentOfTracks":100}}]`)
 	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL, testKey).Lookup(context.Background(), "ok computer")
-	if err != nil {
-		t.Fatal(err)
+	st, err := New(srv.URL, testKey).AlbumByForeignID(context.Background(), "abc-123")
+	if err != nil || st == nil {
+		t.Fatalf("got %v, %v", st, err)
 	}
-	if len(got) != 1 || got[0].Title != "OK Computer" || got[0].Artist.Name != "Radiohead" || got[0].ID == nil || *got[0].ID != 7 {
-		t.Errorf("unexpected result: %+v", got)
+	if st.ID != 7 || !st.Monitored || st.Statistics.SizeOnDisk != 277095930 || st.Statistics.PercentOfTracks != 100 {
+		t.Errorf("unexpected state: %+v", st)
 	}
 }
 
-func TestAlbumsRepeatsIDs(t *testing.T) {
+func TestAlbumByForeignIDUnknownAlbumIsNilNotAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `[]`) }))
+	defer srv.Close()
+	st, err := New(srv.URL, testKey).AlbumByForeignID(context.Background(), "missing")
+	if st != nil || err != nil {
+		t.Errorf("got %v, %v, want nil, nil", st, err)
+	}
+}
+
+func TestAlbumByForeignIDEncodesTheID(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query()["albumIds"]; len(got) != 2 || got[0] != "3" || got[1] != "9" {
-			t.Errorf("albumIds = %v", got)
+		if got := r.URL.Query().Get("foreignAlbumId"); got != "a&apikey=x#y" {
+			t.Errorf("foreignAlbumId = %q: the ID must stay one query value", got)
 		}
-		fmt.Fprint(w, `[{"id":3,"monitored":true,"statistics":{"trackFileCount":0}},{"id":9,"statistics":{"trackFileCount":12,"totalTrackCount":12,"percentOfTracks":100}}]`)
+		if r.URL.Query().Get("apikey") != "" {
+			t.Error("an ID must not be able to inject another parameter")
+		}
+		fmt.Fprint(w, `[]`)
 	}))
 	defer srv.Close()
-
-	got, err := New(srv.URL, testKey).Albums(context.Background(), []int{3, 9})
-	if err != nil {
+	if _, err := New(srv.URL, testKey).AlbumByForeignID(context.Background(), "a&apikey=x#y"); err != nil {
 		t.Fatal(err)
-	}
-	if !got[3].Monitored || got[9].Statistics.PercentOfTracks != 100 {
-		t.Errorf("unexpected states: %+v", got)
 	}
 }
 
-func TestAlbumsWithNoIDsMakesNoRequest(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
+func TestTracks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/track" || r.URL.Query().Get("albumId") != "1" {
+			t.Errorf("unexpected request %s", r.URL)
+		}
+		fmt.Fprint(w, `[{"mediumNumber":1,"trackNumber":"1","title":"Takedown","duration":181000,"hasFile":true},
+			{"mediumNumber":1,"trackNumber":"2","title":"Missing","duration":176000,"hasFile":false}]`)
+	}))
 	defer srv.Close()
 
-	got, err := New(srv.URL, testKey).Albums(context.Background(), nil)
-	if err != nil || len(got) != 0 {
+	got, err := New(srv.URL, testKey).Tracks(context.Background(), 1)
+	if err != nil || len(got) != 2 {
 		t.Fatalf("got %v, %v", got, err)
 	}
-	if calls.Load() != 0 {
-		t.Errorf("made %d requests, want 0", calls.Load())
+	if got[0].Title != "Takedown" || got[0].DurationMs != 181000 || !got[0].HasFile || got[1].HasFile {
+		t.Errorf("unexpected tracks: %+v", got)
 	}
 }
 
@@ -95,14 +106,25 @@ func TestQueuedAlbumIDsPaginates(t *testing.T) {
 	}
 }
 
+func TestEmptyQueue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"totalRecords":0,"records":[]}`)
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, testKey).QueuedAlbumIDs(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Errorf("got %v, %v", got, err)
+	}
+}
+
 func TestErrorsNeverContainTheAPIKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "boom "+r.Header.Get("X-Api-Key"), http.StatusInternalServerError)
 	}))
 	c := New(srv.URL, testKey)
-	_, statusErr := c.Lookup(context.Background(), "x")
+	_, statusErr := c.AlbumByForeignID(context.Background(), "x")
 	srv.Close()
-	_, connErr := c.Lookup(context.Background(), "x") // server is gone now
+	_, connErr := c.AlbumByForeignID(context.Background(), "x") // server is gone now
 
 	for name, err := range map[string]error{"status error": statusErr, "connection error": connErr} {
 		if err == nil {
@@ -115,123 +137,10 @@ func TestErrorsNeverContainTheAPIKey(t *testing.T) {
 	}
 }
 
-func TestValidCoverPath(t *testing.T) {
-	valid := []string{
-		"/MediaCoverProxy/2f4978c9de87043e/abc.jpg",
-		"/MediaCoverProxy/2f4978c9de87043eabfeb71bfbc5d27b87895eddd31",
-		"/MediaCover/Albums/1/cover.jpg",
-		"/MediaCover/Albums/42/cover-500.jpg",
-	}
-	invalid := map[string]string{
-		"empty":             "",
-		"other lidarr path": "/api/v1/album",
-		"traversal":         "/MediaCoverProxy/../api/v1/album",
-		"query":             "/MediaCoverProxy/a?x=1",
-		"fragment":          "/MediaCoverProxy/a#b",
-		"absolute url":      "http://evil.example/MediaCoverProxy/a",
-		"scheme-relative":   "//evil.example/MediaCoverProxy/a",
-		"encoded dots":      "/MediaCoverProxy/a%2e%2e/b",
-		"space":             "/MediaCoverProxy/a b",
-		"backslash":         `/MediaCoverProxy/a\b`,
-		"too long":          "/MediaCoverProxy/" + strings.Repeat("a", 300),
-		"prefix only case":  "/mediacoverproxy/abc",
-		// Library covers: only /MediaCover/Albums/<numeric id>/<file>.
-		"artist cover":           "/MediaCover/Artists/1/poster.jpg",
-		"non-numeric album id":   "/MediaCover/Albums/abc/cover.jpg",
-		"no file name":           "/MediaCover/Albums/1/",
-		"library traversal":      "/MediaCover/Albums/1/../../../api/v1/system/status",
-		"nested library path":    "/MediaCover/Albums/1/x/cover.jpg",
-		"library with cache key": "/MediaCover/Albums/1/cover.jpg?lastWrite=639272402010999060",
-	}
-	for _, p := range valid {
-		if !ValidCoverPath(p) {
-			t.Errorf("ValidCoverPath(%q) = false, want true", p)
-		}
-	}
-	for name, p := range invalid {
-		if ValidCoverPath(p) {
-			t.Errorf("%s: ValidCoverPath(%q) = true, want false", name, p)
-		}
-	}
-}
-
-func TestCoverFetchesWithoutAPIKey(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Api-Key") != "" {
-			t.Error("cover request must not carry the API key")
-		}
-		w.Header().Set("Content-Type", "image/jpeg")
-		w.Write([]byte("jpegbytes"))
-	}))
+func TestBadJSONIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `<html>`) }))
 	defer srv.Close()
-
-	data, ct, err := New(srv.URL, testKey).Cover(context.Background(), "/MediaCoverProxy/abc/cover.jpg")
-	if err != nil || string(data) != "jpegbytes" || ct != "image/jpeg" {
-		t.Fatalf("got %q, %q, %v", data, ct, err)
-	}
-}
-
-func TestCoverRejections(t *testing.T) {
-	var calls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		switch r.URL.Path {
-		case "/MediaCoverProxy/html":
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, "<html>")
-		case "/MediaCoverProxy/huge":
-			w.Header().Set("Content-Type", "image/png")
-			w.Write(make([]byte, maxCoverBytes+10))
-		case "/MediaCoverProxy/missing":
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-	c := New(srv.URL, testKey)
-
-	for name, p := range map[string]string{"non-image": "/MediaCoverProxy/html", "oversized": "/MediaCoverProxy/huge", "upstream 404": "/MediaCoverProxy/missing"} {
-		if _, _, err := c.Cover(context.Background(), p); err == nil {
-			t.Errorf("%s: expected an error", name)
-		}
-	}
-
-	before := calls.Load()
-	_, _, err := c.Cover(context.Background(), "/api/v1/album")
-	if !errors.Is(err, ErrInvalidCoverPath) {
-		t.Errorf("err = %v, want ErrInvalidCoverPath", err)
-	}
-	if calls.Load() != before {
-		t.Error("an invalid cover path must not reach Lidarr")
-	}
-}
-
-func TestLookupAlbumCoverPath(t *testing.T) {
-	a := LookupAlbum{Images: []Image{
-		{CoverType: "disc", URL: "/MediaCoverProxy/disc/1.jpg"},
-		{CoverType: "cover", URL: "https://evil.example/x.jpg"},
-		{CoverType: "cover", URL: "/MediaCoverProxy/good/2.jpg"},
-	}}
-	if got := a.CoverPath(); got != "/MediaCoverProxy/good/2.jpg" {
-		t.Errorf("CoverPath() = %q", got)
-	}
-	if got := (LookupAlbum{Images: []Image{{CoverType: "cover", URL: "https://evil.example/x.jpg"}}}).CoverPath(); got != "" {
-		t.Errorf("CoverPath() = %q, want empty for a non-proxy URL", got)
-	}
-}
-
-// Albums already in the library carry a local cover path with a cache-busting
-// query, not a proxy hash. Regression: these showed no cover art.
-func TestLookupAlbumCoverPathForLibraryAlbum(t *testing.T) {
-	a := LookupAlbum{Images: []Image{
-		{CoverType: "cover", URL: "/MediaCover/Albums/1/cover.jpg?lastWrite=639272402010999060"},
-		{CoverType: "disc", URL: "/MediaCover/Albums/1/disc.jpg"},
-	}}
-	if got := a.CoverPath(); got != "/MediaCover/Albums/1/cover.jpg" {
-		t.Errorf("CoverPath() = %q, want the path without its query", got)
-	}
-
-	hostile := LookupAlbum{Images: []Image{{CoverType: "cover", URL: "/MediaCover/Albums/1/../../../api/v1/system/status?x=1"}}}
-	if got := hostile.CoverPath(); got != "" {
-		t.Errorf("CoverPath() = %q, want empty for a traversal path", got)
+	if _, err := New(srv.URL, testKey).Tracks(context.Background(), 1); err == nil {
+		t.Error("an HTML response must not decode")
 	}
 }
