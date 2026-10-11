@@ -76,8 +76,8 @@ The pages for it:
 - **Approvals** (approvers and admins): the queue, oldest first, with a count in the
   nav. Approve, or decline with an optional reason. You can also decide from an
   album's sheet. Admins get a **History** tab with every request.
-- **Settings → Users** (admins): everyone who has signed in, with an Approver
-  checkbox that saves at once.
+- **Settings → Users** (admins): the second tab of Settings (the first is Lidarr).
+  Everyone who has signed in, with an Approver checkbox that saves at once.
 
 A page a role may not use is not in its nav, and opening its address sends the
 person to search; the server refuses the calls regardless.

@@ -24,7 +24,7 @@ function api(url, opts) {
 
 // The pages other than search have their own hash; search keeps the query string.
 const HASHES = { requests: '#/requests', approvals: '#/approvals', settings: '#/settings' };
-const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/settings': 'settings' };
+const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/settings': 'settings', '#/settings/users': 'settings' };
 
 function App() {
   // Kept out of the reactive scope: timers and the in-flight counters have no
@@ -57,6 +57,7 @@ function App() {
     // --- settings page ---
 
     page: 'search',
+    settingsTab: 'lidarr', // lidarr | users
     me: null, // GET /api/me: who is signed in and what they may do
 
     // requests: mine, the approval queue (and its history, for admins), and who acts
@@ -257,29 +258,32 @@ function App() {
       return Object.keys(this.changes()).length > 0;
     },
 
-    // The save bar only appears when it has something to say: unsaved changes, a
-    // save under way, a failure, or a moment's "Saved". An always-visible bar that
-    // says "No changes" is noise, and floats between the cards like a part of
-    // whatever is below it.
-    showBar() {
-      return this.saving || this.dirty() || this.saveState === 'failed' || this.saveState === 'saved';
+    // The save bar is Reaparr's: it appears only when it has something to say (a
+    // failure, a save under way, a moment's "saved", or unsaved changes) and is
+    // hidden otherwise. "Saved" wins for its few seconds even if the form is dirty
+    // again at once: after the connection is saved the only root folder is
+    // pre-filled, which is a change still to confirm, and showing "unsaved changes"
+    // straight away would read as if the save had not worked.
+    bar() {
+      if (this.saveState === 'failed') return { cls: 'failed', msg: this.saveError };
+      if (this.saving) return { cls: 'dirty', msg: 'Saving…' };
+      if (this.saveState === 'saved') return { cls: 'saved', msg: 'Settings saved' };
+      if (this.dirty()) return { cls: 'dirty', msg: 'You have unsaved changes' };
+      return { cls: '', msg: '' };
     },
 
-    // "Saved" wins for its few seconds even if the form is dirty again at once: after
-    // the connection is saved the only root folder is pre-filled, which is a change
-    // still to confirm, and showing "Unsaved changes" straight away would read as
-    // if the save had not worked.
-    barState() {
-      if (this.saving) return '';
-      if (this.saveState === 'failed' || this.saveState === 'saved') return this.saveState;
-      return this.dirty() ? 'dirty' : '';
+    // discard puts the form back to what the server has.
+    discard() {
+      if (!this.cfg) return;
+      this.applySettings(this.cfg);
+      this.saveState = '';
+      this.saveError = '';
     },
 
-    saveText() {
-      if (this.saving) return 'Saving…';
-      if (this.saveState === 'failed') return this.saveError;
-      if (this.saveState === 'saved') return 'Saved';
-      return this.dirty() ? 'Unsaved changes' : '';
+    goSettingsTab(tab) {
+      if (tab === this.settingsTab) return;
+      this.settingsTab = tab;
+      history.pushState(null, '', location.pathname + (tab === 'users' ? '#/settings/users' : '#/settings'));
     },
 
     async save() {
@@ -503,6 +507,7 @@ function App() {
 
     syncFromHash() {
       const page = PAGE_OF_HASH[location.hash];
+      if (page === 'settings') this.settingsTab = location.hash === '#/settings/users' ? 'users' : 'lidarr';
       if (page) {
         if (this.selected) {
           detailSeq++;

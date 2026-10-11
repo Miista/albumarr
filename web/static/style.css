@@ -282,11 +282,6 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .msg.bad { color: var(--red-text); }
 .conn-pill { flex: none; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--muted); }
 .conn-pill.on { color: var(--green); border-color: oklch(0.5 0.12 155 / .6); background: oklch(0.22 0.05 155 / .6); }
-.save-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border-2); background: oklch(0.17 0.012 270 / .9); }
-.save-text { font-size: 13px; color: var(--muted); }
-.save-bar.saved .save-text { color: var(--green); }
-.save-bar.failed .save-text { color: var(--red-text); }
-
 /* Who is signed in */
 .whoami { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .who-name { color: var(--text); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -339,5 +334,29 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .topnav a { white-space: nowrap; padding: 7px 10px; }
 }
 
-.section-title { margin: 12px 0 -8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
-.save-bar.dirty .save-text { color: var(--amber); }
+/* Settings sub-tabs and the save bar, after reaparr's. */
+.subtabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); margin-top: -8px; }
+.subtabs a { display: flex; align-items: center; gap: 8px; padding: 10px 2px; margin-bottom: -1px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.subtabs a:hover { color: var(--text); }
+.subtabs a.active { color: var(--text); font-weight: 600; border-bottom-color: oklch(0.6 0.2 290); }
+
+/* Sticky save bar: always the last thing in its container, which reserves room for it. */
+.save-bar {
+  position: sticky; bottom: 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 12px 12px 18px; border-radius: 14px; background: rgba(20,21,28,.88); backdrop-filter: blur(12px);
+  border: 1px solid var(--border-2); box-shadow: 0 20px 50px -10px rgba(0,0,0,.7);
+}
+.save-bar.dirty { border-color: oklch(0.55 0.12 80 / .5); }
+.save-bar .msg { flex: 1; min-width: 160px; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--bar-color, var(--faint)); }
+.save-bar .msg .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.save-bar.dirty .msg { --bar-color: var(--amber); }
+.save-bar.saved .msg { --bar-color: var(--green); }
+.save-bar.failed .msg { --bar-color: var(--red-text); }
+.btn.btn-ghost { background: none; border-color: transparent; color: var(--muted); }
+.btn.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border-2); background: none; }
+.with-bar { padding-bottom: 72px; }
+@media (max-width: 640px) {
+  .save-bar { bottom: calc(12px + env(safe-area-inset-bottom)); flex-wrap: nowrap; gap: 8px; padding: 10px 10px 10px 14px; }
+  .save-bar .msg { min-width: 0; font-size: 13px; }
+  .save-bar .btn { padding: 9px 14px; }
+}
