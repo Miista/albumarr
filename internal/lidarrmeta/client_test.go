@@ -235,3 +235,23 @@ func TestPickEdition(t *testing.T) {
 		t.Error("editions without any tracks must not yield a pick")
 	}
 }
+
+func TestPlaceholderDatesAndBracketedRegionsAreCleanedUp(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"`+rgID+`","title":"X","releasedate":"1997-05-21","Releases":[
+			{"Id":"unknown","Status":"Official","Country":["[Worldwide]"],"ReleaseDate":"0001-01-01","Media":[{"Format":"CD"}],"TrackCount":1,
+			 "Tracks":[{"TrackName":"a","TrackNumber":"1","TrackPosition":1,"MediumNumber":1}]},
+			{"Id":"dated","Status":"Official","Country":["United Kingdom"],"ReleaseDate":"2001-02-03","Media":[{"Format":"CD"}],"TrackCount":1,
+			 "Tracks":[{"TrackName":"a","TrackNumber":"1","TrackPosition":1,"MediumNumber":1}]}]}`)
+	})
+	a, err := c.Album(context.Background(), rgID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Editions[0].Date != "" || a.Editions[0].Country != "Worldwide" || a.Editions[1].Country != "United Kingdom" {
+		t.Errorf("placeholder date or bracketed region not cleaned: %+v", a.Editions)
+	}
+	if pick, _ := PickEdition(a.Editions); pick.ID != "dated" {
+		t.Errorf("an unknown date must not win as the earliest edition, picked %q", pick.ID)
+	}
+}

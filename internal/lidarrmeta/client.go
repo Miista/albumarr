@@ -257,9 +257,9 @@ func parse(body []byte) (Album, error) {
 		a.Artist, a.ArtistID = w.Artists[0].Name, w.Artists[0].ID
 	}
 	for _, r := range w.Releases {
-		e := Edition{ID: r.ID, Title: r.Title, Date: r.ReleaseDate, TrackCount: r.TrackCount}
+		e := Edition{ID: r.ID, Title: r.Title, Date: knownDate(r.ReleaseDate), TrackCount: r.TrackCount}
 		if len(r.Country) > 0 {
-			e.Country = r.Country[0]
+			e.Country = strings.Trim(r.Country[0], "[]") // MusicBrainz writes its special regions as "[Worldwide]"
 		}
 		if len(r.Label) > 0 {
 			e.Label = r.Label[0]
@@ -332,6 +332,15 @@ func formatRank(format string) int {
 		return 0
 	}
 	return 1
+}
+
+// knownDate drops the service's placeholder for an unknown date ("0001-01-01"),
+// which would otherwise sort as the earliest edition of all.
+func knownDate(d string) string {
+	if strings.HasPrefix(d, "0001") {
+		return ""
+	}
+	return d
 }
 
 func nonNil(s []string) []string {
