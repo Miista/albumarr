@@ -23,6 +23,10 @@ function App() {
     shownQuery: '',
     albums: [],
     libraryOk: true,
+    hasMore: false,
+    nextOffset: 0,
+    loadingMore: false,
+    moreError: '',
     loading: false,
     searched: false,
     error: '',
@@ -55,8 +59,12 @@ function App() {
       const q = this.query.trim();
       const mine = ++seq;
 
+      this.loadingMore = false;
+      this.moreError = '';
+
       if (q.length < MIN_QUERY) {
         this.albums = [];
+        this.hasMore = false;
         this.searched = false;
         this.loading = false;
         this.error = '';
@@ -74,15 +82,44 @@ function App() {
         if (mine !== seq) return; // a newer search has superseded this one
         this.albums = data.albums;
         this.libraryOk = data.libraryOk;
+        this.hasMore = data.hasMore;
+        this.nextOffset = data.offset + data.albums.length;
         this.shownQuery = data.query;
         this.searched = true;
       } catch (e) {
         if (mine !== seq) return;
         this.albums = [];
+        this.hasMore = false;
         this.searched = false;
         this.error = e.message;
       } finally {
         if (mine === seq) this.loading = false;
+      }
+    },
+
+    // loadMore appends the next page of the search that is on screen. A new
+    // search in the meantime wins: its sequence number differs, so this
+    // page's answer is dropped.
+    async loadMore() {
+      if (this.loadingMore || !this.hasMore) return;
+      const mine = seq;
+      this.loadingMore = true;
+      this.moreError = '';
+      try {
+        const res = await fetch('/api/search?q=' + encodeURIComponent(this.shownQuery) + '&offset=' + this.nextOffset);
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        const data = await res.json();
+        if (mine !== seq) return;
+        // MusicBrainz can shift between pages; never show an album twice.
+        const seen = new Set(this.albums.map((a) => a.id));
+        this.albums = this.albums.concat(data.albums.filter((a) => !seen.has(a.id)));
+        this.libraryOk = this.libraryOk && data.libraryOk;
+        this.hasMore = data.hasMore;
+        this.nextOffset = data.offset + data.albums.length;
+      } catch (e) {
+        if (mine === seq) this.moreError = e.message;
+      } finally {
+        if (mine === seq) this.loadingMore = false;
       }
     },
 

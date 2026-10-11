@@ -88,6 +88,15 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
 .search-clear:hover { background: oklch(0.55 0.2 290); color: #fff; }
 
 .error-text { margin: 0; color: var(--red-text); font-size: 14px; }
+.more { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; border-radius: 10px;
+  border: 1px solid var(--border-2); background: #1a1c25; color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.btn:hover:not(:disabled) { border-color: oklch(0.6 0.18 290); background: oklch(0.25 0.06 290 / .5); }
+.btn:focus-visible { outline: 2px solid oklch(0.65 0.2 290); outline-offset: 2px; }
+.btn:disabled { cursor: default; opacity: .6; }
 .note-text { margin: 0; color: var(--muted-2); font-size: 13px; }
 .faint { color: var(--faint); }
 .searching.left { justify-content: flex-start; }

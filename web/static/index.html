@@ -66,6 +66,13 @@
       <span class="title">{{ searched ? 'Nothing found' : 'Search for an album' }}</span>
       <span class="sub">{{ searched ? 'No albums found for “' + shownQuery + '”. Try the artist and title together.' : 'See at a glance whether it is already in your library.' }}</span>
     </div>
+
+    <div class="more" v-if="albums.length && (hasMore || moreError)">
+      <p class="error-text" v-if="moreError" role="alert">{{ moreError }}</p>
+      <button type="button" class="btn" @click="loadMore" :disabled="loadingMore">
+        <span class="spinner" v-if="loadingMore"></span>{{ loadingMore ? 'Loading…' : (moreError ? 'Try again' : 'Show more') }}
+      </button>
+    </div>
   </main>
 
   <!-- Album sheet -->
