@@ -142,9 +142,6 @@ one still gives the album its own artist, because Lidarr works the artist out fr
 album and only insists that an ID is present. The artist ID is kept with the request,
 so an approval, which has only the record, sends the same one.
 
-There is **no request tracking yet**: nothing records who asked, when, or what
-was decided. The only state is Lidarr's own.
-
 ## Where the data comes from
 
 Three sources, each doing what it is best at (Lidarr's hosted service supplies
