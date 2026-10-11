@@ -40,6 +40,7 @@ import (
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/settings"
 	"github.com/Miista/albumreq/internal/store"
 	"github.com/Miista/albumreq/internal/users"
@@ -146,13 +147,24 @@ func main() {
 		service.Reload(ctx)
 	}()
 	mux := http.NewServeMux()
-	api.New(cat, coverart.New(coverURL), service, auth.New(roles, known, logger), known, logger).Routes(mux)
+	flow := requests.NewService(requests.NewStore(database), cat)
+	api.New(cat, coverart.New(coverURL), service, auth.New(roles, known, logger), known, flow, logger).Routes(mux)
 
 	static, err := fs.Sub(staticFiles, "web/static")
 	if err != nil {
 		logger.Fatal().Err(err).Msg("embedded frontend assets missing")
 	}
 	mux.Handle("/", noCache(http.FileServer(http.FS(static))))
+	if gate == nil {
+		// The page loads oidcgate's /auth/client.js to learn whether a login is in
+		// place (it sets an attribute that shows the Sign out link). With no gate
+		// there is no such route, and a missing script is a console error. An empty
+		// script says the same thing, quietly: the attribute is never set.
+		mux.HandleFunc("GET /auth/client.js", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+		})
+	}
 
 	httpServer := &http.Server{
 		Addr:              addr,

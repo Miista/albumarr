@@ -13,9 +13,11 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/lidarr"
+	"github.com/Miista/albumreq/internal/requests"
 )
 
 const id1 = "b1392450-e666-3926-a536-22c65f834433"
@@ -29,22 +31,12 @@ type fakeCatalog struct {
 	detailCalls  int
 	lastDetailID string
 	lastOffset   int
-	requestRes   catalog.RequestResult
-	requestErr   error
-	requestCalls int
-	lastRequest  string
 }
 
 func (f *fakeCatalog) Search(_ context.Context, _ string, offset int) (catalog.SearchResult, error) {
 	f.searchCalls++
 	f.lastOffset = offset
 	return f.res, f.searchErr
-}
-
-func (f *fakeCatalog) Request(_ context.Context, id string) (catalog.RequestResult, error) {
-	f.requestCalls++
-	f.lastRequest = id
-	return f.requestRes, f.requestErr
 }
 
 func (f *fakeCatalog) Detail(_ context.Context, id string) (catalog.Detail, error) {
@@ -68,7 +60,7 @@ func (f *fakeCovers) Front(_ context.Context, id string, size int) ([]byte, stri
 
 func newMux(c Catalog, cv CoverFetcher) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(c, cv, &fakeSettings{}, adminAuth(), &fakeUsers{}, zerolog.Nop()).Routes(mux)
+	New(c, cv, &fakeSettings{}, adminAuth(), &fakeUsers{}, &fakeRequests{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 
@@ -294,27 +286,37 @@ func post(mux http.Handler, target string, headers map[string]string) *httptest.
 
 var sameOrigin = map[string]string{"X-Albumreq": "1"}
 
-func TestRequestAddedButNotSearchedIsStillCreated(t *testing.T) {
-	fc := &fakeCatalog{requestRes: catalog.RequestAddedUnsearched}
-	rec := post(newMux(fc, &fakeCovers{}), "/api/album/"+id1+"/request", map[string]string{"X-Albumreq": "1"})
-	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"result":"added_unsearched"`) {
-		t.Errorf("the album is in Lidarr, so this is a 201 the page can explain: %d %s", rec.Code, rec.Body)
+// muxWith serves the API over a fake approval flow, as the given person.
+func muxWith(rq *fakeRequests, a Authenticator) *http.ServeMux {
+	mux := http.NewServeMux()
+	New(&fakeCatalog{}, &fakeCovers{}, &fakeSettings{}, a, &fakeUsers{}, rq, zerolog.Nop()).Routes(mux)
+	return mux
+}
+
+func TestRequestResultsMapToStatuses(t *testing.T) {
+	for result, want := range map[string]int{
+		"added":            http.StatusCreated,
+		"added_unsearched": http.StatusCreated, // in Lidarr and monitored; only the search failed
+		"exists":           http.StatusOK,
+		"pending":          http.StatusAccepted,
+	} {
+		rq := &fakeRequests{out: requests.Outcome{Result: result}}
+		rec := post(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", sameOrigin)
+		if rec.Code != want || !strings.Contains(rec.Body.String(), `"result":"`+result+`"`) || rq.submitted != id1 {
+			t.Errorf("%s: %d %s id=%q", result, rec.Code, rec.Body, rq.submitted)
+		}
 	}
 }
 
-func TestRequestAddedAndExisting(t *testing.T) {
-	fc := &fakeCatalog{requestRes: catalog.RequestAdded}
-	mux := newMux(fc, &fakeCovers{})
-
-	rec := post(mux, "/api/album/"+id1+"/request", sameOrigin)
-	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"result":"added"`) || fc.lastRequest != id1 {
-		t.Errorf("added: status = %d body = %s id = %q", rec.Code, rec.Body, fc.lastRequest)
+func TestRequestAnswerCarriesTheRecordWhenThereIsOne(t *testing.T) {
+	rq := &fakeRequests{out: requests.Outcome{Result: "pending", Record: requests.Record{ID: 7, AlbumID: id1, Title: "OK Computer", State: requests.Pending}}}
+	rec := post(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request", sameOrigin)
+	if !strings.Contains(rec.Body.String(), `"request":{"id":7`) {
+		t.Errorf("%s", rec.Body)
 	}
-
-	fc.requestRes = catalog.RequestExists
-	rec = post(mux, "/api/album/"+id1+"/request", sameOrigin)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"result":"exists"`) {
-		t.Errorf("exists: status = %d body = %s", rec.Code, rec.Body)
+	rq = &fakeRequests{out: requests.Outcome{Result: "exists"}}
+	if rec := post(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request", sameOrigin); strings.Contains(rec.Body.String(), `"request"`) {
+		t.Errorf("no record, so no request field: %s", rec.Body)
 	}
 }
 
@@ -328,19 +330,16 @@ func TestRequestIsRefusedWithoutProofItCameFromThisPage(t *testing.T) {
 		"the header but same-site":  {"X-Albumreq": "1", "Sec-Fetch-Site": "same-site"},
 		"the header, an odd site":   {"X-Albumreq": "1", "Sec-Fetch-Site": "whatever"},
 	} {
-		fc := &fakeCatalog{requestRes: catalog.RequestAdded}
-		rec := post(newMux(fc, &fakeCovers{}), "/api/album/"+id1+"/request", headers)
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("%s: status = %d, want 403", name, rec.Code)
-		}
-		if fc.requestCalls != 0 {
-			t.Errorf("%s: the catalog was asked to write", name)
+		rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
+		rec := post(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", headers)
+		if rec.Code != http.StatusForbidden || rq.calls != 0 {
+			t.Errorf("%s: status = %d, calls = %d, want 403 and no call", name, rec.Code, rq.calls)
 		}
 	}
 	// ...and what a real same-origin fetch looks like is accepted.
 	for _, site := range []string{"same-origin", "none", ""} {
-		fc := &fakeCatalog{requestRes: catalog.RequestAdded}
-		rec := post(newMux(fc, &fakeCovers{}), "/api/album/"+id1+"/request", map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": site})
+		rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
+		rec := post(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": site})
 		if rec.Code != http.StatusCreated {
 			t.Errorf("Sec-Fetch-Site=%q: status = %d, want 201", site, rec.Code)
 		}
@@ -356,17 +355,19 @@ func TestRequestErrorMapping(t *testing.T) {
 	}{
 		{"invalid id", catalog.ErrInvalidID, http.StatusBadRequest},
 		{"requests off", catalog.ErrRequestsDisabled, http.StatusForbidden},
+		{"not allowed", requests.ErrForbidden, http.StatusForbidden},
 		{"not in metadata", catalog.ErrNotInMetadata, http.StatusUnprocessableEntity},
 		{"unavailable", fmt.Errorf("%w: dial tcp 192.0.2.10:8686: refused", catalog.ErrUnavailable), http.StatusServiceUnavailable},
 		{"rejected by Lidarr", rejected, http.StatusBadGateway},
 		{"something else", errors.New("lidarr /api/v1/album returned 401 Unauthorized"), http.StatusBadGateway},
+		{"a database error", errors.New("database is locked: /app/data/albumreq.db"), http.StatusBadGateway},
 	}
 	for _, c := range cases {
-		rec := post(newMux(&fakeCatalog{requestErr: c.err}, &fakeCovers{}), "/api/album/"+id1+"/request", sameOrigin)
+		rec := post(muxWith(&fakeRequests{err: c.err}, adminAuth()), "/api/album/"+id1+"/request", sameOrigin)
 		if rec.Code != c.want {
 			t.Errorf("%s: status = %d, want %d", c.name, rec.Code, c.want)
 		}
-		for _, leaked := range []string{"/secret/place", "192.0.2.10", "401 Unauthorized", "dial tcp"} {
+		for _, leaked := range []string{"/secret/place", "192.0.2.10", "401 Unauthorized", "dial tcp", "albumreq.db"} {
 			if strings.Contains(rec.Body.String(), leaked) {
 				t.Errorf("%s: %q leaked to the client: %s", c.name, leaked, rec.Body)
 			}
@@ -375,8 +376,8 @@ func TestRequestErrorMapping(t *testing.T) {
 }
 
 func TestRequestOnlyAcceptsPost(t *testing.T) {
-	fc := &fakeCatalog{requestRes: catalog.RequestAdded}
-	mux := newMux(fc, &fakeCovers{})
+	rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
+	mux := muxWith(rq, adminAuth())
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/album/"+id1+"/request", nil)
 		req.Header.Set("X-Albumreq", "1")
@@ -386,8 +387,8 @@ func TestRequestOnlyAcceptsPost(t *testing.T) {
 			t.Errorf("%s: status = %d, want 405", method, rec.Code)
 		}
 	}
-	if fc.requestCalls != 0 {
-		t.Error("a non-POST reached the catalog")
+	if rq.calls != 0 {
+		t.Error("a non-POST reached the flow")
 	}
 }
 

@@ -36,7 +36,7 @@ func (f *fakeSettings) Test(_ context.Context, url, key string) (settings.TestRe
 
 func settingsMux(f *fakeSettings) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(&fakeCatalog{}, &fakeCovers{}, f, adminAuth(), &fakeUsers{}, zerolog.Nop()).Routes(mux)
+	New(&fakeCatalog{}, &fakeCovers{}, f, adminAuth(), &fakeUsers{}, &fakeRequests{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 

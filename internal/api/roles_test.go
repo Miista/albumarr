@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
+	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/users"
 )
 
@@ -49,6 +50,53 @@ func (f *fakeUsers) SetApprover(sub string, a bool) error {
 	return nil
 }
 
+// fakeRequests stands in for the approval flow and records what it was asked.
+type fakeRequests struct {
+	out     requests.Outcome
+	err     error
+	calls   int // writes: submit, approve, decline
+	by      auth.Principal
+	listErr error
+
+	submitted string
+	approved  int64
+	declined  int64
+	reason    string
+
+	list      []requests.Record
+	listScope requests.Scope
+	listCalls int
+
+	pending      map[string]requests.Record
+	pendingErr   error
+	pendingCalls int
+}
+
+func (f *fakeRequests) Submit(_ context.Context, p auth.Principal, id string) (requests.Outcome, error) {
+	f.calls++
+	f.by, f.submitted = p, id
+	return f.out, f.err
+}
+func (f *fakeRequests) Approve(_ context.Context, p auth.Principal, id int64) (requests.Outcome, error) {
+	f.calls++
+	f.by, f.approved = p, id
+	return f.out, f.err
+}
+func (f *fakeRequests) Decline(_ context.Context, p auth.Principal, id int64, reason string) (requests.Outcome, error) {
+	f.calls++
+	f.by, f.declined, f.reason = p, id, reason
+	return f.out, f.err
+}
+func (f *fakeRequests) List(p auth.Principal, scope requests.Scope) ([]requests.Record, error) {
+	f.listCalls++
+	f.by, f.listScope = p, scope
+	return f.list, f.listErr
+}
+func (f *fakeRequests) Pending(ids []string) (map[string]requests.Record, error) {
+	f.pendingCalls++
+	return f.pending, f.pendingErr
+}
+
 // routes is every endpoint and the lowest role that may use it.
 var routes = []struct {
 	method, path, body string
@@ -57,7 +105,10 @@ var routes = []struct {
 	{"GET", "/api/search?q=radiohead", "", auth.User},
 	{"GET", "/api/album/" + id1, "", auth.User},
 	{"GET", "/api/cover/" + id1, "", auth.User},
-	{"POST", "/api/album/" + id1 + "/request", "", auth.Approver},
+	{"POST", "/api/album/" + id1 + "/request", "", auth.User},
+	{"GET", "/api/requests", "", auth.User},
+	{"POST", "/api/requests/1/approve", "", auth.Approver},
+	{"POST", "/api/requests/1/decline", `{"reason":"no"}`, auth.Approver},
 	{"GET", "/api/settings", "", auth.Admin},
 	{"POST", "/api/settings", `{"lidarr":{"url":"http://x:1"}}`, auth.Admin},
 	{"POST", "/api/settings/test", `{"url":"http://x:1","api_key":"k"}`, auth.Admin},
@@ -71,18 +122,20 @@ type rig struct {
 	covers   *fakeCovers
 	settings *fakeSettings
 	users    *fakeUsers
+	requests *fakeRequests
 }
 
 func newRig(a Authenticator) *rig {
-	r := &rig{cat: &fakeCatalog{requestRes: catalog.RequestAdded}, covers: &fakeCovers{data: []byte("img"), ct: "image/png"}, settings: &fakeSettings{}, users: &fakeUsers{}}
+	r := &rig{cat: &fakeCatalog{}, covers: &fakeCovers{data: []byte("img"), ct: "image/png"}, settings: &fakeSettings{}, users: &fakeUsers{},
+		requests: &fakeRequests{out: requests.Outcome{Result: "added"}}}
 	r.mux = http.NewServeMux()
-	New(r.cat, r.covers, r.settings, a, r.users, zerolog.Nop()).Routes(r.mux)
+	New(r.cat, r.covers, r.settings, a, r.users, r.requests, zerolog.Nop()).Routes(r.mux)
 	return r
 }
 
 // touched reports whether anything behind the handlers was reached.
 func (r *rig) touched() bool {
-	return r.cat.searchCalls+r.cat.detailCalls != 0 || r.cat.lastRequest != "" || r.covers.lastID != "" ||
+	return r.cat.searchCalls+r.cat.detailCalls != 0 || r.requests.calls+r.requests.listCalls != 0 || r.covers.lastID != "" ||
 		len(r.settings.patches)+len(r.settings.testCalls)+r.settings.reads != 0 || r.users.calls+r.users.reads != 0
 }
 

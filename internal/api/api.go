@@ -21,6 +21,7 @@ import (
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/lidarr"
+	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/settings"
 	"github.com/Miista/albumreq/internal/users"
 )
@@ -34,7 +35,15 @@ const (
 type Catalog interface {
 	Search(ctx context.Context, term string, offset int) (catalog.SearchResult, error)
 	Detail(ctx context.Context, id string) (catalog.Detail, error)
-	Request(ctx context.Context, id string) (catalog.RequestResult, error)
+}
+
+// Requests is the approval flow: asking, deciding, listing, and what is waiting.
+type Requests interface {
+	Submit(ctx context.Context, p auth.Principal, albumID string) (requests.Outcome, error)
+	Approve(ctx context.Context, by auth.Principal, id int64) (requests.Outcome, error)
+	Decline(ctx context.Context, by auth.Principal, id int64, reason string) (requests.Outcome, error)
+	List(p auth.Principal, scope requests.Scope) ([]requests.Record, error)
+	Pending(albumIDs []string) (map[string]requests.Record, error)
 }
 
 // CoverFetcher fetches an album's front cover at 250 or 500 pixels.
@@ -67,12 +76,13 @@ type Server struct {
 	settings Settings
 	auth     Authenticator
 	users    Users
+	requests Requests
 	log      zerolog.Logger
 }
 
 // New returns a Server.
-func New(c Catalog, covers CoverFetcher, st Settings, a Authenticator, u Users, log zerolog.Logger) *Server {
-	return &Server{catalog: c, covers: covers, settings: st, auth: a, users: u, log: log}
+func New(c Catalog, covers CoverFetcher, st Settings, a Authenticator, u Users, rq Requests, log zerolog.Logger) *Server {
+	return &Server{catalog: c, covers: covers, settings: st, auth: a, users: u, requests: rq, log: log}
 }
 
 type principalKey struct{}
@@ -109,10 +119,14 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("GET /api/search", s.guard(auth.User, s.handleSearch))
 	mux.HandleFunc("GET /api/album/{id}", s.guard(auth.User, s.handleAlbum))
-	// Approver for now: a request goes straight to Lidarr, which spends indexer
-	// queries and starts a download. A plain user's request will wait for approval
-	// once requests are recorded; until then it is not theirs to make.
-	mux.HandleFunc("POST /api/album/{id}/request", s.guard(auth.Approver, s.handleRequest))
+	// Any user may ask. What happens next depends on who: a user's request waits
+	// for an approver, an approver's or admin's goes straight to Lidarr (which
+	// spends indexer queries and starts a download). The service decides, not this
+	// route, so the rule is in one place and tested there.
+	mux.HandleFunc("POST /api/album/{id}/request", s.guard(auth.User, s.handleRequest))
+	mux.HandleFunc("GET /api/requests", s.guard(auth.User, s.handleListRequests))
+	mux.HandleFunc("POST /api/requests/{id}/approve", s.guard(auth.Approver, s.handleApprove))
+	mux.HandleFunc("POST /api/requests/{id}/decline", s.guard(auth.Approver, s.handleDecline))
 	mux.HandleFunc("GET /api/cover/{id}", s.guard(auth.User, s.handleCover))
 	mux.HandleFunc("GET /api/settings", s.guard(auth.Admin, s.handleSettings))
 	mux.HandleFunc("POST /api/settings", s.guard(auth.Admin, s.handleSaveSettings))
@@ -171,7 +185,35 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.markPending(res.Albums)
 	writeJSON(w, map[string]any{"query": q, "offset": offset, "albums": res.Albums, "libraryOk": res.LibraryOK, "hasMore": res.HasMore})
+}
+
+// markPending shows a waiting request on the albums that have one. Lidarr's own
+// state wins: an album it already knows keeps its chip. A failure to read the
+// records only costs the chip; it must not break a search.
+func (s *Server) markPending(albums []catalog.Album) {
+	ids := make([]string, len(albums))
+	for i, a := range albums {
+		ids[i] = a.ID
+	}
+	pending, err := s.requests.Pending(ids)
+	if err != nil {
+		s.log.Warn().Err(err).Msg("could not read pending requests for the search results")
+		return
+	}
+	for i := range albums {
+		if _, ok := pending[albums[i].ID]; ok && albums[i].Status == "" {
+			albums[i].Status = catalog.StatusPending
+		}
+	}
+}
+
+// albumDetail is the album sheet: the catalog's detail, and for approvers the
+// request that is waiting, so they can decide from the sheet.
+type albumDetail struct {
+	catalog.Detail
+	PendingRequest *requests.Record `json:"pendingRequest,omitempty"`
 }
 
 func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +227,19 @@ func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Album details are unavailable", http.StatusBadGateway)
 		return
 	}
-	writeJSON(w, d)
+	out := albumDetail{Detail: d}
+	if id := r.PathValue("id"); d.Status == "" {
+		pending, err := s.requests.Pending([]string{id})
+		if err != nil {
+			s.log.Warn().Err(err).Msg("could not read the pending request for an album")
+		} else if rec, ok := pending[id]; ok {
+			out.Status, out.CanRequest = catalog.StatusPending, false
+			if p, _ := s.auth.Principal(r); p.Role.AtLeast(auth.Approver) {
+				out.PendingRequest = &rec
+			}
+		}
+	}
+	writeJSON(w, out)
 }
 
 // writeGuard refuses a write that a browser sent on behalf of another site.
@@ -210,44 +264,141 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	if !writeGuard(w, r) {
 		return
 	}
-	id := r.PathValue("id")
-	s.log.Info().Str("by", who(r).Sub).Msg(fmt.Sprintf("%s requests album %s", who(r).Name, id))
-	result, err := s.catalog.Request(r.Context(), id)
+	id, p := r.PathValue("id"), who(r)
+	out, err := s.requests.Submit(r.Context(), p, id)
+	if err != nil {
+		s.requestFailed(w, r, err, "request for album "+id)
+		return
+	}
+	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s requested album %s: %s", p.Name, id, out.Result))
+	// Pending is 202: accepted, not yet done. Exists changed nothing. Anything else
+	// is what Lidarr did on an approval, a 201 as before.
+	status := http.StatusCreated
+	switch out.Result {
+	case string(requests.ResultPending):
+		status = http.StatusAccepted
+	case string(requests.ResultExists):
+		status = http.StatusOK
+	}
+	writeOutcome(w, status, out)
+}
 
+// writeOutcome answers with what happened and, when there is one, the record.
+func writeOutcome(w http.ResponseWriter, status int, out requests.Outcome) {
+	body := map[string]any{"result": out.Result}
+	if out.Record.ID != 0 {
+		body["request"] = out.Record
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// requestFailed answers a failed request, approval or decline. Messages are
+// fixed and say what a person can act on; Lidarr's own words (a bad root folder,
+// a missing profile) and addresses stay in the log, where they belong.
+func (s *Server) requestFailed(w http.ResponseWriter, r *http.Request, err error, what string) {
 	var rejected *lidarr.RejectedError
 	switch {
-	case err == nil:
-		s.log.Info().Msg(fmt.Sprintf("request for album %s: %s", id, result))
-		status := http.StatusOK
-		if result != catalog.RequestExists {
-			status = http.StatusCreated
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"result": result})
 	case errors.Is(err, catalog.ErrInvalidID):
 		http.Error(w, "invalid album id", http.StatusBadRequest)
+	case errors.Is(err, requests.ErrForbidden):
+		http.Error(w, "You do not have access to this", http.StatusForbidden)
+	case errors.Is(err, requests.ErrNotFound):
+		http.Error(w, "No such request", http.StatusNotFound)
+	case errors.Is(err, requests.ErrNotPending):
+		http.Error(w, "That request has already been decided", http.StatusConflict)
 	case errors.Is(err, catalog.ErrRequestsDisabled):
 		http.Error(w, "Requests are not enabled", http.StatusForbidden)
 	case errors.Is(err, catalog.ErrNotInMetadata):
 		http.Error(w, "Lidarr's metadata does not have this album yet", http.StatusUnprocessableEntity)
 	case errors.Is(err, catalog.ErrUnavailable):
-		s.log.Warn().Err(err).Msg(fmt.Sprintf("request for album %s failed: a service is unavailable", id))
+		s.log.Warn().Err(err).Msg(what + " failed: a service is unavailable")
 		http.Error(w, "Lidarr or its metadata service is unavailable, try again later", http.StatusServiceUnavailable)
 	case errors.As(err, &rejected):
-		// Lidarr's own words (a bad root folder, a missing profile) stay in the
-		// log: they describe albumreq's settings, not something a visitor can fix.
-		s.log.Error().Msg(fmt.Sprintf("request for album %s: %s", id, rejected))
+		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, rejected))
 		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
 	default:
 		if r.Context().Err() == nil {
-			s.log.Error().Err(err).Msg(fmt.Sprintf("request for album %s failed", id))
+			s.log.Error().Err(err).Msg(what + " failed")
 		}
-		http.Error(w, "Could not add the album", http.StatusBadGateway)
+		http.Error(w, "Could not complete the request", http.StatusBadGateway)
 	}
 }
 
-// maxSettingsBody bounds a settings request: five short fields.
+func (s *Server) handleListRequests(w http.ResponseWriter, r *http.Request) {
+	scope := requests.Scope(r.URL.Query().Get("scope"))
+	if scope == "" {
+		scope = requests.ScopeMine
+	}
+	switch scope {
+	case requests.ScopeMine, requests.ScopePending, requests.ScopeAll:
+	default:
+		http.Error(w, "scope must be mine, pending or all", http.StatusBadRequest)
+		return
+	}
+	list, err := s.requests.List(who(r), scope)
+	if err != nil {
+		s.requestFailed(w, r, err, "listing requests")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]any{"scope": scope, "requests": list})
+}
+
+// requestID reads the numeric ID in the path; a record's ID is a positive integer.
+func requestID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id < 1 {
+		http.Error(w, "invalid request id", http.StatusBadRequest)
+		return 0, false
+	}
+	return id, true
+}
+
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	id, ok := requestID(w, r)
+	if !ok {
+		return
+	}
+	p := who(r)
+	out, err := s.requests.Approve(r.Context(), p, id)
+	if err != nil {
+		s.requestFailed(w, r, err, fmt.Sprintf("approving request %d", id))
+		return
+	}
+	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s approved request %d (%s): %s", p.Name, id, out.Record.AlbumID, out.Result))
+	writeOutcome(w, http.StatusOK, out)
+}
+
+func (s *Server) handleDecline(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	id, ok := requestID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	p := who(r)
+	out, err := s.requests.Decline(r.Context(), p, id, body.Reason)
+	if err != nil {
+		s.requestFailed(w, r, err, fmt.Sprintf("declining request %d", id))
+		return
+	}
+	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s declined request %d (%s)", p.Name, id, out.Record.AlbumID))
+	writeOutcome(w, http.StatusOK, out)
+}
+
+// maxSettingsBody bounds a small JSON write: a few short fields.
 const maxSettingsBody = 8 << 10
 
 // decodeBody reads a small JSON body, refusing unknown fields and trailing data.
