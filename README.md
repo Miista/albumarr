@@ -79,17 +79,60 @@ release-group ID.
 | **Lidarr's image CDN** (`images.lidarr.audio`) | Covers, a cache in front of the Cover Art Archive | More dependable than archive.org's storage nodes. Covers are re-served by albumreq and cached in memory, so the browser never talks to anyone else. |
 | **Your Lidarr** | Library status, download queue, the tracks of albums you own | It is where your library lives. If it is unreachable the page still works, just without chips. |
 
+## Settings
+
+Lidarr is configured on the **Settings** page, not in the environment: its URL,
+API key, and the three requesting settings (root folder, quality profile,
+metadata profile). Saving takes effect at once, with no restart. The page checks
+what it can before saving:
+
+- A key Lidarr rejects is refused. An unreachable Lidarr saves with a warning,
+  since it may just be starting.
+- A root folder or profile Lidarr does not have is refused, and requesting stays
+  off until all three are valid. **Test connection** lists Lidarr's own root
+  folders and profiles, so you pick instead of typing IDs.
+- The API key never leaves the server: the page shows only that one is saved,
+  and an empty key field means "keep it". The saved key is only ever sent to the
+  saved URL, so changing the URL means typing the key again, and **Test
+  connection** cannot be pointed at another address to probe it with the saved
+  key.
+
+Settings are saved in `config.json` under `ALBUMREQ_DATA_DIR` (default
+`/app/data`, mode 0600), so that directory needs a volume.
+
+### Pinning a setting with an environment variable
+
+Any setting can instead be set by `ALBUMREQ_SETTING_<NAME>`. A non-empty
+variable wins over what is saved, the field shows **Managed by `<VAR>`** and is
+read-only, and the value is never written to `config.json`. URL and API key are
+locked as a pair: pinning either locks both, so a key that is pinned can never be
+sent to an address typed into the page.
+
+| Setting | Variable |
+|---|---|
+| Lidarr URL | `ALBUMREQ_SETTING_LIDARR_URL` |
+| Lidarr API key | `ALBUMREQ_SETTING_LIDARR_API_KEY` |
+| Root folder | `ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER` |
+| Quality profile ID | `ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID` |
+| Metadata profile ID | `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` |
+
+`ALBUMREQ_SETTINGS_READONLY=true` locks every setting and refuses all changes
+from the page. **Use it while the port can be reached by anyone you do not trust**:
+there is no login, so without it the page can repoint albumreq at another Lidarr.
+
+An environment value Lidarr cannot use (a profile that does not exist, an ID
+that is not a number) leaves requesting off, says why on the Settings page, and
+does not stop the process.
+
 ## Configuration
 
 Environment variables:
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `ALBUMREQ_SETTING_LIDARR_URL` | yes | | Your Lidarr, e.g. `http://lidarr:8686` |
-| `ALBUMREQ_SETTING_LIDARR_API_KEY` | yes | | Lidarr API key (Settings → General) |
-| `ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER` | for requesting | | A root folder that exists in Lidarr, e.g. `/music`. Requesting is **off** unless this and the next two are all set. |
-| `ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID` | for requesting | | Lidarr's quality profile ID for added artists |
-| `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` | for requesting | | Lidarr's metadata profile ID for added artists. It decides how many of the artist's other albums come along, so a restrictive one is kinder. |
+| `ALBUMREQ_SETTING_LIDARR_*` | no | | The five Lidarr settings above. Not needed when you use the Settings page. |
+| `ALBUMREQ_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
+| `ALBUMREQ_DATA_DIR` | no | `/app/data` | Where `config.json` is kept |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT` | yes | | An email address or a project URL. MusicBrainz requires a way to contact whoever runs an application, in the User-Agent. **There is no default:** it is yours to choose, and it is sent to MusicBrainz only, never to Lidarr's services. |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_URL` | no | public MusicBrainz | Another MusicBrainz web service (WS/2), e.g. a self-hosted mirror |
 | `ALBUMREQ_SETTING_METADATA_URL` | no | `https://api.lidarr.audio/api/v0.4` | Another metadata service |
@@ -100,10 +143,11 @@ Environment variables:
 ### There is no login yet
 
 Anyone who can reach the port can search your Lidarr and see your library
-state. **With requesting on, they can also add artists and albums to it** (not
+state, and **change the settings, including which Lidarr albumreq talks to**
+(see `ALBUMREQ_SETTINGS_READONLY`). **With requesting on, they can also add artists and albums to it** (not
 monitored, so nothing downloads, but it still changes your library), so turn it
 on only where the port is not exposed, or behind something that authenticates.
-The request endpoint refuses any call without an `X-Albumreq` header and any
+The write endpoints (request and settings) refuse any call without an `X-Albumreq` header and any
 browser request marked cross-site, so a web page you merely visit cannot make
 your browser request albums; that is not a substitute for a login. That is why the default bind is loopback only, and why the server logs a
 warning when started on anything wider. Until a login is added, run it on a
@@ -119,10 +163,9 @@ lowercase UUIDs, cover sizes are 250 or 500, and a cover redirect may only go to
 
 ```sh
 go test ./... -race
-ALBUMREQ_SETTING_LIDARR_URL=http://localhost:8686 \
-ALBUMREQ_SETTING_LIDARR_API_KEY=... \
+ALBUMREQ_DATA_DIR=/tmp/albumreq \
 ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/you \
-go run .          # http://127.0.0.1:8768
+go run .          # http://127.0.0.1:8768, then open Settings
 ```
 
 The frontend is embedded into the binary, so restart `go run` after changing
@@ -134,6 +177,8 @@ Layout:
 - `internal/lidarrmeta` — an album, its editions and tracks, from Lidarr's metadata service
 - `internal/coverart` — cover images through Lidarr's image CDN
 - `internal/lidarr` — your Lidarr: library state, queue, library tracks
+- `internal/store` — `config.json`: atomic, 0600, one writer
+- `internal/settings` — env-over-store resolution, locks, validation, the service behind the page
 - `internal/catalog` — combines them, and degrades when one is missing
 - `internal/api` — HTTP handlers
 - `web/static` — the petite-vue frontend
