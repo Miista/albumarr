@@ -128,7 +128,7 @@
           <div class="card-text"><h2>Requesting</h2><p>Albums are added with the artist and album unmonitored; nothing is searched for or downloaded.</p></div>
           <span class="conn-pill" :class="cfg.requests_enabled ? 'on' : 'off'">{{ cfg.requests_enabled ? 'On' : 'Off' }}</span>
         </div>
-        <p class="note-text" v-if="!cfg.configured">Connect to Lidarr first.</p>
+        <p class="note-text" v-if="!cfg.configured && !options">Connect to Lidarr first.</p>
         <div class="card-grid" v-else>
           <div class="field">
             <label class="field-label" for="f-root">Root folder <span class="lock-label" v-if="lock('lidarr.root_folder')">{{ lockText('lidarr.root_folder') }}</span></label>
