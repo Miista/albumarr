@@ -59,7 +59,7 @@ const (
 	StatusProcessing Status = "processing" // an item for it is in the download queue
 	StatusRequested  Status = "requested"  // monitored, not searched yet
 	StatusNotFound   Status = "notfound"   // monitored and searched, but nothing was grabbed
-	StatusInLidarr   Status = "inlidarr"   // in Lidarr, not monitored: added but nothing asked for yet
+	StatusInLidarr   Status = "inlidarr"   // in Lidarr, not monitored: Lidarr is not looking for it; a request makes it
 )
 
 // Album is one search result as the frontend renders it.
@@ -91,6 +91,8 @@ type Library interface {
 	QueuedAlbumIDs(ctx context.Context) (map[int]bool, error)
 	Tracks(ctx context.Context, albumID int) ([]lidarr.LibraryTrack, error)
 	AddAlbum(ctx context.Context, a lidarr.NewAlbum) error
+	MonitorAlbum(ctx context.Context, albumID int) error
+	SearchAlbum(ctx context.Context, albumID int) error
 }
 
 // Catalog combines the sources.
@@ -343,7 +345,7 @@ func (c *Catalog) Detail(ctx context.Context, id string) (Detail, error) {
 		}
 	}
 
-	d.CanRequest = c.requests.Load() != nil && d.MetadataOK && d.LibraryOK && st == nil
+	d.CanRequest = c.requests.Load() != nil && d.LibraryOK && ((st == nil && d.MetadataOK) || (st != nil && wanted(*st)))
 
 	if albumID != 0 {
 		if lt, err := c.lib.Tracks(ctx, albumID); err == nil && len(lt) > 0 {
@@ -361,14 +363,19 @@ func (c *Catalog) Detail(ctx context.Context, id string) (Detail, error) {
 type RequestResult string
 
 const (
-	RequestAdded  RequestResult = "added"  // the artist and album were added to Lidarr, not monitored
-	RequestExists RequestResult = "exists" // Lidarr already had the album; nothing changed
+	RequestAdded RequestResult = "added" // the album was added to Lidarr, monitored, and a search was started
+	// RequestAddedUnsearched means the album was added and is monitored, but the
+	// search could not be started. Lidarr will not search for it by itself.
+	RequestAddedUnsearched RequestResult = "added_unsearched"
+	RequestExists          RequestResult = "exists" // Lidarr already had the album; nothing changed
 )
 
-// Request adds an album, and its artist if need be, to Lidarr without
-// monitoring either, so Lidarr searches for and downloads nothing. It is
-// idempotent: an album Lidarr already has is reported as such, not added twice,
-// and Lidarr is never written to when it cannot first be asked what it has.
+// Request adds an album to Lidarr, monitored, with its artist if need be
+// (unmonitored), and starts a search for it, so Lidarr looks for and downloads
+// it. Two calls, not one flag: Lidarr only searches on add when it also adds the
+// artist. It is idempotent: an album Lidarr already has is reported as such, not
+// added or searched again, and Lidarr is never written to when it cannot first
+// be asked what it has.
 func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error) {
 	if !musicbrainz.ValidID(id) {
 		return "", ErrInvalidID
@@ -383,6 +390,11 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 		return "", fmt.Errorf("%w: asking Lidarr: %v", ErrUnavailable, err)
 	}
 	if st != nil {
+		// In Lidarr but not wanted: added earlier without monitoring, or imported
+		// with its artist. Requesting it is what makes Lidarr look for it.
+		if wanted(*st) {
+			return c.monitorAndSearch(ctx, st), nil
+		}
 		return RequestExists, nil
 	}
 
@@ -402,13 +414,50 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 	})
 	switch {
 	case err == nil:
-		return RequestAdded, nil
+		return c.startSearch(ctx, id), nil
 	case errors.Is(err, lidarr.ErrAlreadyAdded):
 		return RequestExists, nil
 	case errors.Is(err, lidarr.ErrUnavailable):
 		return "", fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	return "", err
+}
+
+// startSearch finishes a request for an album that was just added: make sure it
+// is monitored, then search for it. Its Lidarr ID is only known by asking again.
+// Lidarr can leave a new artist's album unmonitored however the add asked, and
+// an unmonitored album is not wanted, so it is checked, not assumed. The album
+// is in Lidarr either way, so a failure here is reported as a result, not an
+// error: the caller must not tell the user the request failed, and must not
+// retry the add.
+func (c *Catalog) startSearch(ctx context.Context, id string) RequestResult {
+	st, err := c.lib.AlbumByForeignID(ctx, id)
+	if err != nil || st == nil {
+		return RequestAddedUnsearched
+	}
+	return c.monitorAndSearch(ctx, st)
+}
+
+// wanted reports whether a request would change anything for an album Lidarr
+// already has: it is not monitored and not already complete on disk. An album
+// that is monitored is already being looked for, and one that is complete has
+// nothing to look for.
+func wanted(st lidarr.AlbumState) bool {
+	complete := st.Statistics.TrackFileCount > 0 && st.Statistics.PercentOfTracks >= 100
+	return !st.Monitored && !complete
+}
+
+// monitorAndSearch makes Lidarr want an album that is in Lidarr, and look for it.
+func (c *Catalog) monitorAndSearch(ctx context.Context, st *lidarr.AlbumState) RequestResult {
+	if !st.Monitored {
+		if err := c.lib.MonitorAlbum(ctx, st.ID); err != nil {
+			return RequestAddedUnsearched
+		}
+	}
+	if err := c.lib.SearchAlbum(ctx, st.ID); err != nil {
+		return RequestAddedUnsearched
+	}
+	return RequestAdded
 }
 
 func libraryTrackList(lt []lidarr.LibraryTrack) TrackList {

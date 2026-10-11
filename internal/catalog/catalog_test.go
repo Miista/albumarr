@@ -102,17 +102,22 @@ func (f *fakeMeta) Album(context.Context, string) (lidarrmeta.Album, error) {
 }
 
 type fakeLib struct {
-	states      map[string]*lidarr.AlbumState
-	queued      map[int]bool
-	tracks      []lidarr.LibraryTrack
-	albumErr    error
-	queueErr    error
-	tracksErr   error
-	addErr      error
-	added       []lidarr.NewAlbum
-	albumCalls  atomic.Int32 // AlbumByForeignID runs from several goroutines
-	queueCalls  atomic.Int32
-	tracksCalls atomic.Int32
+	states       map[string]*lidarr.AlbumState
+	queued       map[int]bool
+	tracks       []lidarr.LibraryTrack
+	albumErr     error
+	queueErr     error
+	tracksErr    error
+	addErr       error
+	searchErr    error
+	monitorErr   error
+	newMonitored bool // whether the fake's newly added albums come back monitored
+	monitored    []int
+	added        []lidarr.NewAlbum
+	searched     []int
+	albumCalls   atomic.Int32 // AlbumByForeignID runs from several goroutines
+	queueCalls   atomic.Int32
+	tracksCalls  atomic.Int32
 }
 
 func (f *fakeLib) AlbumByForeignID(_ context.Context, id string) (*lidarr.AlbumState, error) {
@@ -125,11 +130,31 @@ func (f *fakeLib) QueuedAlbumIDs(context.Context) (map[int]bool, error) {
 	return f.queued, f.queueErr
 }
 
+// addedID is the Lidarr ID the fake gives a newly added album.
+const addedID = 42
+
 func (f *fakeLib) AddAlbum(_ context.Context, a lidarr.NewAlbum) error {
 	if f.addErr == nil {
 		f.added = append(f.added, a)
+		if f.states != nil {
+			f.states[a.AlbumID] = stp(state(addedID, f.newMonitored, 0, 0, ""))
+		}
 	}
 	return f.addErr
+}
+
+func (f *fakeLib) MonitorAlbum(_ context.Context, id int) error {
+	if f.monitorErr == nil {
+		f.monitored = append(f.monitored, id)
+	}
+	return f.monitorErr
+}
+
+func (f *fakeLib) SearchAlbum(_ context.Context, id int) error {
+	if f.searchErr == nil {
+		f.searched = append(f.searched, id)
+	}
+	return f.searchErr
 }
 
 func (f *fakeLib) Tracks(context.Context, int) ([]lidarr.LibraryTrack, error) {
@@ -446,17 +471,93 @@ func TestRequestAddsTheAlbumWithTheConfiguredSettings(t *testing.T) {
 	if len(lib.added) != 1 || lib.added[0] != want {
 		t.Errorf("added = %+v, want exactly %+v", lib.added, want)
 	}
+	if len(lib.searched) != 1 || lib.searched[0] != addedID {
+		t.Errorf("searched = %v, want a search for the new album's Lidarr ID %d", lib.searched, addedID)
+	}
+}
+
+func TestRequestMonitorsAnAlbumLidarrLeftUnmonitored(t *testing.T) {
+	// A new artist's album comes back unmonitored, whatever the add asked for.
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}}
+	res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if err != nil || res != RequestAdded || len(lib.monitored) != 1 || lib.monitored[0] != addedID || len(lib.searched) != 1 {
+		t.Errorf("res=%q err=%v monitored=%v searched=%v", res, err, lib.monitored, lib.searched)
+	}
+	// An existing artist's album comes back monitored: nothing to fix.
+	lib = &fakeLib{states: map[string]*lidarr.AlbumState{}, newMonitored: true}
+	requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if len(lib.monitored) != 0 || len(lib.searched) != 1 {
+		t.Errorf("already monitored: monitored=%v searched=%v", lib.monitored, lib.searched)
+	}
+	// If it cannot be monitored it must not be searched either.
+	lib = &fakeLib{states: map[string]*lidarr.AlbumState{}, monitorErr: errors.New("nope")}
+	res, err = requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if err != nil || res != RequestAddedUnsearched || len(lib.searched) != 0 {
+		t.Errorf("monitor failed: res=%q err=%v searched=%v", res, err, lib.searched)
+	}
+}
+
+func TestRequestStillSucceedsWhenOnlyTheSearchFails(t *testing.T) {
+	boom := errors.New("command refused")
+	for name, lib := range map[string]*fakeLib{
+		"the search call fails":               {states: map[string]*lidarr.AlbumState{}, searchErr: boom},
+		"the new album cannot be found again": {states: nil},
+	} {
+		res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+		if err != nil || res != RequestAddedUnsearched {
+			t.Errorf("%s: got %q, %v: the album is in Lidarr, so this is not an error, and it must not be retried", name, res, err)
+		}
+		if len(lib.added) != 1 {
+			t.Errorf("%s: added %d times", name, len(lib.added))
+		}
+	}
+}
+
+func TestRequestNeverSearchesWhatLidarrAlreadyWants(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, true, 0, 0, ""))}}
+	requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	complete := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(8, false, 10, 100, ""))}}
+	requestCatalog(metaWithArtist(), complete).Request(context.Background(), id1)
+	if len(complete.searched)+len(complete.monitored) != 0 {
+		t.Error("a complete album must not be searched for")
+	}
+	lib2 := &fakeLib{states: map[string]*lidarr.AlbumState{}, addErr: lidarr.ErrAlreadyAdded}
+	requestCatalog(metaWithArtist(), lib2).Request(context.Background(), id1)
+	if len(lib.searched)+len(lib2.searched) != 0 {
+		t.Error("a monitored album must not be searched again: that would re-grab on every click")
+	}
+}
+
+func TestRequestDoesNotSearchWhenTheAddIsRefused(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, addErr: &lidarr.RejectedError{Messages: []string{"bad"}}}
+	requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if len(lib.searched) != 0 {
+		t.Error("a refused add must not search")
+	}
 }
 
 func TestRequestForAnAlbumLidarrAlreadyHasChangesNothing(t *testing.T) {
 	meta := metaWithArtist()
-	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}}
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, true, 0, 0, ""))}}
 	res, err := requestCatalog(meta, lib).Request(context.Background(), id1)
 	if err != nil || res != RequestExists {
 		t.Fatalf("got %q, %v", res, err)
 	}
 	if len(lib.added) != 0 || meta.calls != 0 {
 		t.Errorf("nothing should be written or fetched: added=%d metadata calls=%d", len(lib.added), meta.calls)
+	}
+}
+
+func TestRequestWantsAnAlbumLidarrHasButDoesNotWant(t *testing.T) {
+	// Imported with its artist, or added unmonitored earlier. No metadata call is needed.
+	meta := metaWithArtist()
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}}
+	res, err := requestCatalog(meta, lib).Request(context.Background(), id1)
+	if err != nil || res != RequestAdded {
+		t.Fatalf("got %q, %v", res, err)
+	}
+	if len(lib.added) != 0 || meta.calls != 0 || len(lib.monitored) != 1 || lib.monitored[0] != 7 || len(lib.searched) != 1 || lib.searched[0] != 7 {
+		t.Errorf("want monitor + search of album 7 only: added=%d metadata=%d monitored=%v searched=%v", len(lib.added), meta.calls, lib.monitored, lib.searched)
 	}
 }
 
@@ -527,8 +628,8 @@ func TestRequestPassesLidarrsRejectionThrough(t *testing.T) {
 
 func TestDetailCanRequest(t *testing.T) {
 	notOwned := func() *fakeLib { return &fakeLib{states: map[string]*lidarr.AlbumState{}} }
-	owned := func() *fakeLib {
-		return &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}, queued: map[int]bool{}}
+	owned := func(monitored bool, files int, percent float64) *fakeLib {
+		return &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, monitored, files, percent, ""))}, queued: map[int]bool{}}
 	}
 	cases := []struct {
 		name    string
@@ -538,7 +639,10 @@ func TestDetailCanRequest(t *testing.T) {
 		want    bool
 	}{
 		{"enabled and not in Lidarr", true, &fakeMeta{album: okcMeta()}, notOwned(), true},
-		{"already in Lidarr", true, &fakeMeta{album: okcMeta()}, owned(), false},
+		{"in Lidarr but not wanted", true, &fakeMeta{album: okcMeta()}, owned(false, 0, 0), true},
+		{"in Lidarr and monitored", true, &fakeMeta{album: okcMeta()}, owned(true, 0, 0), false},
+		{"in Lidarr, unmonitored but complete", true, &fakeMeta{album: okcMeta()}, owned(false, 10, 100), false},
+		{"not wanted, and the metadata service is down", true, &fakeMeta{err: errors.New("boom")}, owned(false, 0, 0), true},
 		{"requesting is off", false, &fakeMeta{album: okcMeta()}, notOwned(), false},
 		{"Lidarr unreachable", true, &fakeMeta{album: okcMeta()}, &fakeLib{albumErr: errors.New("boom")}, false},
 		{"metadata unavailable", true, &fakeMeta{err: errors.New("boom")}, notOwned(), false},
@@ -566,6 +670,7 @@ func TestRequestSettingsCanBeSwappedWhileServing(t *testing.T) {
 	if _, err := cat.Request(context.Background(), id1); err != nil {
 		t.Fatal(err)
 	}
+	delete(lib.states, id1) // as if the first album had been removed from Lidarr again
 	cat.SetRequests(&RequestSettings{RootFolder: "/b", QualityProfileID: 3, MetadataProfileID: 4})
 	cat.Request(context.Background(), id1)
 	if len(lib.added) != 2 || lib.added[0].RootFolder != "/a" || lib.added[1].RootFolder != "/b" || lib.added[1].QualityProfileID != 3 || lib.added[1].MetadataProfileID != 4 {
