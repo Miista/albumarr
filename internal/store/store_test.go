@@ -1,91 +1,62 @@
 package store
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
+
+	"github.com/Miista/albumreq/internal/db"
 )
 
-func TestOpenCreatesAnEmptyDocumentWithOwnerOnlyPermissions(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "nested", "data")
-	s, err := Open(dir)
+func open(t *testing.T) (*Store, string) {
+	t.Helper()
+	dir := t.TempDir()
+	d, err := db.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { d.Close() })
+	s, err := New(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, dir
+}
+
+func TestAFreshStoreIsEmpty(t *testing.T) {
+	s, _ := open(t)
 	if got := s.View(); got != (State{}) {
 		t.Errorf("a fresh store must be empty, got %+v", got)
 	}
-	info, err := os.Stat(filepath.Join(dir, "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("config.json is %o, want 600: it holds an API key", perm)
-	}
-	if dinfo, _ := os.Stat(dir); dinfo.Mode().Perm() != 0o700 {
-		t.Errorf("data dir is %o, want 700", dinfo.Mode().Perm())
-	}
 }
 
-func TestUpdatePersistsAcrossOpen(t *testing.T) {
-	dir := t.TempDir()
-	s, _ := Open(dir)
+func TestUpdatePersistsAcrossReopening(t *testing.T) {
+	s, dir := open(t)
 	want := Lidarr{URL: "http://lidarr:8686", APIKey: "k", RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1}
 	if err := s.Update(func(st *State) { st.Lidarr = want }); err != nil {
 		t.Fatal(err)
 	}
-	again, err := Open(dir)
+	d, err := db.Open(dir) // a second handle on the same file, as after a restart
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	again, err := New(d)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := again.View().Lidarr; got != want {
 		t.Errorf("reopened store has %+v, want %+v", got, want)
 	}
-	info, _ := os.Stat(filepath.Join(dir, "config.json"))
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("after an update config.json is %o, want 600", info.Mode().Perm())
-	}
-	if _, err := os.Stat(filepath.Join(dir, "config.json.tmp")); !os.IsNotExist(err) {
-		t.Error("the temp file must not be left behind")
-	}
 }
 
-func TestOpenRefusesACorruptFileInsteadOfOverwritingIt(t *testing.T) {
+func TestFailedSaveLeavesMemoryAsItWas(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
-	if err := os.WriteFile(path, []byte(`{"lidarr": {"url": `), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "parsing") {
-		t.Errorf("err = %v, want a parse error", err)
-	}
-	if raw, _ := os.ReadFile(path); string(raw) != `{"lidarr": {"url": ` {
-		t.Error("a corrupt file must be left for the operator to inspect, not rewritten")
-	}
-}
-
-func TestOpenFailsWhenTheDataDirCannotBeCreated(t *testing.T) {
-	blocker := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Open(filepath.Join(blocker, "data")); err == nil {
-		t.Error("expected an error when the data dir sits under a regular file")
-	}
-}
-
-func TestFailedSaveRollsBackMemory(t *testing.T) {
-	dir := t.TempDir()
-	s, _ := Open(dir)
+	d, _ := db.Open(dir)
+	s, _ := New(d)
 	if err := s.Update(func(st *State) { st.Lidarr.URL = "http://one" }); err != nil {
 		t.Fatal(err)
 	}
-	// Make the next write impossible: a directory where the temp file must go.
-	if err := os.Mkdir(filepath.Join(dir, "config.json.tmp"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	d.Close() // every later write fails
 	if err := s.Update(func(st *State) { st.Lidarr.URL = "http://two" }); err == nil {
 		t.Fatal("expected the save to fail")
 	}
@@ -95,7 +66,7 @@ func TestFailedSaveRollsBackMemory(t *testing.T) {
 }
 
 func TestViewReturnsACopy(t *testing.T) {
-	s, _ := Open(t.TempDir())
+	s, _ := open(t)
 	v := s.View()
 	v.Lidarr.URL = "mutated"
 	if s.View().Lidarr.URL != "" {
@@ -103,8 +74,19 @@ func TestViewReturnsACopy(t *testing.T) {
 	}
 }
 
+func TestUpdateCannotSmuggleInAHalfChange(t *testing.T) {
+	// fn runs on a copy: a change it makes but whose save fails is never seen.
+	s, _ := open(t)
+	s.Update(func(st *State) { st.Lidarr.URL = "http://kept" })
+	s.db.Close()
+	s.Update(func(st *State) { st.Lidarr.URL = "http://lost"; st.Lidarr.APIKey = "lost" })
+	if got := s.View().Lidarr; got.URL != "http://kept" || got.APIKey != "" {
+		t.Errorf("%+v", got)
+	}
+}
+
 func TestConcurrentUpdatesAreSerialised(t *testing.T) {
-	s, _ := Open(t.TempDir())
+	s, _ := open(t)
 	var wg sync.WaitGroup
 	for i := 1; i <= 20; i++ {
 		wg.Add(1)
@@ -118,5 +100,10 @@ func TestConcurrentUpdatesAreSerialised(t *testing.T) {
 	wg.Wait()
 	if got := s.View().Lidarr.QualityProfileID; got != 210 {
 		t.Errorf("sum = %d, want 210: an update was lost", got)
+	}
+	var inDB int
+	s.db.QueryRow(`SELECT quality_profile_id FROM lidarr`).Scan(&inDB)
+	if inDB != 210 {
+		t.Errorf("the database has %d, want 210", inDB)
 	}
 }

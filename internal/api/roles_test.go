@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,9 +33,10 @@ type fakeUsers struct {
 	err       error
 	calls     int
 	reads     int
+	listErr   error
 }
 
-func (f *fakeUsers) List() []users.User { f.reads++; return f.list }
+func (f *fakeUsers) List() ([]users.User, error) { f.reads++; return f.list, f.listErr }
 func (f *fakeUsers) SetApprover(sub string, a bool) error {
 	f.calls++
 	if f.err != nil {
@@ -223,5 +225,14 @@ func TestApproverEndpointAnswersWithTheUpdatedList(t *testing.T) {
 	rg.users.err = users.ErrNotFound
 	if rec := call(rg, "POST", "/api/users/approver", `{"sub":"ghost","approver":true}`); rec.Code != 404 {
 		t.Errorf("unknown user: %d", rec.Code)
+	}
+}
+
+func TestAFailedUsersReadIsA500NotAnEmptyList(t *testing.T) {
+	rg := newRig(adminAuth())
+	rg.users.listErr = errors.New("database is locked: /app/data/albumreq.db")
+	rec := call(rg, "GET", "/api/users", "")
+	if rec.Code != 500 || strings.Contains(rec.Body.String(), "albumreq.db") {
+		t.Errorf("%d %s: an outage must not read as 'nobody has signed in', nor leak a path", rec.Code, rec.Body)
 	}
 }

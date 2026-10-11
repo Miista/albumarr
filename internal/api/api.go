@@ -56,7 +56,7 @@ type Authenticator interface {
 
 // Users is the list of people who have signed in, and who is an approver.
 type Users interface {
-	List() []users.User
+	List() ([]users.User, error)
 	SetApprover(sub string, approver bool) error
 }
 
@@ -336,8 +336,14 @@ func (s *Server) handleTestSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	list, err := s.users.List()
+	if err != nil {
+		s.log.Error().Err(err).Msg("could not read the users list")
+		http.Error(w, "Could not read the users", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, map[string]any{"users": s.users.List()})
+	writeJSON(w, map[string]any{"users": list})
 }
 
 func (s *Server) handleSetApprover(w http.ResponseWriter, r *http.Request) {

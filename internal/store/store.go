@@ -1,16 +1,16 @@
-// Package store persists albumreq's user-configurable settings to a single
-// JSON file under a data directory, the same shape as reaparr's store. All
-// writes go through Update, which rewrites the whole file atomically
-// (temp file, fsync, rename) with 0600 permissions, since it holds an API key.
+// Package store persists albumreq's user-configurable settings in the database
+// (the lidarr table, one row). Reads come from a copy kept in memory, loaded at
+// start and replaced only after a write succeeds, so a read can never fail or
+// disagree with the disk; all writes go through Update.
 //
 // Environment variables never land here: the store holds only what was entered
 // in the settings page (see internal/settings for the override rules).
 package store
 
 import (
-	"path/filepath"
+	"sync"
 
-	"github.com/Miista/albumreq/internal/jsonfile"
+	"github.com/Miista/albumreq/internal/db"
 )
 
 // Lidarr is everything albumreq needs to know about your Lidarr.
@@ -29,18 +29,46 @@ type State struct {
 	Lidarr Lidarr `json:"lidarr"`
 }
 
-// Store holds State in dataDir/config.json. View and Update are those of
-// jsonfile.File: atomic, 0600, rolled back in memory if a save fails.
+// Store guards State with a mutex and persists it to the database.
 type Store struct {
-	*jsonfile.File[State]
+	db    *db.DB
+	mu    sync.RWMutex
+	state State
 }
 
-// Open loads state from dataDir/config.json, creating the directory and an
-// empty document if none exists yet.
-func Open(dataDir string) (*Store, error) {
-	f, err := jsonfile.Open[State](filepath.Join(dataDir, "config.json"))
+// New loads the settings from the database.
+func New(d *db.DB) (*Store, error) {
+	s := &Store{db: d}
+	l := &s.state.Lidarr
+	err := d.QueryRow(`SELECT url, api_key, root_folder, quality_profile_id, metadata_profile_id FROM lidarr WHERE id = 1`).
+		Scan(&l.URL, &l.APIKey, &l.RootFolder, &l.QualityProfileID, &l.MetadataProfileID)
 	if err != nil {
 		return nil, err
 	}
-	return &Store{f}, nil
+	return s, nil
+}
+
+// View returns a copy of the current state.
+func (s *Store) View() State {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state
+}
+
+// Update runs fn on a copy of the state under the write lock, saves the result,
+// and only then makes it the current state. If saving fails nothing changed, so
+// memory never claims something the database does not have.
+func (s *Store) Update(fn func(*State)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.state
+	fn(&next)
+	l := next.Lidarr
+	if _, err := s.db.Exec(
+		`UPDATE lidarr SET url = ?, api_key = ?, root_folder = ?, quality_profile_id = ?, metadata_profile_id = ? WHERE id = 1`,
+		l.URL, l.APIKey, l.RootFolder, l.QualityProfileID, l.MetadataProfileID); err != nil {
+		return err
+	}
+	s.state = next
+	return nil
 }

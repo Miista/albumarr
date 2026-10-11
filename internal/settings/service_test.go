@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/catalog"
+	"github.com/Miista/albumreq/internal/db"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
@@ -98,6 +97,7 @@ type env struct {
 	live  *lidarr.Live
 	cat   *catalog.Catalog
 	dir   string
+	db    *db.DB
 }
 
 func newEnv(t *testing.T) *env {
@@ -107,13 +107,18 @@ func newEnv(t *testing.T) *env {
 	}
 	t.Setenv(readOnlyEnv, "")
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	st, err := store.New(database)
 	if err != nil {
 		t.Fatal(err)
 	}
 	live := &lidarr.Live{}
 	cat := catalog.New(nopSearch{}, nopMeta{}, live)
-	e := &env{svc: NewService(st, live, cat, zerolog.Nop()), store: st, live: live, cat: cat, dir: dir}
+	e := &env{svc: NewService(st, live, cat, zerolog.Nop()), store: st, live: live, cat: cat, dir: dir, db: database}
 	e.svc.Reload(context.Background())
 	return e
 }
@@ -153,7 +158,12 @@ func TestSavingTheConnectionConfiguresLidarrWithoutARestart(t *testing.T) {
 		t.Errorf("the store has %+v", got)
 	}
 	// And it survives a restart.
-	again, _ := store.Open(e.dir)
+	second, err := db.Open(e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	again, _ := store.New(second)
 	if again.View().Lidarr.APIKey != goodKey {
 		t.Error("the key was not persisted")
 	}
@@ -528,8 +538,12 @@ func TestConcurrentChangesAreSerialised(t *testing.T) {
 		go func() { defer wg.Done(); _ = e.svc.View() }()
 	}
 	wg.Wait()
-	raw, err := os.ReadFile(filepath.Join(e.dir, "config.json"))
-	if err != nil || !json.Valid(raw) {
-		t.Errorf("config.json must stay valid JSON under concurrent changes: %v", err)
+	var check string
+	if err := e.db.QueryRow(`PRAGMA integrity_check`).Scan(&check); err != nil || check != "ok" {
+		t.Errorf("the database must stay intact under concurrent changes: %q %v", check, err)
+	}
+	var n int
+	if err := e.db.QueryRow(`SELECT COUNT(*) FROM lidarr`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the settings row: %d %v", n, err)
 	}
 }

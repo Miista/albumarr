@@ -36,6 +36,7 @@ import (
 	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumreq/internal/db"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
@@ -103,10 +104,16 @@ func main() {
 	if dataDir == "" {
 		dataDir = defaultDataDir
 	}
-	st, err := store.Open(dataDir)
+	database, err := db.Open(dataDir)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("cannot open the settings store in " + dataDir)
+		logger.Fatal().Err(err).Msg("cannot open the database in " + dataDir)
 	}
+	defer database.Close()
+	st, err := store.New(database)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("cannot read the settings from the database")
+	}
+	go backupLoop(ctx, logger, database, dataDir)
 
 	// Login. oidcgate is on unless ALBUMREQ_AUTH_DISABLED=true: the first visitor
 	// creates a local account (the admin), and ALBUMREQ_OIDC_* add single sign-on.
@@ -121,10 +128,7 @@ func main() {
 	if err != nil {
 		logger.Fatal().Err(err).Msg("login is misconfigured")
 	}
-	known, err := users.Open(dataDir)
-	if err != nil {
-		logger.Fatal().Err(err).Msg("cannot open the users list in " + dataDir)
-	}
+	known := users.New(database)
 	roles := auth.ConfigFromEnv(gate != nil)
 	switch {
 	case gate == nil:
@@ -180,6 +184,27 @@ func readOnlyHint() string {
 		return ""
 	}
 	return " (set ALBUMREQ_SETTINGS_READONLY=true to lock the settings page)"
+}
+
+// backupEvery is how often a consistent copy of the database is written for the
+// backup job to pick up. A file-level copy of the live database can catch it
+// mid-write, so restic should cover backup/, not albumreq.db.
+const backupEvery = 6 * time.Hour
+
+// backupLoop writes dataDir/backup/albumreq.db now and then every backupEvery,
+// until ctx ends. A failed copy is logged and tried again next time.
+func backupLoop(ctx context.Context, logger zerolog.Logger, database *db.DB, dataDir string) {
+	dest := filepath.Join(dataDir, "backup", db.File)
+	for {
+		if err := database.Backup(ctx, dest); err != nil && ctx.Err() == nil {
+			logger.Error().Err(err).Msg("could not write the database backup copy")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backupEvery):
+		}
+	}
 }
 
 // requireHTTPURL stops the process unless value is an absolute http(s) URL.

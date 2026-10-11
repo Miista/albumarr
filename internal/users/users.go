@@ -5,12 +5,11 @@
 package users
 
 import (
+	"database/sql"
 	"errors"
-	"path/filepath"
-	"sort"
 	"time"
 
-	"github.com/Miista/albumreq/internal/jsonfile"
+	"github.com/Miista/albumreq/internal/db"
 )
 
 // User is a person who has signed in.
@@ -24,102 +23,112 @@ type User struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
-type state struct {
-	Users []User `json:"users"`
-}
-
 // ErrNotFound means nobody with that ID has signed in.
 var ErrNotFound = errors.New("users: no such user")
 
-// touchEvery bounds how often a returning user rewrites the file. Last-seen is
-// for orientation, not accounting, so an hour is plenty.
+// touchEvery bounds how often a returning user is written. Last-seen is for
+// orientation, not accounting, so an hour is plenty.
 const touchEvery = time.Hour
 
-// Directory is the set of known users, in dataDir/users.json.
+// Directory is the set of known users, in the users table.
 type Directory struct {
-	f   *jsonfile.File[state]
+	db  *db.DB
 	now func() time.Time
 }
 
-// Open loads dataDir/users.json, creating it if need be.
-func Open(dataDir string) (*Directory, error) {
-	f, err := jsonfile.Open[state](filepath.Join(dataDir, "users.json"))
-	if err != nil {
-		return nil, err
+// New returns a Directory on the database.
+func New(d *db.DB) *Directory { return &Directory{db: d, now: time.Now} }
+
+const columns = `sub, name, email, local, approver, first_seen, last_seen`
+
+func scan(row interface{ Scan(...any) error }) (User, error) {
+	var u User
+	var first, last int64
+	if err := row.Scan(&u.Sub, &u.Name, &u.Email, &u.Local, &u.Approver, &first, &last); err != nil {
+		return User{}, err
 	}
-	return &Directory{f: f, now: time.Now}, nil
+	u.FirstSeen, u.LastSeen = time.Unix(first, 0).UTC(), time.Unix(last, 0).UTC()
+	return u, nil
+}
+
+func (d *Directory) get(sub string) (User, bool, error) {
+	u, err := scan(d.db.QueryRow(`SELECT `+columns+` FROM users WHERE sub = ?`, sub))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return User{}, false, nil
+	case err != nil:
+		return User{}, false, err
+	}
+	return u, true, nil
 }
 
 // Touch records that the person was seen, adding them if new. It writes only when
 // they are new, their name or email changed, or the last write was over an hour
-// ago, so an ordinary page load costs no disk write. It never changes the
-// approver flag. The returned User is what is stored.
+// ago, so an ordinary page load costs no write. It never changes the approver
+// flag. The returned User is what is stored.
 func (d *Directory) Touch(sub, name, email string, local bool) (User, error) {
 	if sub == "" {
 		return User{}, errors.New("users: a user needs a subject")
 	}
 	now := d.now()
-	if cur, ok := d.Get(sub); ok && cur.Name == name && cur.Email == email && cur.Local == local && now.Sub(cur.LastSeen) < touchEvery {
+	cur, found, err := d.get(sub)
+	if err != nil {
+		return User{}, err
+	}
+	if found && cur.Name == name && cur.Email == email && cur.Local == local && now.Sub(cur.LastSeen) < touchEvery {
 		return cur, nil
 	}
-	var out User
-	err := d.f.Update(func(s *state) {
-		for i := range s.Users {
-			if s.Users[i].Sub == sub {
-				s.Users[i].Name, s.Users[i].Email, s.Users[i].Local, s.Users[i].LastSeen = name, email, local, now
-				out = s.Users[i]
-				return
-			}
-		}
-		out = User{Sub: sub, Name: name, Email: email, Local: local, FirstSeen: now, LastSeen: now}
-		s.Users = append(s.Users, out)
-	})
-	return out, err
-}
-
-// Get returns the user with that ID.
-func (d *Directory) Get(sub string) (User, bool) {
-	for _, u := range d.f.View().Users {
-		if u.Sub == sub {
-			return u, true
-		}
+	// An upsert, so two sign-ins at once cannot both try to insert: the second
+	// updates. approver is not in the update list, so it is never reset.
+	if _, err := d.db.Exec(`INSERT INTO users (`+columns+`) VALUES (?, ?, ?, ?, 0, ?, ?)
+		ON CONFLICT(sub) DO UPDATE SET name = excluded.name, email = excluded.email, local = excluded.local, last_seen = excluded.last_seen`,
+		sub, name, email, local, now.Unix(), now.Unix()); err != nil {
+		return User{}, err
 	}
-	return User{}, false
+	u, _, err := d.get(sub)
+	return u, err
 }
 
-// IsApprover reports whether an admin made the person an approver.
+// Get returns the user with that ID. A database error reads as "not found".
+func (d *Directory) Get(sub string) (User, bool) {
+	u, ok, _ := d.get(sub)
+	return u, ok
+}
+
+// IsApprover reports whether an admin made the person an approver. If the
+// database cannot be read the answer is no: a failure never grants anything.
 func (d *Directory) IsApprover(sub string) bool {
-	u, ok := d.Get(sub)
-	return ok && u.Approver
+	u, ok, err := d.get(sub)
+	return err == nil && ok && u.Approver
 }
 
 // List returns everyone, by name.
-func (d *Directory) List() []User {
-	out := d.f.View().Users
-	sort.Slice(out, func(i, j int) bool {
-		if a, b := out[i].Name, out[j].Name; a != b {
-			return a < b
+func (d *Directory) List() ([]User, error) {
+	rows, err := d.db.Query(`SELECT ` + columns + ` FROM users ORDER BY name, sub`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []User{}
+	for rows.Next() {
+		u, err := scan(rows)
+		if err != nil {
+			return nil, err
 		}
-		return out[i].Sub < out[j].Sub
-	})
-	return out
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
 
 // SetApprover makes the person an approver or not.
 func (d *Directory) SetApprover(sub string, approver bool) error {
-	found := false
-	err := d.f.Update(func(s *state) {
-		for i := range s.Users {
-			if s.Users[i].Sub == sub {
-				s.Users[i].Approver = approver
-				found = true
-			}
-		}
-	})
+	res, err := d.db.Exec(`UPDATE users SET approver = ? WHERE sub = ?`, approver, sub)
 	if err != nil {
 		return err
 	}
-	if !found {
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
 		return ErrNotFound
 	}
 	return nil
