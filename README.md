@@ -37,6 +37,39 @@ most common track count among its editions, earliest first), and the sheet says
 which edition that is. An open album has its own URL (`#album=<id>`), so it can
 be linked and the browser's Back button closes it.
 
+## Requests and approval
+
+Anyone let in can ask for an album; **nothing reaches Lidarr until an approver says
+yes**. A request is recorded in the database and is *pending*; the album shows a
+**Pending approval** chip, and nobody can ask for it again meanwhile (a second click
+by anyone is told it is already waiting). An approver then approves it, which is
+what makes Lidarr add, monitor and search for it (see below), or declines it with a
+reason. A declined album can be requested again, as a new record, and the old
+decision stays as history. An approver's or admin's own request is approved at once,
+marked automatic: they could approve it themselves a second later.
+
+- One pending request per album, enforced by the database, so two clicks or two
+  people at once never make two. Approving and declining are decided once: a
+  second decision is a `409`, and approving twice never searches twice.
+- If Lidarr cannot take it at approval time, the request stays pending with the
+  reason, to be approved again.
+- If Lidarr already wants the album, nothing is recorded: the chip says so.
+- Only approving writes to Lidarr. Declining never does.
+- An approved record does not block a new request: if the album has left Lidarr
+  since, it can be asked for again. Lidarr's own state, not the records, says
+  whether it is wanted.
+
+| Endpoint | Who |
+|---|---|
+| `POST /api/album/{id}/request` | any user: pending for a user, approved at once for an approver or admin |
+| `GET /api/requests?scope=mine` | any user: their own |
+| `GET /api/requests?scope=pending` | approvers: the queue, oldest first |
+| `GET /api/requests?scope=all` | admins: everything, with history |
+| `POST /api/requests/{id}/approve`, `/decline` (`{"reason": "…"}`) | approvers |
+
+Each list returns at most 200 records. Every decision is logged with who made it.
+The pages for My requests, the approval queue and picking approvers come next.
+
 ## Requesting
 
 When it is turned on, an album that Lidarr does not have, or has but is not
@@ -197,8 +230,8 @@ Four roles; a higher one may do all a lower one may:
 | Role | From | May |
 |---|---|---|
 | none | signed in, not in the groups | see a "no access" page, nothing else |
-| user | the user group | search and open albums |
-| approver | a user an admin has made an approver | also **request** an album (for now: see below) |
+| user | the user group | search, open albums, and **ask for** one (it waits for an approver) |
+| approver | a user an admin has made an approver | also **approve or decline** requests; their own requests go straight to Lidarr |
 | admin | the admin group, or the local account | also the settings, and who the approvers are |
 
 Roles are enforced on the server for every route, never by hiding buttons.
@@ -207,10 +240,8 @@ of group takes effect at their next sign-in** (within 12 hours).
 
 Approvers are the one role albumreq keeps itself. The `users` table in the
 database remembers everyone who has signed in (only people who were let in), and
-an admin marks approvers in it (`POST /api/users/approver`; the page for it comes
-with the approval flow). Until requests can wait for approval, **a request goes
-straight to Lidarr**, so only approvers and admins can make one: a plain user's
-request would start a download nobody approved.
+an admin marks approvers in it (`POST /api/users/approver`; the page for it is
+still to come).
 
 Hardening that stays: every write refuses a call without an `X-Albumreq` header
 and any browser request marked cross-site, and requesting and the settings keep
@@ -244,6 +275,7 @@ Layout:
 - `internal/store` — the Lidarr settings, in the database
 - `internal/users` — who has signed in, and who is an approver
 - `internal/auth` — groups and the approver flag to a role
+- `internal/requests` — the request records and the approval flow
 - `internal/settings` — env-over-store resolution, locks, validation, the service behind the page
 - `internal/catalog` — combines them, and degrades when one is missing
 - `internal/api` — HTTP handlers
@@ -273,6 +305,6 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 1. **Done:** search, poster grid, type badges, status chips, album details and tracks.
 2. **Done:** request an album: add it, monitor it and search for it.
 3. **Done:** login (oidcgate, OIDC), roles from groups, approvers.
-4. Request records (who asked, when, what was decided), keyed by MusicBrainz ID,
-   an approval step, "My requests", and the page where an admin picks approvers.
+4. **Done:** request records and the approval flow (backend, API and the Pending chip).
+5. The pages: My requests, the approval queue, and where an admin picks approvers.
    See `PLAN-REQUESTS.md`.
