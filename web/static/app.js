@@ -22,6 +22,10 @@ function api(url, opts) {
   });
 }
 
+// The pages other than search have their own hash; search keeps the query string.
+const HASHES = { requests: '#/requests', approvals: '#/approvals', settings: '#/settings' };
+const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/settings': 'settings' };
+
 function App() {
   // Kept out of the reactive scope: timers and the in-flight counters have no
   // reason to trigger a re-render.
@@ -54,6 +58,28 @@ function App() {
 
     page: 'search',
     me: null, // GET /api/me: who is signed in and what they may do
+
+    // requests: mine, the approval queue (and its history, for admins), and who acts
+    mine: [],
+    mineLoaded: false,
+    mineError: '',
+    queue: [],
+    history: [],
+    queueLoaded: false,
+    queueError: '',
+    tab: 'waiting',
+    pendingCount: 0,
+    notice: '',
+    busy: {}, // request id -> an approve/decline is in flight
+    rowError: {}, // request id -> why the last one failed
+    declining: null, // the request id whose decline form is open
+    declineReason: '',
+
+    // Settings -> Users (admins)
+    users: [],
+    usersLoaded: false,
+    usersError: '',
+    userBusy: {},
     cfg: null, // GET /api/settings (admins)
     cfgError: '',
     form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0, metadata_profile_id: 0 },
@@ -68,13 +94,44 @@ function App() {
     go(page) {
       if (page === this.page) return;
       if (this.selected) this.close();
-      history.pushState(null, '', location.pathname + (page === 'settings' ? '#/settings' : location.search));
+      history.pushState(null, '', location.pathname + (HASHES[page] || location.search));
       this.showPage(page);
     },
 
     showPage(page) {
       this.page = page;
-      if (page === 'settings') this.loadSettings();
+      this.notice = '';
+      this.declining = null;
+      if (this.me) this.enter();
+    },
+
+    // mayView: which pages a role gets. The server enforces the same on every route;
+    // this only keeps someone from landing on a page they cannot use.
+    mayView(page) {
+      if (!this.me || this.me.role === 'none') return false;
+      if (page === 'approvals') return this.canApprove();
+      if (page === 'settings') return this.me.role === 'admin';
+      return true;
+    },
+
+    // enter loads what the current page shows, once it is known who is looking.
+    enter() {
+      const page = this.page;
+      if (page !== 'search' && !this.mayView(page)) {
+        history.replaceState(null, '', location.pathname);
+        this.page = 'search';
+        return;
+      }
+      if (page === 'settings') {
+        this.loadSettings();
+        this.loadUsers();
+      } else if (page === 'requests') {
+        this.loadMine();
+      } else if (page === 'approvals') {
+        this.tab = 'waiting';
+        this.queueLoaded = false;
+        this.loadQueue();
+      }
     },
 
     async loadSettings() {
@@ -242,7 +299,12 @@ function App() {
     },
 
     mounted() {
-      api('/api/me', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((m) => { if (m) this.me = m; }).catch(() => {});
+      api('/api/me', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((m) => {
+        if (!m) return;
+        this.me = m;
+        this.enter();
+        if (this.canApprove()) this.refreshPendingCount();
+      }).catch(() => {});
       const q = new URLSearchParams(location.search).get('q');
       if (q) {
         this.query = q;
@@ -425,16 +487,19 @@ function App() {
     },
 
     syncFromHash() {
-      if (location.hash === '#/settings') {
+      const page = PAGE_OF_HASH[location.hash];
+      if (page) {
         if (this.selected) {
           detailSeq++;
           this.selected = null;
           document.body.style.overflow = '';
         }
-        this.showPage('settings');
+        if (page !== this.page) this.showPage(page);
         return;
       }
-      if (this.page !== 'search') this.showPage('search');
+      // An album's own hash opens its sheet over whatever page is showing (so Back
+      // from a sheet opened on My requests returns there); anything else is search.
+      if (!/^#album=/.test(location.hash) && this.page !== 'search') this.showPage('search');
       const m = /^#album=(.+)$/.exec(location.hash);
       if (m && UUID.test(m[1])) {
         if (!this.selected || this.selected.id !== m[1]) {
@@ -500,7 +565,192 @@ function App() {
       return '';
     },
 
+    // --- requests ---
+
+    // send POSTs JSON the way the server's write guard wants, and throws the
+    // server's own words (with .status) on a failure.
+    async send(url, body) {
+      const res = await api(url, {
+        method: 'POST',
+        headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = new Error((await res.text()).trim() || res.statusText);
+        err.status = res.status;
+        throw err;
+      }
+      return res.json();
+    },
+
+    async fetchRequests(scope) {
+      const res = await api('/api/requests?scope=' + scope, { cache: 'no-store' });
+      if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+      return (await res.json()).requests;
+    },
+
+    async loadMine() {
+      this.mineError = '';
+      try {
+        this.mine = await this.fetchRequests('mine');
+        this.mineLoaded = true;
+      } catch (e) {
+        this.mineError = e.message;
+      }
+    },
+
+    async loadQueue() {
+      this.queueError = '';
+      try {
+        if (this.tab === 'history') this.history = await this.fetchRequests('all');
+        else {
+          this.queue = await this.fetchRequests('pending');
+          this.pendingCount = this.queue.length;
+        }
+        this.queueLoaded = true;
+      } catch (e) {
+        this.queueError = e.message;
+      }
+    },
+
+    async refreshPendingCount() {
+      try {
+        this.pendingCount = (await this.fetchRequests('pending')).length;
+      } catch (e) {
+        /* the badge is a convenience; the page reports real errors */
+      }
+    },
+
+    setTab(tab) {
+      if (this.tab === tab) return;
+      this.tab = tab;
+      this.queueLoaded = false;
+      this.notice = '';
+      this.declining = null;
+      this.loadQueue();
+    },
+
+    queueShown() {
+      return this.tab === 'history' ? this.history : this.queue;
+    },
+
+    // openRequest opens the album's sheet over the current page.
+    openRequest(r) {
+      this.open({ id: r.albumId, title: r.title, artist: r.artist, secondaryTypes: [], cover: '/api/cover/' + r.albumId });
+    },
+
+    startDecline(r) {
+      this.declining = r.id;
+      this.declineReason = '';
+      this.rowError[r.id] = '';
+    },
+
+    cancelDecline() {
+      this.declining = null;
+    },
+
+    // approve asks the server to approve: that is what makes Lidarr add, monitor and
+    // search for the album, so it is a real action and says what it did. fromSheet
+    // refreshes the open sheet instead of the queue.
+    async approve(r, fromSheet) {
+      if (this.busy[r.id]) return;
+      this.busy[r.id] = true;
+      this.rowError[r.id] = '';
+      this.notice = '';
+      try {
+        const out = await this.send('/api/requests/' + r.id + '/approve');
+        this.notice = out.result === 'added_unsearched'
+          ? 'Approved ' + r.title + '. It is in Lidarr, but the search could not be started.'
+          : 'Approved ' + r.title + '. Lidarr is searching for it now.';
+        await this.afterDecision(r, fromSheet);
+      } catch (e) {
+        this.rowError[r.id] = e.status === 409 ? 'Someone else has already decided this.' : e.message;
+        if (e.status === 409) await this.afterDecision(r, fromSheet);
+      } finally {
+        this.busy[r.id] = false;
+      }
+    },
+
+    async decline(r, fromSheet) {
+      if (this.busy[r.id]) return;
+      this.busy[r.id] = true;
+      this.rowError[r.id] = '';
+      this.notice = '';
+      try {
+        await this.send('/api/requests/' + r.id + '/decline', { reason: this.declineReason.trim() });
+        this.notice = 'Declined ' + r.title + '.';
+        this.declining = null;
+        await this.afterDecision(r, fromSheet);
+      } catch (e) {
+        this.rowError[r.id] = e.status === 409 ? 'Someone else has already decided this.' : e.message;
+        if (e.status === 409) await this.afterDecision(r, fromSheet);
+      } finally {
+        this.busy[r.id] = false;
+      }
+    },
+
+    // afterDecision brings the screen up to date: the sheet if it was decided there,
+    // and always the page behind it, which would otherwise keep showing the request.
+    async afterDecision(r, fromSheet) {
+      if (fromSheet && this.selected && this.selected.id === r.albumId) await this.loadDetail(r.albumId);
+      if (this.page === 'approvals') await this.loadQueue();
+      else if (this.page === 'requests') await this.loadMine();
+      else this.refreshPendingCount();
+    },
+
+    reqStateLabel(r) {
+      return { pending: 'Waiting for approval', approved: 'Approved', declined: 'Declined' }[r.state] || r.state;
+    },
+
+    // --- settings: users ---
+
+    async loadUsers() {
+      this.usersError = '';
+      try {
+        const res = await api('/api/users', { cache: 'no-store' });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.users = (await res.json()).users;
+        this.usersLoaded = true;
+      } catch (e) {
+        this.usersError = e.message;
+      }
+    },
+
+    // setApprover saves at once: a checkbox that waits for a Save button invites
+    // forgetting it, and the server answers with the whole list, so what is shown
+    // is what was stored.
+    async setApprover(u, approver) {
+      if (this.userBusy[u.sub]) return;
+      this.userBusy[u.sub] = true;
+      this.usersError = '';
+      try {
+        this.users = (await this.send('/api/users/approver', { sub: u.sub, approver })).users;
+      } catch (e) {
+        this.usersError = e.message;
+        await this.loadUsers(); // put the checkbox back to what is stored
+      } finally {
+        this.userBusy[u.sub] = false;
+      }
+    },
+
     // --- formatting ---
+
+    // ago says how long ago an RFC 3339 time was, in the largest sensible unit.
+    ago(iso) {
+      const t = Date.parse(iso);
+      if (!t) return '';
+      const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+      if (s < 60) return 'just now';
+      const units = [['day', 86400], ['hour', 3600], ['minute', 60]];
+      for (const [name, n] of units) {
+        if (s >= n) {
+          const v = Math.floor(s / n);
+          return v + ' ' + name + (v === 1 ? '' : 's') + ' ago';
+        }
+      }
+      return '';
+    },
+
 
     statusLabel(s) {
       return STATUS_LABELS[s] || s;

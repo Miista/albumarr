@@ -294,3 +294,47 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .signout { color: var(--muted); text-decoration: none; padding: 4px 8px; border-radius: 8px; }
 .signout:hover { color: var(--text); background: oklch(0.25 0.03 290 / .4); }
 @media (max-width: 640px) { .who-name, .role-pill { display: none; } }
+
+/* Requests, approvals, users */
+.topnav a .count, .tabs .count { margin-left: 6px; font-size: 11px; padding: 0 6px; min-width: 18px; display: inline-block; text-align: center; border-radius: 999px; background: oklch(0.55 0.2 290); color: #fff; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); padding: 8px 14px; cursor: pointer; font-size: 14px; }
+.tabs button:hover { color: var(--text); }
+.tabs button.active { color: var(--text); border-bottom-color: oklch(0.65 0.2 290); }
+.req-list, .user-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.req-row { display: flex; align-items: flex-start; gap: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: oklch(0.17 0.012 270 / .6); }
+.req-open { flex: none; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 8px; }
+.req-open:focus-visible { outline: 2px solid oklch(0.65 0.2 290); outline-offset: 2px; }
+.req-cover { display: block; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; position: relative; }
+.req-cover .cover-fallback { font-size: 9px; padding: 4px; }
+.req-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.req-text .title { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.req-text .artist { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.req-meta { color: var(--faint); font-size: 12px; }
+.req-reason { color: var(--muted-2); font-size: 13px; font-style: italic; overflow-wrap: anywhere; }
+.req-actions { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.req-actions.inline { flex-direction: row; flex-wrap: wrap; }
+.decline-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.decline-form .input { flex: 1 1 220px; }
+.btn.quiet { background: none; border-color: transparent; color: var(--muted); }
+.status-pill.approved { --pill-color: var(--green); --pill-bg: oklch(0.22 0.05 155 / .9); --pill-border: oklch(0.5 0.12 155 / .6); }
+.status-pill.declined { --pill-color: var(--red-text); --pill-bg: oklch(0.24 0.06 25 / .9); --pill-border: oklch(0.5 0.14 25 / .6); }
+.req-row > .status-pill { flex: none; position: static; }
+.user-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.user-text { flex: 1; min-width: 0; }
+.user-name { font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
+.user-sub { font-size: 12px; color: var(--faint); overflow-wrap: anywhere; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.toggle input { width: 18px; height: 18px; accent-color: oklch(0.6 0.2 290); }
+@media (max-width: 640px) {
+  .req-row { flex-wrap: wrap; }
+  .req-actions { flex-direction: row; width: 100%; }
+  .req-actions .btn { flex: 1; }
+}
+
+/* Four nav links do not fit beside the brand on a phone: give them their own row. */
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; row-gap: 8px; }
+  .topnav { order: 3; width: 100%; overflow-x: auto; margin: 0 -4px; }
+  .topnav a { white-space: nowrap; padding: 7px 10px; }
+}
