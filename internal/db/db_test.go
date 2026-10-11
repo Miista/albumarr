@@ -188,3 +188,59 @@ func TestConcurrentReadsAndWritesDoNotFailWithLocked(t *testing.T) {
 		t.Errorf("%d of 25 increments kept", n)
 	}
 }
+
+func TestMigratingAnExistingDeploymentKeepsItsData(t *testing.T) {
+	// A database as the previous release left it: schema 2, with data, including the
+	// metadata profile column that schema 3 drops.
+	dir := t.TempDir()
+	path := filepath.Join(dir, File)
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range append(append([]string{}, migrations[:2]...),
+		`UPDATE lidarr SET url = 'http://lidarr:8686', api_key = 'secret', root_folder = '/music', quality_profile_id = 5, metadata_profile_id = 7 WHERE id = 1`,
+		`INSERT INTO users (sub, name, email, approver, first_seen, last_seen) VALUES ('s1', 'anna', 'a@example.com', 1, 100, 200)`,
+		`INSERT INTO requests (album_id, title, artist, state, requester_sub, requester_name, created_at) VALUES ('x', 'OK Computer', 'Radiohead', 'pending', 's1', 'anna', 300)`,
+		`PRAGMA user_version = 2`) {
+		if _, err := raw.Exec(stmt); err != nil {
+			t.Fatalf("%v: %s", err, stmt)
+		}
+	}
+	raw.Close()
+
+	d, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	var v int
+	d.QueryRow(`PRAGMA user_version`).Scan(&v)
+	if v != len(migrations) || v < 3 {
+		t.Errorf("schema %d after opening, want %d", v, len(migrations))
+	}
+	var url, key, root string
+	var qp int
+	if err := d.QueryRow(`SELECT url, api_key, root_folder, quality_profile_id FROM lidarr`).Scan(&url, &key, &root, &qp); err != nil || url != "http://lidarr:8686" || key != "secret" || root != "/music" || qp != 5 {
+		t.Errorf("settings after the upgrade: %q %q %q %d (%v)", url, key, root, qp, err)
+	}
+	if _, err := d.Exec(`UPDATE lidarr SET metadata_profile_id = 1`); err == nil {
+		t.Error("the metadata profile column should be gone")
+	}
+	var name string
+	var approver bool
+	if err := d.QueryRow(`SELECT name, approver FROM users WHERE sub = 's1'`).Scan(&name, &approver); err != nil || name != "anna" || !approver {
+		t.Errorf("users after the upgrade: %v %v %v", name, approver, err)
+	}
+	var title string
+	if err := d.QueryRow(`SELECT title FROM requests`).Scan(&title); err != nil || title != "OK Computer" {
+		t.Errorf("requests after the upgrade: %q %v", title, err)
+	}
+	// Opening it again is a no-op.
+	d.Close()
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.Close()
+}

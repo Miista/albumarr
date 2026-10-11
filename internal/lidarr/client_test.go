@@ -374,22 +374,24 @@ func settingsServer(roots, quality, metadata string) *httptest.Server {
 func TestCheckSettings(t *testing.T) {
 	const roots = `[{"id":1,"path":"/music"},{"id":2,"path":"/other"}]`
 	const quality = `[{"id":1,"name":"Any"},{"id":5,"name":"FLAC"}]`
-	const metadata = `[{"id":1,"name":"Standard"}]`
+	const metadata = `[{"id":1,"name":"Standard"},{"id":2,"name":"None"}]`
 	cases := []struct {
 		name            string
 		root            string
-		qp, mp          int
+		qp              int
+		metadata        string
 		wantErrContains string
 	}{
-		{"all present", "/music", 5, 1, ""},
-		{"missing root folder", "/nope", 5, 1, `root folder "/nope"`},
-		{"root folder is matched exactly, not by prefix", "/mus", 5, 1, `root folder "/mus"`},
-		{"missing quality profile", "/music", 99, 1, "quality profile 99"},
-		{"missing metadata profile", "/music", 5, 99, "metadata profile 99"},
+		{"all present", "/music", 5, metadata, ""},
+		{"missing root folder", "/nope", 5, metadata, `root folder "/nope"`},
+		{"root folder is matched exactly, not by prefix", "/mus", 5, metadata, `root folder "/mus"`},
+		{"missing quality profile", "/music", 99, metadata, "quality profile 99"},
+		{"no profile named None", "/music", 5, `[{"id":1,"name":"Standard"}]`, `metadata profile named "None"`},
+		{"no metadata profiles at all", "/music", 5, `[]`, `metadata profile named "None"`},
 	}
 	for _, c := range cases {
-		srv := settingsServer(roots, quality, metadata)
-		err := New(srv.URL, testKey).CheckSettings(context.Background(), c.root, c.qp, c.mp)
+		srv := settingsServer(roots, quality, c.metadata)
+		err := New(srv.URL, testKey).CheckSettings(context.Background(), c.root, c.qp)
 		srv.Close()
 		switch {
 		case c.wantErrContains == "" && err != nil:
@@ -406,7 +408,7 @@ func TestCheckSettingsWhenLidarrIsDown(t *testing.T) {
 	srv := settingsServer(`[]`, `[]`, `[]`)
 	c := New(srv.URL, testKey)
 	srv.Close()
-	if err := c.CheckSettings(context.Background(), "/music", 1, 1); err == nil {
+	if err := c.CheckSettings(context.Background(), "/music", 1); err == nil {
 		t.Error("an unreachable Lidarr must be an error, not a pass")
 	}
 }
@@ -453,6 +455,31 @@ func TestVersionRecognisesAWrongKeyAndANonLidarr(t *testing.T) {
 	}
 }
 
+func TestMetadataProfileByName(t *testing.T) {
+	const profiles = `[{"id":1,"name":"Standard"},{"id":2,"name":"None"},{"id":3,"name":"None of them"}]`
+	for name, want := range map[string]int{"None": 2, "none": 2, "NONE": 2, "  None ": 2, "Standard": 1} {
+		srv := settingsServer(`[]`, `[]`, profiles)
+		id, err := New(srv.URL, testKey).MetadataProfileByName(context.Background(), name)
+		srv.Close()
+		if err != nil || id != want {
+			t.Errorf("%q -> %d, %v, want %d", name, id, err, want)
+		}
+	}
+	for _, name := range []string{"Non", "None of", "", "All types"} {
+		srv := settingsServer(`[]`, `[]`, profiles)
+		_, err := New(srv.URL, testKey).MetadataProfileByName(context.Background(), name)
+		srv.Close()
+		if !errors.Is(err, ErrBadSettings) {
+			t.Errorf("%q: err = %v, want ErrBadSettings (a prefix is not a match)", name, err)
+		}
+	}
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	defer down.Close()
+	if _, err := New(down.URL, testKey).MetadataProfileByName(context.Background(), "None"); err == nil || errors.Is(err, ErrBadSettings) {
+		t.Errorf("an outage is not a settings problem: %v", err)
+	}
+}
+
 func TestOptions(t *testing.T) {
 	srv := settingsServer(`[{"id":1,"path":"/music"},{"id":2,"path":"/data/music/lidarr"}]`,
 		`[{"id":1,"name":"Any"},{"id":5,"name":"FLAC then 192+"}]`, `[{"id":1,"name":"Standard"},{"id":2,"name":"None"}]`)
@@ -461,13 +488,13 @@ func TestOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.RootFolders) != 2 || o.RootFolders[1] != "/data/music/lidarr" || len(o.QualityProfiles) != 2 || o.QualityProfiles[1] != (Profile{5, "FLAC then 192+"}) || o.MetadataProfiles[0].Name != "Standard" {
+	if len(o.RootFolders) != 2 || o.RootFolders[1] != "/data/music/lidarr" || len(o.QualityProfiles) != 2 || o.QualityProfiles[1] != (Profile{5, "FLAC then 192+"}) {
 		t.Errorf("unexpected options: %+v", o)
 	}
 	empty := settingsServer(`[]`, `[]`, `[]`)
 	defer empty.Close()
 	o, _ = New(empty.URL, testKey).Options(context.Background())
-	if o.RootFolders == nil || o.QualityProfiles == nil || o.MetadataProfiles == nil {
+	if o.RootFolders == nil || o.QualityProfiles == nil {
 		t.Error("empty lists must encode as [], not null")
 	}
 }

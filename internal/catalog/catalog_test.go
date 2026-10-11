@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -111,6 +112,9 @@ type fakeLib struct {
 	addErr       error
 	searchErr    error
 	monitorErr   error
+	profileID    int // what MetadataProfileByName answers; 0 means addedProfileID
+	profileErr   error
+	profileAsked []string
 	newMonitored bool // whether the fake's newly added albums come back monitored
 	monitored    []int
 	added        []lidarr.NewAlbum
@@ -128,6 +132,20 @@ func (f *fakeLib) AlbumByForeignID(_ context.Context, id string) (*lidarr.AlbumS
 func (f *fakeLib) QueuedAlbumIDs(context.Context) (map[int]bool, error) {
 	f.queueCalls.Add(1)
 	return f.queued, f.queueErr
+}
+
+// addedProfileID is the metadata profile ID the fake finds for "None".
+const addedProfileID = 77
+
+func (f *fakeLib) MetadataProfileByName(_ context.Context, name string) (int, error) {
+	f.profileAsked = append(f.profileAsked, name)
+	if f.profileErr != nil {
+		return 0, f.profileErr
+	}
+	if f.profileID != 0 {
+		return f.profileID, nil
+	}
+	return addedProfileID, nil
 }
 
 // addedID is the Lidarr ID the fake gives a newly added album.
@@ -451,7 +469,7 @@ const artistMBID = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
 
 func requestCatalog(meta *fakeMeta, lib *fakeLib) *Catalog {
 	c := New(&fakeSearch{}, meta, lib)
-	c.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1})
+	c.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 5, MetadataProfile: "None"})
 	return c
 }
 
@@ -467,7 +485,7 @@ func TestRequestAddsTheAlbumWithTheConfiguredSettings(t *testing.T) {
 	if err != nil || res != RequestAdded {
 		t.Fatalf("got %q, %v", res, err)
 	}
-	want := lidarr.NewAlbum{AlbumID: id1, ArtistID: artistMBID, RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1}
+	want := lidarr.NewAlbum{AlbumID: id1, ArtistID: artistMBID, RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: addedProfileID}
 	if len(lib.added) != 1 || lib.added[0] != want {
 		t.Errorf("added = %+v, want exactly %+v", lib.added, want)
 	}
@@ -494,6 +512,49 @@ func TestRequestMonitorsAnAlbumLidarrLeftUnmonitored(t *testing.T) {
 	res, err = requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
 	if err != nil || res != RequestAddedUnsearched || len(lib.searched) != 0 {
 		t.Errorf("monitor failed: res=%q err=%v searched=%v", res, err, lib.searched)
+	}
+}
+
+func TestRequestLooksTheMetadataProfileUpByNameAndUsesItsID(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, profileID: 31}
+	if _, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1); err != nil {
+		t.Fatal(err)
+	}
+	if len(lib.profileAsked) != 1 || lib.profileAsked[0] != "None" {
+		t.Errorf("asked Lidarr for %v, want the profile named None", lib.profileAsked)
+	}
+	if len(lib.added) != 1 || lib.added[0].MetadataProfileID != 31 {
+		t.Errorf("added = %+v, want the looked-up ID 31", lib.added)
+	}
+}
+
+func TestRequestWritesNothingWhenLidarrHasNoNoneProfile(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, profileErr: fmt.Errorf("%w: no profile named None", lidarr.ErrBadSettings)}
+	res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if !errors.Is(err, lidarr.ErrBadSettings) || res != "" {
+		t.Errorf("got %q, %v", res, err)
+	}
+	if len(lib.added) != 0 || len(lib.monitored) != 0 || len(lib.searched) != 0 {
+		t.Errorf("without the profile an add would import the artist's whole catalogue: added=%d monitored=%d searched=%d", len(lib.added), len(lib.monitored), len(lib.searched))
+	}
+}
+
+func TestRequestTreatsAFailedProfileLookupAsAnOutage(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, profileErr: errors.New("connection refused")}
+	_, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if !errors.Is(err, ErrUnavailable) || errors.Is(err, lidarr.ErrBadSettings) || len(lib.added) != 0 {
+		t.Errorf("err = %v added = %d", err, len(lib.added))
+	}
+}
+
+func TestRequestForAnAlbumAlreadyInLidarrNeedsNoProfile(t *testing.T) {
+	// Monitoring and searching an album Lidarr has needs no artist, so no profile.
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}, profileErr: errors.New("must not be asked")}
+	if res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1); err != nil || res != RequestAdded {
+		t.Errorf("got %q, %v", res, err)
+	}
+	if len(lib.profileAsked) != 0 {
+		t.Errorf("asked for the profile %v", lib.profileAsked)
 	}
 }
 
@@ -595,7 +656,7 @@ func TestRequestRefusals(t *testing.T) {
 		}
 		cat := New(&fakeSearch{}, c.meta, c.lib)
 		if c.enabled {
-			cat.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1})
+			cat.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 5, MetadataProfile: "None"})
 		}
 		_, err := cat.Request(context.Background(), c.id)
 		if !errors.Is(err, c.want) {
@@ -650,7 +711,7 @@ func TestDetailCanRequest(t *testing.T) {
 	for _, c := range cases {
 		cat := New(&fakeSearch{}, c.meta, c.lib)
 		if c.enabled {
-			cat.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 1, MetadataProfileID: 1})
+			cat.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 1, MetadataProfile: "None"})
 		}
 		d, err := cat.Detail(context.Background(), id1)
 		if err != nil || d.CanRequest != c.want {
@@ -666,14 +727,14 @@ func TestRequestSettingsCanBeSwappedWhileServing(t *testing.T) {
 	if _, err := cat.Request(context.Background(), id1); !errors.Is(err, ErrRequestsDisabled) {
 		t.Fatalf("before any settings: err = %v, want ErrRequestsDisabled", err)
 	}
-	cat.SetRequests(&RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfileID: 2})
+	cat.SetRequests(&RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfile: "None"})
 	if _, err := cat.Request(context.Background(), id1); err != nil {
 		t.Fatal(err)
 	}
 	delete(lib.states, id1) // as if the first album had been removed from Lidarr again
-	cat.SetRequests(&RequestSettings{RootFolder: "/b", QualityProfileID: 3, MetadataProfileID: 4})
+	cat.SetRequests(&RequestSettings{RootFolder: "/b", QualityProfileID: 3, MetadataProfile: "None"})
 	cat.Request(context.Background(), id1)
-	if len(lib.added) != 2 || lib.added[0].RootFolder != "/a" || lib.added[1].RootFolder != "/b" || lib.added[1].QualityProfileID != 3 || lib.added[1].MetadataProfileID != 4 {
+	if len(lib.added) != 2 || lib.added[0].RootFolder != "/a" || lib.added[1].RootFolder != "/b" || lib.added[1].QualityProfileID != 3 {
 		t.Errorf("each request must use the settings in force when it ran: %+v", lib.added)
 	}
 	cat.SetRequests(nil)
@@ -684,7 +745,7 @@ func TestRequestSettingsCanBeSwappedWhileServing(t *testing.T) {
 
 func TestSetRequestsCopiesItsArgument(t *testing.T) {
 	cat := New(&fakeSearch{}, metaWithArtist(), &fakeLib{states: map[string]*lidarr.AlbumState{}})
-	s := RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfileID: 1}
+	s := RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfile: "None"}
 	cat.SetRequests(&s)
 	s.RootFolder = "/mutated"
 	lib := cat.lib.(*fakeLib)
@@ -700,7 +761,7 @@ func TestSwappingRequestSettingsIsRaceFree(t *testing.T) {
 	go func() {
 		for i := 0; i < 300; i++ {
 			if i%2 == 0 {
-				cat.SetRequests(&RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfileID: 1})
+				cat.SetRequests(&RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfile: "None"})
 			} else {
 				cat.SetRequests(nil)
 			}

@@ -109,10 +109,14 @@ data, never against a real library):
   artist, which unmonitored the requested one. Without it, only the requested
   album is monitored, also when the profile imports several (checked with
   Standard, over several refreshes).
-- The artist's *other* albums are imported as well, but only those the
-  configured metadata profile allows, all unmonitored. The **None** profile
-  imports none of them. A restrictive profile (Lidarr's Standard) gave small
-  catalogues, 4 albums for an artist, where an all-types profile gave 575.
+- The artist gets Lidarr's metadata profile named **None**, always: it is a rule,
+  not a setting. It allows no album types, so Lidarr imports none of the artist's
+  other albums and a request adds only the album asked for. (For comparison, the
+  restrictive Standard profile imported 4 albums for one artist, and an all-types
+  profile 575 for another.) albumreq looks the profile up by name, ignoring case,
+  when it adds an album. If Lidarr has none by that name, saving the settings is
+  refused, requesting stays off, and an add already under way writes nothing:
+  create a profile named None that allows no album types.
 - The requested album is added even when the profile would normally exclude its
   type (a live album, a soundtrack): Lidarr keeps manually added albums.
 - Requesting is idempotent. An album Lidarr is already looking for (monitored),
@@ -143,19 +147,18 @@ release-group ID.
 ## Settings
 
 Lidarr is configured on the **Settings** page, not in the environment: its URL,
-API key, and the three requesting settings (root folder, quality profile,
-metadata profile). Saving takes effect at once, with no restart. The page checks
-what it can before saving:
+API key, and the two requesting settings (root folder and quality profile).
+Saving takes effect at once, with no restart. The page checks what it can before
+saving:
 
 - A key Lidarr rejects is refused. An unreachable Lidarr saves with a warning,
   since it may just be starting.
-- A root folder or profile Lidarr does not have is refused, and requesting stays
-  off until all three are valid. **Test connection** lists Lidarr's own root
-  folders and profiles, so you pick instead of typing IDs. Two empty fields are
-  pre-filled for you to confirm with Save: the root folder when Lidarr has only
-  one, and the metadata profile named **None**, which imports none of the
-  artist's other albums (verified on a throwaway Lidarr: only the requested
-  album appears, unmonitored). The quality profile is always your choice.
+- A root folder or quality profile Lidarr does not have is refused, and so is a
+  Lidarr with no metadata profile named **None** (see Requesting); requesting
+  stays off until all of it is right. **Test connection** lists Lidarr's own root
+  folders and quality profiles, so you pick instead of typing IDs. An empty root
+  folder is pre-filled, for you to confirm with Save, when Lidarr has only one.
+  The quality profile is always your choice.
 - The API key never leaves the server: the page shows only that one is saved,
   and an empty key field means "keep it". The saved key is only ever sent to the
   saved URL, so changing the URL means typing the key again, and **Test
@@ -180,7 +183,6 @@ sent to an address typed into the page.
 | Lidarr API key | `ALBUMREQ_SETTING_LIDARR_API_KEY` |
 | Root folder | `ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER` |
 | Quality profile ID | `ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID` |
-| Metadata profile ID | `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` |
 
 `ALBUMREQ_SETTINGS_READONLY=true` locks every setting and refuses all changes
 from the page, for whoever is signed in. With the login off it is the only thing
@@ -197,7 +199,7 @@ Environment variables:
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `ALBUMREQ_SETTING_LIDARR_*` | no | | The five Lidarr settings above. Not needed when you use the Settings page. |
+| `ALBUMREQ_SETTING_LIDARR_*` | no | | The four Lidarr settings above. Not needed when you use the Settings page. A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` is ignored, with a warning. |
 | `ALBUMREQ_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
 | `ALBUMREQ_DATA_DIR` | no | `/app/data` | Where `albumreq.db` (settings, users; holds the Lidarr key), `backup/` and `auth/` (the local account and session key) are kept |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT` | yes | | An email address or a project URL. MusicBrainz requires a way to contact whoever runs an application, in the User-Agent. **There is no default:** it is yours to choose, and it is sent to MusicBrainz only, never to Lidarr's services. |

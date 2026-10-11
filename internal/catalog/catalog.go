@@ -92,6 +92,7 @@ type Library interface {
 	QueuedAlbumIDs(ctx context.Context) (map[int]bool, error)
 	Tracks(ctx context.Context, albumID int) ([]lidarr.LibraryTrack, error)
 	AddAlbum(ctx context.Context, a lidarr.NewAlbum) error
+	MetadataProfileByName(ctx context.Context, name string) (int, error)
 	MonitorAlbum(ctx context.Context, albumID int) error
 	SearchAlbum(ctx context.Context, albumID int) error
 }
@@ -107,9 +108,11 @@ type Catalog struct {
 // RequestSettings is where requested albums go in Lidarr. Giving them to the
 // catalog is what turns requesting on.
 type RequestSettings struct {
-	RootFolder        string
-	QualityProfileID  int
-	MetadataProfileID int
+	RootFolder       string
+	QualityProfileID int
+	// MetadataProfile is the name of the metadata profile new artists get. It is a
+	// name, not an ID, and is looked up in Lidarr when an album is added.
+	MetadataProfile string
 }
 
 // SetRequests switches requesting on with the given settings, or off with nil.
@@ -413,9 +416,17 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 		return "", ErrNotInMetadata
 	}
 
+	profile, err := c.lib.MetadataProfileByName(ctx, req.MetadataProfile)
+	switch {
+	case errors.Is(err, lidarr.ErrBadSettings):
+		return "", err // nothing has been written
+	case err != nil:
+		return "", fmt.Errorf("%w: looking up the metadata profile: %v", ErrUnavailable, err)
+	}
+
 	err = c.lib.AddAlbum(ctx, lidarr.NewAlbum{
 		AlbumID: id, ArtistID: meta.ArtistID,
-		RootFolder: req.RootFolder, QualityProfileID: req.QualityProfileID, MetadataProfileID: req.MetadataProfileID,
+		RootFolder: req.RootFolder, QualityProfileID: req.QualityProfileID, MetadataProfileID: profile,
 	})
 	switch {
 	case err == nil:

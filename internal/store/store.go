@@ -17,11 +17,11 @@ import (
 type Lidarr struct {
 	URL    string `json:"url"`
 	APIKey string `json:"api_key"`
-	// Requesting is on when RootFolder and both profile IDs are set: where a
-	// requested artist goes, and which profiles it gets.
-	RootFolder        string `json:"root_folder"`
-	QualityProfileID  int    `json:"quality_profile_id"`
-	MetadataProfileID int    `json:"metadata_profile_id"`
+	// Requesting is on when RootFolder and QualityProfileID are set: where a
+	// requested artist goes, and which quality profile it gets. The metadata
+	// profile is not here: it is always the one named "None".
+	RootFolder       string `json:"root_folder"`
+	QualityProfileID int    `json:"quality_profile_id"`
 }
 
 // State is the full persisted document.
@@ -40,8 +40,8 @@ type Store struct {
 func New(d *db.DB) (*Store, error) {
 	s := &Store{db: d}
 	l := &s.state.Lidarr
-	err := d.QueryRow(`SELECT url, api_key, root_folder, quality_profile_id, metadata_profile_id FROM lidarr WHERE id = 1`).
-		Scan(&l.URL, &l.APIKey, &l.RootFolder, &l.QualityProfileID, &l.MetadataProfileID)
+	err := d.QueryRow(`SELECT url, api_key, root_folder, quality_profile_id FROM lidarr WHERE id = 1`).
+		Scan(&l.URL, &l.APIKey, &l.RootFolder, &l.QualityProfileID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +65,8 @@ func (s *Store) Update(fn func(*State)) error {
 	fn(&next)
 	l := next.Lidarr
 	if _, err := s.db.Exec(
-		`UPDATE lidarr SET url = ?, api_key = ?, root_folder = ?, quality_profile_id = ?, metadata_profile_id = ? WHERE id = 1`,
-		l.URL, l.APIKey, l.RootFolder, l.QualityProfileID, l.MetadataProfileID); err != nil {
+		`UPDATE lidarr SET url = ?, api_key = ?, root_folder = ?, quality_profile_id = ? WHERE id = 1`,
+		l.URL, l.APIKey, l.RootFolder, l.QualityProfileID); err != nil {
 		return err
 	}
 	s.state = next

@@ -31,7 +31,7 @@ func TestAFreshStoreIsEmpty(t *testing.T) {
 
 func TestUpdatePersistsAcrossReopening(t *testing.T) {
 	s, dir := open(t)
-	want := Lidarr{URL: "http://lidarr:8686", APIKey: "k", RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1}
+	want := Lidarr{URL: "http://lidarr:8686", APIKey: "k", RootFolder: "/music", QualityProfileID: 5}
 	if err := s.Update(func(st *State) { st.Lidarr = want }); err != nil {
 		t.Fatal(err)
 	}

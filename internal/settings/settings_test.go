@@ -9,7 +9,7 @@ import (
 
 func clearEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID, KeyMetadataProfileID} {
+	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID} {
 		t.Setenv(EnvVar(k), "")
 	}
 	t.Setenv(readOnlyEnv, "")
@@ -17,11 +17,10 @@ func clearEnv(t *testing.T) {
 
 func TestEnvVarNames(t *testing.T) {
 	for key, want := range map[string]string{
-		KeyURL:               "ALBUMREQ_SETTING_LIDARR_URL",
-		KeyAPIKey:            "ALBUMREQ_SETTING_LIDARR_API_KEY",
-		KeyRootFolder:        "ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER",
-		KeyQualityProfileID:  "ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID",
-		KeyMetadataProfileID: "ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID",
+		KeyURL:              "ALBUMREQ_SETTING_LIDARR_URL",
+		KeyAPIKey:           "ALBUMREQ_SETTING_LIDARR_API_KEY",
+		KeyRootFolder:       "ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER",
+		KeyQualityProfileID: "ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID",
 	} {
 		if got := EnvVar(key); got != want {
 			t.Errorf("EnvVar(%q) = %q, want %q (the names existing deployments already use)", key, got, want)
@@ -31,12 +30,12 @@ func TestEnvVarNames(t *testing.T) {
 
 func TestPersistedValuesApplyWhenNoEnvIsSet(t *testing.T) {
 	clearEnv(t)
-	p := store.Lidarr{URL: "http://a", APIKey: "k", RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1}
+	p := store.Lidarr{URL: "http://a", APIKey: "k", RootFolder: "/music", QualityProfileID: 5}
 	r := Resolve(p)
 	if r.Lidarr != p || len(r.Locks) != 0 || len(r.Problems) != 0 {
 		t.Errorf("got %+v locks=%v problems=%v", r.Lidarr, r.Locks, r.Problems)
 	}
-	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID, KeyMetadataProfileID} {
+	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID} {
 		if !r.Editable(k) {
 			t.Errorf("%s should be editable", k)
 		}
@@ -47,16 +46,16 @@ func TestEnvWinsAndIsLocked(t *testing.T) {
 	clearEnv(t)
 	t.Setenv(EnvVar(KeyRootFolder), "/from-env")
 	t.Setenv(EnvVar(KeyQualityProfileID), "7")
-	persisted := store.Lidarr{RootFolder: "/from-store", QualityProfileID: 5, MetadataProfileID: 1}
+	persisted := store.Lidarr{RootFolder: "/from-store", QualityProfileID: 5}
 	r := Resolve(persisted)
 
-	if r.Lidarr.RootFolder != "/from-env" || r.Lidarr.QualityProfileID != 7 || r.Lidarr.MetadataProfileID != 1 {
+	if r.Lidarr.RootFolder != "/from-env" || r.Lidarr.QualityProfileID != 7 {
 		t.Errorf("env should win per field and only for the fields it sets: %+v", r.Lidarr)
 	}
 	if l := r.Locks[KeyRootFolder]; l.Reason != LockEnv || l.EnvVar != "ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER" {
 		t.Errorf("root folder lock = %+v", l)
 	}
-	if r.Editable(KeyRootFolder) || r.Editable(KeyQualityProfileID) || !r.Editable(KeyMetadataProfileID) {
+	if r.Editable(KeyRootFolder) || r.Editable(KeyQualityProfileID) {
 		t.Error("exactly the env-pinned fields must be locked")
 	}
 	if persisted.RootFolder != "/from-store" {
@@ -77,7 +76,6 @@ func TestUnusableNumbersFailSafeAndAreReported(t *testing.T) {
 	clearEnv(t)
 	for _, bad := range []string{"abc", "0", "-3", "1.5", "5 5", "99999999999999999999"} {
 		t.Setenv(EnvVar(KeyQualityProfileID), bad)
-		t.Setenv(EnvVar(KeyMetadataProfileID), "1")
 		t.Setenv(EnvVar(KeyRootFolder), "/music")
 		r := Resolve(store.Lidarr{URL: "http://a", APIKey: "k", QualityProfileID: 5})
 		if r.Lidarr.QualityProfileID != 0 {
@@ -131,7 +129,7 @@ func TestReadOnlyLocksEverythingButKeepsEnvReasons(t *testing.T) {
 	t.Setenv(readOnlyEnv, "true")
 	t.Setenv(EnvVar(KeyRootFolder), "/pinned")
 	r := Resolve(store.Lidarr{})
-	for _, k := range []string{KeyURL, KeyAPIKey, KeyQualityProfileID, KeyMetadataProfileID} {
+	for _, k := range []string{KeyURL, KeyAPIKey, KeyQualityProfileID} {
 		if l := r.Locks[k]; l.Reason != LockReadOnly || l.EnvVar != readOnlyEnv {
 			t.Errorf("%s lock = %+v, want read-only", k, l)
 		}
@@ -152,7 +150,7 @@ func TestReadOnlyOnlyForClearlyTrueValues(t *testing.T) {
 
 func TestConfiguredAndRequestsEnabled(t *testing.T) {
 	clearEnv(t)
-	full := store.Lidarr{URL: "http://a", APIKey: "k", RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1}
+	full := store.Lidarr{URL: "http://a", APIKey: "k", RootFolder: "/music", QualityProfileID: 5}
 	if r := Resolve(full); !r.Configured() || !r.RequestsEnabled() {
 		t.Errorf("a complete configuration must be configured and enabled")
 	}
@@ -161,8 +159,6 @@ func TestConfiguredAndRequestsEnabled(t *testing.T) {
 		"no key":         func(l *store.Lidarr) { l.APIKey = "" },
 		"no root folder": func(l *store.Lidarr) { l.RootFolder = "" },
 		"no quality":     func(l *store.Lidarr) { l.QualityProfileID = 0 },
-		"no metadata":    func(l *store.Lidarr) { l.MetadataProfileID = 0 },
-		"negative id":    func(l *store.Lidarr) { l.MetadataProfileID = -1 },
 	} {
 		l := full
 		mutate(&l)

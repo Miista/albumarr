@@ -76,7 +76,7 @@ func TestSaveSettingsPassesOnlyWhatWasSent(t *testing.T) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	p := f.patches[0]
-	if p.URL != nil || p.APIKey != nil || p.MetadataProfileID != nil || *p.RootFolder != "/music" || *p.QualityProfileID != 5 {
+	if p.URL != nil || p.APIKey != nil || *p.RootFolder != "/music" || *p.QualityProfileID != 5 {
 		t.Errorf("fields that were not sent must stay nil: %+v", p)
 	}
 	if rec.Header().Get("Cache-Control") != "no-store" {

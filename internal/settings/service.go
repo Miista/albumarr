@@ -82,12 +82,12 @@ func (s *Service) Reload(ctx context.Context) {
 
 	if !r.RequestsEnabled() {
 		s.cat.SetRequests(nil)
-		s.log.Info().Msg("requesting is off (read-only): it needs a root folder and both profiles on the settings page")
+		s.log.Info().Msg("requesting is off (read-only): it needs a root folder and a quality profile on the settings page")
 		return
 	}
 	cctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	switch err := client.CheckSettings(cctx, r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, r.Lidarr.MetadataProfileID); {
+	switch err := client.CheckSettings(cctx, r.Lidarr.RootFolder, r.Lidarr.QualityProfileID); {
 	case errors.Is(err, lidarr.ErrBadSettings):
 		s.cat.SetRequests(nil)
 		s.log.Error().Msg("requesting is off because its settings do not match Lidarr: " + err.Error())
@@ -95,8 +95,8 @@ func (s *Service) Reload(ctx context.Context) {
 	case err != nil:
 		s.log.Warn().Msg(fmt.Sprintf("could not check the requesting settings against Lidarr (%v); requests will fail until Lidarr answers", err))
 	}
-	s.cat.SetRequests(&catalog.RequestSettings{RootFolder: r.Lidarr.RootFolder, QualityProfileID: r.Lidarr.QualityProfileID, MetadataProfileID: r.Lidarr.MetadataProfileID})
-	s.log.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and metadata profile %d, then monitored and searched for", r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, r.Lidarr.MetadataProfileID))
+	s.cat.SetRequests(&catalog.RequestSettings{RootFolder: r.Lidarr.RootFolder, QualityProfileID: r.Lidarr.QualityProfileID, MetadataProfile: lidarr.RequiredMetadataProfile})
+	s.log.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and the %q metadata profile, then monitored and searched for", r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, lidarr.RequiredMetadataProfile))
 }
 
 // View is the settings as a browser may see them: no secret, ever.
@@ -111,12 +111,11 @@ type View struct {
 
 // ViewValues are the field values.
 type ViewValues struct {
-	URL               string `json:"url"`
-	APIKey            string `json:"api_key"` // masked
-	APIKeySet         bool   `json:"api_key_set"`
-	RootFolder        string `json:"root_folder"`
-	QualityProfileID  int    `json:"quality_profile_id"`
-	MetadataProfileID int    `json:"metadata_profile_id"`
+	URL              string `json:"url"`
+	APIKey           string `json:"api_key"` // masked
+	APIKeySet        bool   `json:"api_key_set"`
+	RootFolder       string `json:"root_folder"`
+	QualityProfileID int    `json:"quality_profile_id"`
 }
 
 // View renders the effective settings for a browser.
@@ -135,7 +134,7 @@ func viewOf(r Resolved) View {
 	return View{
 		Values: ViewValues{
 			URL: l.URL, APIKey: MaskSecret(l.APIKey), APIKeySet: l.APIKey != "",
-			RootFolder: l.RootFolder, QualityProfileID: l.QualityProfileID, MetadataProfileID: l.MetadataProfileID,
+			RootFolder: l.RootFolder, QualityProfileID: l.QualityProfileID,
 		},
 		Locks: locks, ReadOnly: ReadOnly(), Configured: r.Configured(), RequestsEnabled: r.RequestsEnabled(), Problems: problems,
 	}
@@ -145,11 +144,10 @@ func viewOf(r Resolved) View {
 // API key also means "leave it", because the page never sees the real key and so
 // has nothing to send back.
 type Patch struct {
-	URL               *string
-	APIKey            *string
-	RootFolder        *string
-	QualityProfileID  *int
-	MetadataProfileID *int
+	URL              *string
+	APIKey           *string
+	RootFolder       *string
+	QualityProfileID *int
 }
 
 // PatchResult is the outcome of a saved change.
@@ -229,16 +227,6 @@ func (s *Service) Patch(ctx context.Context, p Patch) (PatchResult, error) {
 			changed = append(changed, KeyQualityProfileID)
 		}
 	}
-	if p.MetadataProfileID != nil && res.Editable(KeyMetadataProfileID) {
-		if *p.MetadataProfileID < 0 {
-			return PatchResult{}, invalid("The metadata profile must be one of Lidarr's profiles.")
-		}
-		if *p.MetadataProfileID != next.MetadataProfileID {
-			next.MetadataProfileID = *p.MetadataProfileID
-			changed = append(changed, KeyMetadataProfileID)
-		}
-	}
-
 	var warning string
 	if len(changed) > 0 {
 		var err error
@@ -270,7 +258,7 @@ func (s *Service) verify(ctx context.Context, r Resolved) (warning string, err e
 		return "Lidarr could not be reached, so these settings were saved without being checked.", nil
 	}
 	if r.RequestsEnabled() {
-		if err := c.CheckSettings(cctx, r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, r.Lidarr.MetadataProfileID); errors.Is(err, lidarr.ErrBadSettings) {
+		if err := c.CheckSettings(cctx, r.Lidarr.RootFolder, r.Lidarr.QualityProfileID); errors.Is(err, lidarr.ErrBadSettings) {
 			return "", invalid("%s", strings.TrimPrefix(err.Error(), lidarr.ErrBadSettings.Error()+": "))
 		}
 	}

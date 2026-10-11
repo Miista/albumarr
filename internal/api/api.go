@@ -315,6 +315,11 @@ func (s *Server) requestFailed(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, catalog.ErrUnavailable):
 		s.log.Warn().Err(err).Msg(what + " failed: a service is unavailable")
 		http.Error(w, "Lidarr or its metadata service is unavailable, try again later", http.StatusServiceUnavailable)
+	case errors.Is(err, lidarr.ErrBadSettings):
+		// Lidarr lacks something albumreq needs (the "None" metadata profile). The
+		// words name no secret, and an admin needs them, but a visitor does not.
+		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, err))
+		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
 	case errors.As(err, &rejected):
 		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, rejected))
 		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
@@ -436,11 +441,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 type settingsBody struct {
 	Lidarr struct {
-		URL               *string `json:"url"`
-		APIKey            *string `json:"api_key"`
-		RootFolder        *string `json:"root_folder"`
-		QualityProfileID  *int    `json:"quality_profile_id"`
-		MetadataProfileID *int    `json:"metadata_profile_id"`
+		URL              *string `json:"url"`
+		APIKey           *string `json:"api_key"`
+		RootFolder       *string `json:"root_folder"`
+		QualityProfileID *int    `json:"quality_profile_id"`
 	} `json:"lidarr"`
 }
 
@@ -456,7 +460,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	s.log.Info().Str("by", who(r).Sub).Msg(who(r).Name + " is changing the settings")
 	res, err := s.settings.Patch(r.Context(), settings.Patch{
 		URL: l.URL, APIKey: l.APIKey, RootFolder: l.RootFolder,
-		QualityProfileID: l.QualityProfileID, MetadataProfileID: l.MetadataProfileID,
+		QualityProfileID: l.QualityProfileID,
 	})
 	if err != nil {
 		s.settingsFailure(w, r, err)

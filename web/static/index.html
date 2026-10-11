@@ -163,16 +163,8 @@
             </select>
             <input id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-else type="number" min="0" v-model.number="form.quality_profile_id" :disabled="!!lock('lidarr.quality_profile_id')">
           </div>
-          <div class="field">
-            <label class="field-label" for="f-mp">Metadata profile <span class="lock-label" v-if="lock('lidarr.metadata_profile_id')">{{ lockText('lidarr.metadata_profile_id') }}</span></label>
-            <select id="f-mp" class="input plain" :class="{ locked: lock('lidarr.metadata_profile_id') }" v-if="options" v-model.number="form.metadata_profile_id" :disabled="!!lock('lidarr.metadata_profile_id')">
-              <option :value="0">Choose…</option>
-              <option v-for="p in profileChoices('metadata_profile_id', options?.metadataProfiles)" :value="p.id">{{ p.name }}</option>
-            </select>
-            <input id="f-mp" class="input plain" :class="{ locked: lock('lidarr.metadata_profile_id') }" v-else type="number" min="0" v-model.number="form.metadata_profile_id" :disabled="!!lock('lidarr.metadata_profile_id')">
-            <span class="hint">Decides which of the artist's other albums Lidarr lists. "None" adds only the album you request.</span>
-          </div>
         </div>
+        <p class="note-text" v-if="cfg.configured || options">Every requested artist gets Lidarr's metadata profile <strong>None</strong>, so only the album you ask for is added, not the artist's other albums. Lidarr needs a profile with that name.</p>
       </section>
 
       <p class="banner warn" v-if="warning">{{ warning }}</p>

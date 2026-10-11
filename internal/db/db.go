@@ -121,6 +121,11 @@ var migrations = []string{
 	CREATE UNIQUE INDEX requests_one_pending ON requests (album_id) WHERE state = 'pending';
 	CREATE INDEX requests_by_state     ON requests (state, created_at);
 	CREATE INDEX requests_by_requester ON requests (requester_sub, created_at);`,
+
+	// 3: the metadata profile is not a setting any more. Every requested artist gets
+	// the profile named "None", looked up in Lidarr when it is needed, so a request
+	// adds only the album asked for.
+	`ALTER TABLE lidarr DROP COLUMN metadata_profile_id;`,
 }
 
 func (d *DB) migrate() error {

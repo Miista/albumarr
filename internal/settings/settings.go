@@ -32,11 +32,10 @@ const (
 
 // The setting keys.
 const (
-	KeyURL               = "lidarr.url"
-	KeyAPIKey            = "lidarr.api_key"
-	KeyRootFolder        = "lidarr.root_folder"
-	KeyQualityProfileID  = "lidarr.quality_profile_id"
-	KeyMetadataProfileID = "lidarr.metadata_profile_id"
+	KeyURL              = "lidarr.url"
+	KeyAPIKey           = "lidarr.api_key"
+	KeyRootFolder       = "lidarr.root_folder"
+	KeyQualityProfileID = "lidarr.quality_profile_id"
 )
 
 // EnvVar returns the env var that pins the field with the given key.
@@ -109,7 +108,6 @@ func Resolve(persisted store.Lidarr) Resolved {
 		r.Lidarr.RootFolder = strings.TrimSpace(v)
 	}
 	envInt(KeyQualityProfileID, &r.Lidarr.QualityProfileID)
-	envInt(KeyMetadataProfileID, &r.Lidarr.MetadataProfileID)
 
 	// The URL and key travel as a pair.
 	urlLock, keyLock := r.Locks[KeyURL], r.Locks[KeyAPIKey]
@@ -121,7 +119,7 @@ func Resolve(persisted store.Lidarr) Resolved {
 	}
 
 	if ReadOnly() {
-		for _, key := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID, KeyMetadataProfileID} {
+		for _, key := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID} {
 			if _, locked := r.Locks[key]; !locked {
 				r.Locks[key] = Lock{Reason: LockReadOnly, EnvVar: readOnlyEnv}
 			}
@@ -145,7 +143,7 @@ func (r Resolved) Configured() bool {
 // artist and which profiles to give it are set, and Lidarr is configured.
 func (r Resolved) RequestsEnabled() bool {
 	l := r.Lidarr
-	return r.Configured() && l.RootFolder != "" && l.QualityProfileID > 0 && l.MetadataProfileID > 0
+	return r.Configured() && l.RootFolder != "" && l.QualityProfileID > 0
 }
 
 // MaskSecret stands in for a secret in anything sent to a browser. It reveals

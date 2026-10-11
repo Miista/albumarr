@@ -44,11 +44,14 @@ type fakeLidarr struct {
 	*httptest.Server
 	mu   sync.Mutex
 	keys []string // X-Api-Key of every request, in order
+	// metadata is what /metadataprofile answers; the default has the "None"
+	// profile every request needs.
+	metadata string
 }
 
 func newFakeLidarr(t *testing.T) *fakeLidarr {
 	t.Helper()
-	f := &fakeLidarr{}
+	f := &fakeLidarr{metadata: `[{"id":1,"name":"Standard"},{"id":2,"name":"None"}]`}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.keys = append(f.keys, r.Header.Get("X-Api-Key"))
@@ -65,7 +68,10 @@ func newFakeLidarr(t *testing.T) *fakeLidarr {
 		case "/api/v1/qualityprofile":
 			fmt.Fprint(w, `[{"id":1,"name":"Any"},{"id":5,"name":"FLAC then 192+"}]`)
 		case "/api/v1/metadataprofile":
-			fmt.Fprint(w, `[{"id":1,"name":"Standard"}]`)
+			f.mu.Lock()
+			body := f.metadata
+			f.mu.Unlock()
+			fmt.Fprint(w, body)
 		default:
 			fmt.Fprint(w, `[]`)
 		}
@@ -102,7 +108,7 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID, KeyMetadataProfileID} {
+	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID} {
 		t.Setenv(EnvVar(k), "")
 	}
 	t.Setenv(readOnlyEnv, "")
@@ -307,9 +313,8 @@ func TestRequestSettingsAreCheckedAgainstLidarr(t *testing.T) {
 	}
 
 	for name, p := range map[string]Patch{
-		"a root folder Lidarr does not have": {RootFolder: sp("/nope"), QualityProfileID: ip(5), MetadataProfileID: ip(1)},
-		"a quality profile that is missing":  {RootFolder: sp("/music"), QualityProfileID: ip(99), MetadataProfileID: ip(1)},
-		"a metadata profile that is missing": {RootFolder: sp("/music"), QualityProfileID: ip(5), MetadataProfileID: ip(99)},
+		"a root folder Lidarr does not have": {RootFolder: sp("/nope"), QualityProfileID: ip(5)},
+		"a quality profile that is missing":  {RootFolder: sp("/music"), QualityProfileID: ip(99)},
 	} {
 		_, err := e.svc.Patch(context.Background(), p)
 		if !isValidation(err) {
@@ -320,12 +325,72 @@ func TestRequestSettingsAreCheckedAgainstLidarr(t *testing.T) {
 		}
 	}
 
-	res, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/data/music/lidarr"), QualityProfileID: ip(5), MetadataProfileID: ip(1)})
+	res, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/data/music/lidarr"), QualityProfileID: ip(5)})
 	if err != nil || !res.View.RequestsEnabled || !e.requestsOn() {
 		t.Errorf("valid settings must switch requesting on at once: err=%v view=%+v", err, res.View)
 	}
 	if _, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("")}); err != nil || e.requestsOn() {
 		t.Errorf("clearing the root folder must switch requesting off: err=%v", err)
+	}
+}
+
+func TestRequestingNeedsLidarrToHaveTheNoneProfile(t *testing.T) {
+	for name, profiles := range map[string]string{
+		"none at all":                 `[]`,
+		"only other profiles":         `[{"id":1,"name":"Standard"},{"id":3,"name":"All types"}]`,
+		"a name that merely contains": `[{"id":4,"name":"None of them"}]`,
+	} {
+		e := newEnv(t)
+		f := newFakeLidarr(t)
+		f.metadata = profiles
+		e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey)})
+		_, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)})
+		var v *ValidationError
+		if !errors.As(err, &v) || !strings.Contains(v.Message, "None") {
+			t.Errorf("%s: err = %v, want a validation error that names the profile", name, err)
+		}
+		if e.store.View().Lidarr.RootFolder != "" || e.requestsOn() {
+			t.Errorf("%s: nothing may be saved or switched on", name)
+		}
+	}
+	// ...and the name is matched like a person would: any case, stray space.
+	for _, profiles := range []string{`[{"id":2,"name":"none"}]`, `[{"id":2,"name":" NONE "}]`} {
+		e := newEnv(t)
+		f := newFakeLidarr(t)
+		f.metadata = profiles
+		e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey)})
+		if _, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)}); err != nil || !e.requestsOn() {
+			t.Errorf("%s: err = %v, requesting on = %v", profiles, err, e.requestsOn())
+		}
+	}
+}
+
+func TestReloadSwitchesRequestingOffWhenTheNoneProfileIsGone(t *testing.T) {
+	e := newEnv(t)
+	f := newFakeLidarr(t)
+	e.store.Update(func(st *store.State) {
+		st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey, RootFolder: "/music", QualityProfileID: 5}
+	})
+	e.svc.Reload(context.Background())
+	if !e.requestsOn() {
+		t.Fatal("setup: requesting should be on")
+	}
+	f.mu.Lock()
+	f.metadata = `[{"id":1,"name":"Standard"}]`
+	f.mu.Unlock()
+	e.svc.Reload(context.Background())
+	if e.requestsOn() {
+		t.Error("without a profile named None a request would import the artist's whole catalogue: it must stay off")
+	}
+}
+
+func TestTheOldMetadataProfileVariableIsIgnored(t *testing.T) {
+	e := newEnv(t)
+	t.Setenv("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID", "1")
+	f := newFakeLidarr(t)
+	e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey), RootFolder: sp("/music"), QualityProfileID: ip(5)})
+	if v := e.svc.View(); len(v.Problems) != 0 || !v.RequestsEnabled {
+		t.Errorf("a stale variable must not break anything: %+v", v)
 	}
 }
 
@@ -338,7 +403,6 @@ func TestFieldValidation(t *testing.T) {
 		"a control character":    {RootFolder: sp("/mu\nsic")},
 		"a huge root folder":     {RootFolder: sp("/" + strings.Repeat("a", 400))},
 		"a negative quality id":  {QualityProfileID: ip(-1)},
-		"a negative metadata id": {MetadataProfileID: ip(-5)},
 		"a key with a space":     {APIKey: sp("abc def")},
 		"a key with a newline":   {APIKey: sp("abc\ndef")},
 		"a huge key":             {APIKey: sp(strings.Repeat("k", 300))},
@@ -358,14 +422,14 @@ func TestLockedFieldsAreIgnoredAndNeverStored(t *testing.T) {
 	t.Setenv(EnvVar(KeyRootFolder), "/data/music/lidarr")
 	f := newFakeLidarr(t)
 	e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey)})
-	if _, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5), MetadataProfileID: ip(1)}); err != nil {
+	if _, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)}); err != nil {
 		t.Fatal(err)
 	}
 	st := e.store.View().Lidarr
 	if st.RootFolder != "" {
 		t.Errorf("a field pinned by env must not be written to the store, got %q", st.RootFolder)
 	}
-	if st.QualityProfileID != 5 || st.MetadataProfileID != 1 {
+	if st.QualityProfileID != 5 {
 		t.Errorf("the unpinned fields should still save: %+v", st)
 	}
 	if got := e.svc.Resolved().Lidarr.RootFolder; got != "/data/music/lidarr" {
@@ -413,7 +477,7 @@ func TestReadOnlyRefusesEveryChange(t *testing.T) {
 func TestEnvPinnedProblemsDisableRequestingAndAreReported(t *testing.T) {
 	e := newEnv(t)
 	f := newFakeLidarr(t)
-	e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey), RootFolder: sp("/music"), QualityProfileID: ip(5), MetadataProfileID: ip(1)})
+	e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey), RootFolder: sp("/music"), QualityProfileID: ip(5)})
 	if !e.requestsOn() {
 		t.Fatal("setup: requesting should be on")
 	}
@@ -431,7 +495,7 @@ func TestReloadSwitchesRequestingOffWhenLidarrNoLongerHasTheFolder(t *testing.T)
 	e := newEnv(t)
 	f := newFakeLidarr(t)
 	e.store.Update(func(st *store.State) {
-		st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey, RootFolder: "/gone", QualityProfileID: 5, MetadataProfileID: 1}
+		st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey, RootFolder: "/gone", QualityProfileID: 5}
 	})
 	e.svc.Reload(context.Background())
 	if e.requestsOn() {

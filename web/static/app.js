@@ -82,7 +82,7 @@ function App() {
     userBusy: {},
     cfg: null, // GET /api/settings (admins)
     cfgError: '',
-    form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0, metadata_profile_id: 0 },
+    form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0 },
     options: null, // root folders and profiles Lidarr offered on the last successful test
     testing: false,
     testResult: null,
@@ -156,7 +156,6 @@ function App() {
         api_key: '',
         root_folder: v.root_folder,
         quality_profile_id: v.quality_profile_id,
-        metadata_profile_id: v.metadata_profile_id,
       };
     },
 
@@ -227,18 +226,13 @@ function App() {
     },
 
     // applyDefaults pre-fills what only has one sensible answer, never over a
-    // value that is set or locked: the only root folder Lidarr has, and the
-    // metadata profile named "None", which imports none of an artist's other
-    // albums so a request adds just the album asked for. The user still saves.
+    // value that is set or locked: the only root folder Lidarr has. The user still
+    // saves. (The metadata profile is not a choice: it is always "None".)
     applyDefaults() {
       const o = this.options;
       if (!o) return;
       if (!this.lock('lidarr.root_folder') && !this.form.root_folder && o.rootFolders.length === 1) {
         this.form.root_folder = o.rootFolders[0];
-      }
-      if (!this.lock('lidarr.metadata_profile_id') && !this.form.metadata_profile_id) {
-        const none = o.metadataProfiles.find((p) => p.name.trim().toLowerCase() === 'none');
-        if (none) this.form.metadata_profile_id = none.id;
       }
     },
 
@@ -252,7 +246,7 @@ function App() {
       if (!this.lock('lidarr.url') && f.url.trim() !== v.url) out.url = f.url.trim();
       if (!this.lock('lidarr.api_key') && f.api_key.trim() !== '') out.api_key = f.api_key.trim();
       if (!this.lock('lidarr.root_folder') && f.root_folder.trim() !== v.root_folder) out.root_folder = f.root_folder.trim();
-      for (const k of ['quality_profile_id', 'metadata_profile_id']) {
+      for (const k of ['quality_profile_id']) {
         const n = Number(f[k]) || 0;
         if (!this.lock('lidarr.' + k) && n !== v[k]) out[k] = n;
       }

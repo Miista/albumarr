@@ -105,6 +105,9 @@ func main() {
 	if dataDir == "" {
 		dataDir = defaultDataDir
 	}
+	if _, set := os.LookupEnv("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID"); set {
+		logger.Warn().Msg("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID is no longer used: requested artists always get the metadata profile named \"None\", looked up in Lidarr")
+	}
 	database, err := db.Open(dataDir)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("cannot open the database in " + dataDir)

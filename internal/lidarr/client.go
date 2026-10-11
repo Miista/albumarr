@@ -198,10 +198,35 @@ func (c *Client) SearchAlbum(ctx context.Context, albumID int) error {
 	return c.post(ctx, "/api/v1/command", map[string]any{"name": "AlbumSearch", "albumIds": []int{albumID}})
 }
 
-// CheckSettings verifies that the root folder and both profiles exist in
-// Lidarr, so a typo in albumreq's settings is found at startup, not at the
-// first request.
-func (c *Client) CheckSettings(ctx context.Context, rootFolder string, qualityProfileID, metadataProfileID int) error {
+// RequiredMetadataProfile is the name of the metadata profile every requested
+// artist gets. "None" allows no album types, so Lidarr imports none of the
+// artist's other albums and a request adds only the album asked for (the
+// requested album is added regardless: Lidarr keeps manually added albums).
+// It is a rule, not a setting. Lidarr ships a profile by this name; if it has
+// been deleted, create one that allows nothing.
+const RequiredMetadataProfile = "None"
+
+// MetadataProfileByName returns the ID of the metadata profile with that name,
+// ignoring case and surrounding space. It is asked again on every add, so a
+// profile that was deleted and recreated is followed, and a missing one is
+// found at once. A name Lidarr does not have is ErrBadSettings.
+func (c *Client) MetadataProfileByName(ctx context.Context, name string) (int, error) {
+	var profiles []Profile
+	if err := c.get(ctx, "/api/v1/metadataprofile", nil, &profiles); err != nil {
+		return 0, err
+	}
+	for _, p := range profiles {
+		if strings.EqualFold(strings.TrimSpace(p.Name), strings.TrimSpace(name)) {
+			return p.ID, nil
+		}
+	}
+	return 0, fmt.Errorf("%w: Lidarr has no metadata profile named %q; create one that allows no album types, so a request adds only the album asked for", ErrBadSettings, name)
+}
+
+// CheckSettings verifies that the root folder and the quality profile exist in
+// Lidarr, and that it has the metadata profile requests need, so a typo in
+// albumreq's settings is found at startup, not at the first request.
+func (c *Client) CheckSettings(ctx context.Context, rootFolder string, qualityProfileID int) error {
 	var roots []struct {
 		Path string `json:"path"`
 	}
@@ -215,26 +240,19 @@ func (c *Client) CheckSettings(ctx context.Context, rootFolder string, qualityPr
 	if !found {
 		return fmt.Errorf("%w: root folder %q does not exist in Lidarr", ErrBadSettings, rootFolder)
 	}
-	for _, check := range []struct {
-		path string
-		id   int
-		what string
-	}{{"/api/v1/qualityprofile", qualityProfileID, "quality profile"}, {"/api/v1/metadataprofile", metadataProfileID, "metadata profile"}} {
-		var profiles []struct {
-			ID int `json:"id"`
-		}
-		if err := c.get(ctx, check.path, nil, &profiles); err != nil {
-			return err
-		}
-		ok := false
-		for _, p := range profiles {
-			ok = ok || p.ID == check.id
-		}
-		if !ok {
-			return fmt.Errorf("%w: %s %d does not exist in Lidarr", ErrBadSettings, check.what, check.id)
-		}
+	var profiles []Profile
+	if err := c.get(ctx, "/api/v1/qualityprofile", nil, &profiles); err != nil {
+		return err
 	}
-	return nil
+	ok := false
+	for _, p := range profiles {
+		ok = ok || p.ID == qualityProfileID
+	}
+	if !ok {
+		return fmt.Errorf("%w: quality profile %d does not exist in Lidarr", ErrBadSettings, qualityProfileID)
+	}
+	_, err := c.MetadataProfileByName(ctx, RequiredMetadataProfile)
+	return err
 }
 
 // Version asks Lidarr who it is and returns its version, which proves the URL
@@ -260,14 +278,13 @@ type Profile struct {
 
 // Options is what the settings page offers to choose from.
 type Options struct {
-	RootFolders      []string  `json:"rootFolders"`
-	QualityProfiles  []Profile `json:"qualityProfiles"`
-	MetadataProfiles []Profile `json:"metadataProfiles"`
+	RootFolders     []string  `json:"rootFolders"`
+	QualityProfiles []Profile `json:"qualityProfiles"`
 }
 
 // Options lists Lidarr's root folders and profiles.
 func (c *Client) Options(ctx context.Context) (Options, error) {
-	opts := Options{RootFolders: []string{}, QualityProfiles: []Profile{}, MetadataProfiles: []Profile{}}
+	opts := Options{RootFolders: []string{}, QualityProfiles: []Profile{}}
 	var roots []struct {
 		Path string `json:"path"`
 	}
@@ -278,9 +295,6 @@ func (c *Client) Options(ctx context.Context) (Options, error) {
 		opts.RootFolders = append(opts.RootFolders, r.Path)
 	}
 	if err := c.get(ctx, "/api/v1/qualityprofile", nil, &opts.QualityProfiles); err != nil {
-		return Options{}, err
-	}
-	if err := c.get(ctx, "/api/v1/metadataprofile", nil, &opts.MetadataProfiles); err != nil {
 		return Options{}, err
 	}
 	return opts, nil
@@ -449,6 +463,14 @@ func (l *Live) SearchAlbum(ctx context.Context, albumID int) error {
 		return ErrNotConfigured
 	}
 	return c.SearchAlbum(ctx, albumID)
+}
+
+func (l *Live) MetadataProfileByName(ctx context.Context, name string) (int, error) {
+	c := l.Client()
+	if c == nil {
+		return 0, ErrNotConfigured
+	}
+	return c.MetadataProfileByName(ctx, name)
 }
 
 func (l *Live) AddAlbum(ctx context.Context, a NewAlbum) error {
