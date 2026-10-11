@@ -1,9 +1,9 @@
 // albumreq: a small request frontend for Lidarr. Search for an album, see at a
 // glance whether it is already in the library, being downloaded, requested, or
 // could not be found, and open it for details and a track list. Its one write
-// is requesting an album, which adds the artist and album to Lidarr without
-// monitoring either, so nothing is searched for or downloaded. Requesting is
-// off unless Lidarr's root folder and profiles are configured.
+// is requesting an album: Lidarr adds it (and its artist, unmonitored),
+// monitors it and searches for it, so a download starts if a release is found.
+// Requesting is off unless Lidarr's root folder and profiles are configured.
 //
 // Three sources, each doing what it is best at: MusicBrainz answers searches,
 // Lidarr's hosted metadata service gives an album's details and tracks (and

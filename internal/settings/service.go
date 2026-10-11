@@ -96,7 +96,7 @@ func (s *Service) Reload(ctx context.Context) {
 		s.log.Warn().Msg(fmt.Sprintf("could not check the requesting settings against Lidarr (%v); requests will fail until Lidarr answers", err))
 	}
 	s.cat.SetRequests(&catalog.RequestSettings{RootFolder: r.Lidarr.RootFolder, QualityProfileID: r.Lidarr.QualityProfileID, MetadataProfileID: r.Lidarr.MetadataProfileID})
-	s.log.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and metadata profile %d, nothing monitored", r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, r.Lidarr.MetadataProfileID))
+	s.log.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and metadata profile %d, then monitored and searched for", r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, r.Lidarr.MetadataProfileID))
 }
 
 // View is the settings as a browser may see them: no secret, ever.

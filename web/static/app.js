@@ -361,8 +361,8 @@ function App() {
       }
     },
 
-    // request adds the open album, and its artist, to Lidarr without
-    // monitoring either. The header proves the call came from this page: the
+    // request asks Lidarr to get the open album: add it if need be, monitor it and
+    // search for it, so a download starts if a release is found. The header proves the call came from this page: the
     // server refuses a write without it.
     async request() {
       if (this.requesting || !this.selected || !this.detail || !this.detail.canRequest) return;
@@ -375,9 +375,10 @@ function App() {
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const data = await res.json();
         if (!this.selected || this.selected.id !== id) return;
-        this.requestNote = data.result === 'added'
-          ? 'Added to Lidarr. Nothing is monitored, so nothing will be searched for or downloaded.'
-          : 'Lidarr already has this album.';
+        this.requestNote = {
+          added: 'Requested. Lidarr is searching for it now.',
+          added_unsearched: 'Added to Lidarr, but the search could not be started, so Lidarr will not look for it by itself. Try again in a moment, or search for it in Lidarr.',
+        }[data.result] || 'Lidarr already has this album and is looking for it.';
         await this.loadDetail(id);
       } catch (e) {
         if (this.selected && this.selected.id === id) this.requestError = e.message;

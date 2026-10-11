@@ -146,7 +146,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		s.log.Info().Msg(fmt.Sprintf("request for album %s: %s", id, result))
 		status := http.StatusOK
-		if result == catalog.RequestAdded {
+		if result != catalog.RequestExists {
 			status = http.StatusCreated
 		}
 		w.Header().Set("Content-Type", "application/json")

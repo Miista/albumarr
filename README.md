@@ -22,7 +22,7 @@ badge** (Album, EP, Single, …) and, when Lidarr knows about the album, a
 | **Processing** | An item for the album is in Lidarr's download queue. |
 | **Requested** | Monitored in Lidarr, not searched for yet. |
 | **Not found** | Monitored and searched, but nothing was grabbed. |
-| **In Lidarr** | In Lidarr but not monitored: added, nothing asked for yet. |
+| **In Lidarr** | In Lidarr but not monitored, so Lidarr is not looking for it. A request fixes that. |
 | *(none)* | Lidarr does not know the album. |
 
 "Not found" is inferred from the album's `lastSearchTime`, because Lidarr has
@@ -39,27 +39,43 @@ be linked and the browser's Back button closes it.
 
 ## Requesting
 
-When it is turned on, an album Lidarr does not have shows a **Request** button
-in its sheet. Requesting does exactly one thing: it adds the album, and its
-artist if Lidarr lacks it, **without monitoring either**. Lidarr then searches
-for nothing and downloads nothing; the album simply exists in Lidarr, shown with
-the *In Lidarr* chip. Monitoring it, which is what makes Lidarr look for it, is
-a separate step that comes later.
+When it is turned on, an album that Lidarr does not have, or has but is not
+looking for (the *In Lidarr* chip), shows a **Request** button in its sheet. A
+request does three things in Lidarr, as three calls:
 
-What that means in Lidarr (verified against a throwaway instance with synthetic
+1. **Adds** the album, monitored, and its artist if Lidarr lacks it, with the
+   artist **not** monitored and new releases by the artist not monitored.
+2. Makes sure the album is **monitored**. For an album Lidarr already had (added
+   earlier, or imported with its artist) this is the whole of step 1.
+3. Starts an **`AlbumSearch`** for that one album. If a release fits the quality
+   profile, Lidarr grabs it and the download client takes it from there.
+
+The chips then follow Lidarr: *Requested* while it waits, *Processing* when it is
+in the download queue, *Available* when every track is on disk, *Not found* if
+it searched and grabbed nothing.
+
+What that means in Lidarr (verified against throwaway instances with synthetic
 data, never against a real library):
 
-- The artist is added with `monitored: false` and `monitorNewItems: none`, so
-  future releases are not picked up either. No search command runs and nothing
-  enters the queue or the history.
+- Why three calls: Lidarr only searches on add when it also adds the artist, so
+  for an artist you already have the add alone would monitor the album and never
+  look for it. And the artist's `addOptions.monitor` is deliberately not sent:
+  Lidarr applies it, after the add returns, to every album imported with a new
+  artist, which unmonitored the requested one. Without it, only the requested
+  album is monitored, also when the profile imports several (checked with
+  Standard, over several refreshes).
 - The artist's *other* albums are imported as well, but only those the
-  configured metadata profile allows, all unmonitored. A restrictive profile
-  (Lidarr's Standard: studio albums, official releases) gave small catalogues,
-  4 albums for an artist, where an all-types profile gave 575 for another.
+  configured metadata profile allows, all unmonitored. The **None** profile
+  imports none of them. A restrictive profile (Lidarr's Standard) gave small
+  catalogues, 4 albums for an artist, where an all-types profile gave 575.
 - The requested album is added even when the profile would normally exclude its
   type (a live album, a soundtrack): Lidarr keeps manually added albums.
-- Requesting is idempotent. An album Lidarr already has is reported as such, and
-  albumreq never writes unless it could first ask Lidarr what it has.
+- Requesting is idempotent. An album Lidarr is already looking for (monitored),
+  or already has in full, is reported as such and is not searched again, so a
+  second click never re-grabs. albumreq never writes unless it could first ask
+  Lidarr what it has.
+- If the album is added but the search cannot be started, the page says so: the
+  album is in Lidarr and monitored, but Lidarr will not look for it by itself.
 - An album Lidarr's metadata service does not know yet (a very new MusicBrainz
   entry) cannot be added, and says so.
 
@@ -148,9 +164,8 @@ Environment variables:
 
 Anyone who can reach the port can search your Lidarr and see your library
 state, and **change the settings, including which Lidarr albumreq talks to**
-(see `ALBUMREQ_SETTINGS_READONLY`). **With requesting on, they can also add artists and albums to it** (not
-monitored, so nothing downloads, but it still changes your library), so turn it
-on only where the port is not exposed, or behind something that authenticates.
+(see `ALBUMREQ_SETTINGS_READONLY`). **With requesting on, they can also add artists and albums to it** and make Lidarr search and download, which uses your indexers and your
+disk, so turn it on only where the port is not exposed, or behind something that authenticates.
 The write endpoints (request and settings) refuse any call without an `X-Albumreq` header and any
 browser request marked cross-site, so a web page you merely visit cannot make
 your browser request albums; that is not a substitute for a login. That is why the default bind is loopback only, and why the server logs a
@@ -209,8 +224,7 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 ## Roadmap
 
 1. **Done:** search, poster grid, type badges, status chips, album details and tracks.
-2. **Done:** request an album: add it and its artist to Lidarr, unmonitored.
-3. Monitor the requested album and have Lidarr search for it.
-4. Request records (who asked, when, what was decided), keyed by MusicBrainz ID,
+2. **Done:** request an album: add it, monitor it and search for it.
+3. Request records (who asked, when, what was decided), keyed by MusicBrainz ID,
    with an approval step and "My requests".
-5. Login (Authelia OIDC).
+4. Login (Authelia OIDC).

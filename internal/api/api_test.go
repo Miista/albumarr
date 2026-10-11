@@ -294,6 +294,14 @@ func post(mux http.Handler, target string, headers map[string]string) *httptest.
 
 var sameOrigin = map[string]string{"X-Albumreq": "1"}
 
+func TestRequestAddedButNotSearchedIsStillCreated(t *testing.T) {
+	fc := &fakeCatalog{requestRes: catalog.RequestAddedUnsearched}
+	rec := post(newMux(fc, &fakeCovers{}), "/api/album/"+id1+"/request", map[string]string{"X-Albumreq": "1"})
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"result":"added_unsearched"`) {
+		t.Errorf("the album is in Lidarr, so this is a 201 the page can explain: %d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestRequestAddedAndExisting(t *testing.T) {
 	fc := &fakeCatalog{requestRes: catalog.RequestAdded}
 	mux := newMux(fc, &fakeCovers{})
