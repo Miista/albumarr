@@ -157,7 +157,7 @@ func newAlbum() NewAlbum {
 	}
 }
 
-func TestAddAlbumSendsExactlyTheUnmonitoredRequest(t *testing.T) {
+func TestAddAlbumSendsTheMonitoredAlbumOnAnUnmonitoredArtist(t *testing.T) {
 	var gotMethod, gotPath, gotKey, gotType string
 	var raw map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,14 +177,14 @@ func TestAddAlbumSendsExactlyTheUnmonitoredRequest(t *testing.T) {
 		t.Errorf("request = %s %s key=%q type=%q", gotMethod, gotPath, gotKey, gotType)
 	}
 
-	// Every flag that could trigger a search or a download must be present and false/none:
-	// a missing key would fall back to Lidarr's default, which is to monitor.
+	// The album is wanted; nothing else is. Every flag is explicit, because a
+	// missing key falls back to Lidarr's default, which is to monitor. The search
+	// is a separate call, since Lidarr only honours searchForNewAlbum for a new artist.
 	artist, _ := raw["artist"].(map[string]any)
 	albumOpts, _ := raw["addOptions"].(map[string]any)
-	artistOpts, _ := artist["addOptions"].(map[string]any)
 	want := map[string]any{
 		"foreignAlbumId": "b1392450-e666-3926-a536-22c65f834433",
-		"monitored":      false,
+		"monitored":      true,
 	}
 	for k, v := range want {
 		if raw[k] != v {
@@ -204,13 +204,62 @@ func TestAddAlbumSendsExactlyTheUnmonitoredRequest(t *testing.T) {
 		{"artist.rootFolderPath", artist["rootFolderPath"], "/music"},
 		{"artist.qualityProfileId", artist["qualityProfileId"], float64(5)},
 		{"artist.metadataProfileId", artist["metadataProfileId"], float64(1)},
-		{"artist.addOptions.monitor", artistOpts["monitor"], "none"},
-		{"artist.addOptions.searchForMissingAlbums", artistOpts["searchForMissingAlbums"], false},
+	}
+	// Absent, not "none": Lidarr applies an artist's addOptions.monitor to every
+	// album imported with it, which would unmonitor the one just requested.
+	if _, has := artist["addOptions"]; has {
+		t.Error("artist.addOptions must not be sent")
 	}
 	for _, c := range checks {
 		if c.got != c.want {
 			t.Errorf("%s = %v (%T), want %v", c.name, c.got, c.got, c.want)
 		}
+	}
+}
+
+func TestSearchAlbumSendsOneAlbumSearchCommand(t *testing.T) {
+	var gotPath string
+	var raw map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.Method + " " + r.URL.Path
+		json.NewDecoder(r.Body).Decode(&raw)
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"id":9}`)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).SearchAlbum(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+	ids, _ := raw["albumIds"].([]any)
+	if gotPath != "POST /api/v1/command" || raw["name"] != "AlbumSearch" || len(ids) != 1 || ids[0] != float64(42) || len(raw) != 2 {
+		t.Errorf("sent %s %v: want exactly one AlbumSearch for album 42", gotPath, raw)
+	}
+}
+
+func TestMonitorAlbumSendsOnePut(t *testing.T) {
+	var gotPath string
+	var raw map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.Method + " " + r.URL.Path
+		json.NewDecoder(r.Body).Decode(&raw)
+		w.WriteHeader(http.StatusAccepted) // what Lidarr answers
+		fmt.Fprint(w, `[]`)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).MonitorAlbum(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+	ids, _ := raw["albumIds"].([]any)
+	if gotPath != "PUT /api/v1/album/monitor" || raw["monitored"] != true || len(ids) != 1 || ids[0] != float64(42) || len(raw) != 2 {
+		t.Errorf("sent %s %v: want exactly album 42 monitored", gotPath, raw)
+	}
+}
+
+func TestSearchAlbumOutageIsUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).SearchAlbum(context.Background(), 1); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
 }
 

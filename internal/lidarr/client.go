@@ -142,9 +142,14 @@ type NewAlbum struct {
 }
 
 // addAlbumBody is the request Lidarr's UI sends, reduced to what matters. The
-// false flags are explicit on purpose: neither the album nor the artist is
-// monitored, new releases by the artist are not monitored either, and nothing
-// is searched for.
+// album is monitored, so Lidarr wants it; the artist is not, and new releases by
+// the artist are not either, so nothing else is wanted. The artist carries no
+// addOptions on purpose: Lidarr would apply its "monitor: none" to every album
+// imported with a new artist, the requested one included, after the add returns
+// (checked on a throwaway: without it only the requested album is monitored, even
+// when the profile imports several). searchForNewAlbum is
+// false on purpose: Lidarr only honours it when it also adds the artist, so the
+// search is a separate, explicit SearchAlbum.
 type addAlbumBody struct {
 	ForeignAlbumID string `json:"foreignAlbumId"`
 	Monitored      bool   `json:"monitored"`
@@ -159,27 +164,38 @@ type addAlbumBody struct {
 		RootFolderPath    string `json:"rootFolderPath"`
 		Monitored         bool   `json:"monitored"`
 		MonitorNewItems   string `json:"monitorNewItems"`
-		AddOptions        struct {
-			Monitor                string `json:"monitor"`
-			SearchForMissingAlbums bool   `json:"searchForMissingAlbums"`
-		} `json:"addOptions"`
 	} `json:"artist"`
 }
 
-// AddAlbum adds the album, and its artist when Lidarr does not have it yet,
-// with nothing monitored. An album the artist's metadata profile would
-// normally exclude is still added: Lidarr keeps manually added albums.
+// AddAlbum adds the album, monitored, and its artist when Lidarr does not have
+// it yet, unmonitored. An album the artist's metadata profile would normally
+// exclude is still added: Lidarr keeps manually added albums. It does not
+// search; see SearchAlbum.
 func (c *Client) AddAlbum(ctx context.Context, a NewAlbum) error {
 	var b addAlbumBody
 	b.ForeignAlbumID = a.AlbumID
+	b.Monitored = true
 	b.AddOptions.AddType = "manual"
 	b.Artist.ForeignArtistID = a.ArtistID
 	b.Artist.QualityProfileID = a.QualityProfileID
 	b.Artist.MetadataProfileID = a.MetadataProfileID
 	b.Artist.RootFolderPath = a.RootFolder
 	b.Artist.MonitorNewItems = "none"
-	b.Artist.AddOptions.Monitor = "none"
 	return c.post(ctx, "/api/v1/album", b)
+}
+
+// MonitorAlbum marks one album as wanted. AddAlbum already asks for that, but
+// for a new artist Lidarr applies the artist's own "monitor: none" afterwards
+// and unmonitors the album again, so albumreq checks and sets it explicitly.
+func (c *Client) MonitorAlbum(ctx context.Context, albumID int) error {
+	return c.send(ctx, http.MethodPut, "/api/v1/album/monitor", map[string]any{"albumIds": []int{albumID}, "monitored": true})
+}
+
+// SearchAlbum asks Lidarr to search its indexers for one album, as the search
+// button on the album does. Lidarr grabs a release if it finds one that fits the
+// quality profile, so this is the call that starts a download.
+func (c *Client) SearchAlbum(ctx context.Context, albumID int) error {
+	return c.post(ctx, "/api/v1/command", map[string]any{"name": "AlbumSearch", "albumIds": []int{albumID}})
 }
 
 // CheckSettings verifies that the root folder and both profiles exist in
@@ -281,11 +297,16 @@ func (c *Client) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error
 // of validation failures: "already added" is ErrAlreadyAdded, anything else a
 // RejectedError. Errors never contain the request URL or any header.
 func (c *Client) post(ctx context.Context, path string, body any) error {
+	return c.send(ctx, http.MethodPost, path, body)
+}
+
+// send is post for any method. Lidarr answers 200, 201 or 202 on success.
+func (c *Client) send(ctx context.Context, method, path string, body any) error {
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -306,7 +327,7 @@ func (c *Client) post(ctx context.Context, path string, body any) error {
 	defer resp.Body.Close()
 
 	switch {
-	case resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK:
+	case resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted:
 		return nil
 	case resp.StatusCode == http.StatusBadRequest:
 		var failures []struct {
@@ -412,6 +433,22 @@ func (l *Live) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error) 
 		return nil, ErrNotConfigured
 	}
 	return c.Tracks(ctx, albumID)
+}
+
+func (l *Live) MonitorAlbum(ctx context.Context, albumID int) error {
+	c := l.Client()
+	if c == nil {
+		return ErrNotConfigured
+	}
+	return c.MonitorAlbum(ctx, albumID)
+}
+
+func (l *Live) SearchAlbum(ctx context.Context, albumID int) error {
+	c := l.Client()
+	if c == nil {
+		return ErrNotConfigured
+	}
+	return c.SearchAlbum(ctx, albumID)
 }
 
 func (l *Live) AddAlbum(ctx context.Context, a NewAlbum) error {
