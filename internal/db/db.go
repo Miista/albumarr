@@ -94,6 +94,33 @@ var migrations = []string{
 		first_seen INTEGER NOT NULL,
 		last_seen  INTEGER NOT NULL
 	);`,
+
+	// 2: request records. Declined and approved ones stay as history; only a
+	// pending one is "open", and the partial unique index lets exactly one album
+	// be pending at a time, so two clicks or two people at once cannot make two.
+	// Approved records do not block a new request: if the album has since left
+	// Lidarr it can be asked for again, and Lidarr's own state, not this table,
+	// says whether it is wanted.
+	`CREATE TABLE requests (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		album_id       TEXT    NOT NULL,
+		title          TEXT    NOT NULL,
+		artist         TEXT    NOT NULL,
+		requester_sub  TEXT    NOT NULL,
+		requester_name TEXT    NOT NULL,
+		state          TEXT    NOT NULL CHECK (state IN ('pending', 'approved', 'declined')),
+		decided_by_sub  TEXT   NOT NULL DEFAULT '',
+		decided_by_name TEXT   NOT NULL DEFAULT '',
+		decided_at     INTEGER NOT NULL DEFAULT 0,
+		auto           INTEGER NOT NULL DEFAULT 0,
+		decline_reason TEXT    NOT NULL DEFAULT '',
+		lidarr_result  TEXT    NOT NULL DEFAULT '',
+		created_at     INTEGER NOT NULL,
+		CHECK (state = 'pending' OR decided_at > 0)
+	);
+	CREATE UNIQUE INDEX requests_one_pending ON requests (album_id) WHERE state = 'pending';
+	CREATE INDEX requests_by_state     ON requests (state, created_at);
+	CREATE INDEX requests_by_requester ON requests (requester_sub, created_at);`,
 }
 
 func (d *DB) migrate() error {

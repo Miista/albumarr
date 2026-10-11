@@ -59,6 +59,7 @@ const (
 	StatusProcessing Status = "processing" // an item for it is in the download queue
 	StatusRequested  Status = "requested"  // monitored, not searched yet
 	StatusNotFound   Status = "notfound"   // monitored and searched, but nothing was grabbed
+	StatusPending    Status = "pending"    // asked for, waiting for an approver; never set by DeriveStatus
 	StatusInLidarr   Status = "inlidarr"   // in Lidarr, not monitored: Lidarr is not looking for it; a request makes it
 )
 
@@ -358,6 +359,10 @@ func (c *Catalog) Detail(ctx context.Context, id string) (Detail, error) {
 	}
 	return d, nil
 }
+
+// RequestsEnabled reports whether requesting is switched on (the root folder
+// and both profiles are set and valid).
+func (c *Catalog) RequestsEnabled() bool { return c.requests.Load() != nil }
 
 // RequestResult says what a request did.
 type RequestResult string
