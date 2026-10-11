@@ -68,7 +68,19 @@ marked automatic: they could approve it themselves a second later.
 | `POST /api/requests/{id}/approve`, `/decline` (`{"reason": "…"}`) | approvers |
 
 Each list returns at most 200 records. Every decision is logged with who made it.
-The pages for My requests, the approval queue and picking approvers come next.
+
+The pages for it:
+
+- **My requests** (everyone): what you asked for and what happened, with the decline
+  reason and who decided. Open an album to see its sheet.
+- **Approvals** (approvers and admins): the queue, oldest first, with a count in the
+  nav. Approve, or decline with an optional reason. You can also decide from an
+  album's sheet. Admins get a **History** tab with every request.
+- **Settings → Users** (admins): everyone who has signed in, with an Approver
+  checkbox that saves at once.
+
+A page a role may not use is not in its nav, and opening its address sends the
+person to search; the server refuses the calls regardless.
 
 ## Requesting
 
@@ -240,8 +252,7 @@ of group takes effect at their next sign-in** (within 12 hours).
 
 Approvers are the one role albumreq keeps itself. The `users` table in the
 database remembers everyone who has signed in (only people who were let in), and
-an admin marks approvers in it (`POST /api/users/approver`; the page for it is
-still to come).
+an admin marks approvers in it, on Settings → Users (`POST /api/users/approver`).
 
 Hardening that stays: every write refuses a call without an `X-Albumreq` header
 and any browser request marked cross-site, and requesting and the settings keep
@@ -306,5 +317,5 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 2. **Done:** request an album: add it, monitor it and search for it.
 3. **Done:** login (oidcgate, OIDC), roles from groups, approvers.
 4. **Done:** request records and the approval flow (backend, API and the Pending chip).
-5. The pages: My requests, the approval queue, and where an admin picks approvers.
-   See `PLAN-REQUESTS.md`.
+5. **Done:** the pages: My requests, Approvals, and Settings → Users.
+6. Deployment, and notifications when a request is decided (see `PLAN-REQUESTS.md`).
