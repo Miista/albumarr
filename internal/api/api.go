@@ -19,6 +19,7 @@ import (
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/lidarr"
+	"github.com/Miista/albumreq/internal/settings"
 )
 
 const (
@@ -38,16 +39,24 @@ type CoverFetcher interface {
 	Front(ctx context.Context, id string, size int) (data []byte, contentType string, err error)
 }
 
+// Settings is the part of the settings service the handlers use.
+type Settings interface {
+	View() settings.View
+	Patch(ctx context.Context, p settings.Patch) (settings.PatchResult, error)
+	Test(ctx context.Context, url, key string) (settings.TestResult, error)
+}
+
 // Server holds the handlers' dependencies.
 type Server struct {
-	catalog Catalog
-	covers  CoverFetcher
-	log     zerolog.Logger
+	catalog  Catalog
+	covers   CoverFetcher
+	settings Settings
+	log      zerolog.Logger
 }
 
 // New returns a Server.
-func New(c Catalog, covers CoverFetcher, log zerolog.Logger) *Server {
-	return &Server{catalog: c, covers: covers, log: log}
+func New(c Catalog, covers CoverFetcher, st Settings, log zerolog.Logger) *Server {
+	return &Server{catalog: c, covers: covers, settings: st, log: log}
 }
 
 // Routes registers the API on mux.
@@ -56,6 +65,9 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/album/{id}", s.handleAlbum)
 	mux.HandleFunc("POST /api/album/{id}/request", s.handleRequest)
 	mux.HandleFunc("GET /api/cover/{id}", s.handleCover)
+	mux.HandleFunc("GET /api/settings", s.handleSettings)
+	mux.HandleFunc("POST /api/settings", s.handleSaveSettings)
+	mux.HandleFunc("POST /api/settings/test", s.handleTestSettings)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -160,6 +172,93 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Could not add the album", http.StatusBadGateway)
 	}
+}
+
+// maxSettingsBody bounds a settings request: five short fields.
+const maxSettingsBody = 8 << 10
+
+// decodeBody reads a small JSON body, refusing unknown fields and trailing data.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSettingsBody))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil || dec.More() {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+// settingsFailure answers a failed settings call. Validation messages are written
+// for the person at the page and are safe to show; anything else stays in the log.
+func (s *Server) settingsFailure(w http.ResponseWriter, r *http.Request, err error) {
+	var invalid *settings.ValidationError
+	switch {
+	case errors.Is(err, settings.ErrReadOnly):
+		http.Error(w, "Settings are read-only", http.StatusForbidden)
+	case errors.As(err, &invalid):
+		http.Error(w, invalid.Message, http.StatusBadRequest)
+	default:
+		if r.Context().Err() == nil {
+			s.log.Error().Err(err).Msg("settings call failed")
+		}
+		http.Error(w, "Could not save the settings", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, s.settings.View())
+}
+
+type settingsBody struct {
+	Lidarr struct {
+		URL               *string `json:"url"`
+		APIKey            *string `json:"api_key"`
+		RootFolder        *string `json:"root_folder"`
+		QualityProfileID  *int    `json:"quality_profile_id"`
+		MetadataProfileID *int    `json:"metadata_profile_id"`
+	} `json:"lidarr"`
+}
+
+func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	var body settingsBody
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	l := body.Lidarr
+	res, err := s.settings.Patch(r.Context(), settings.Patch{
+		URL: l.URL, APIKey: l.APIKey, RootFolder: l.RootFolder,
+		QualityProfileID: l.QualityProfileID, MetadataProfileID: l.MetadataProfileID,
+	})
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]any{"settings": res.View, "warning": res.Warning})
+}
+
+func (s *Server) handleTestSettings(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	var body struct {
+		URL    string `json:"url"`
+		APIKey string `json:"api_key"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	res, err := s.settings.Test(r.Context(), body.URL, body.APIKey)
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, res)
 }
 
 func (s *Server) handleCover(w http.ResponseWriter, r *http.Request) {

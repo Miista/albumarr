@@ -9,7 +9,8 @@
 // Lidarr's hosted metadata service gives an album's details and tracks (and
 // its image CDN the covers), and your own Lidarr says what you already have.
 //
-// Configuration comes from environment variables (see the README). There is
+// Lidarr is configured on the settings page; any setting can instead be pinned
+// by an environment variable, which locks it on the page (see the README). There is
 // no login yet, so by default the server binds to loopback only; bind it
 // wider (ALBUMREQ_ADDR) only behind something that authenticates.
 package main
@@ -17,7 +18,6 @@ package main
 import (
 	"context"
 	"embed"
-	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -25,7 +25,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -37,11 +36,16 @@ import (
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumreq/internal/settings"
+	"github.com/Miista/albumreq/internal/store"
 )
 
 // defaultAddr is loopback on purpose: with no login yet, nothing but this
 // machine should be able to reach the app unless the operator opts in.
 const defaultAddr = "127.0.0.1:8768"
+
+// defaultDataDir holds config.json, the settings saved from the settings page.
+const defaultDataDir = "/app/data"
 
 // staticFiles is the frontend (HTML, JS, CSS), compiled into the binary so
 // albumreq ships as a single file.
@@ -51,13 +55,6 @@ var staticFiles embed.FS
 
 func main() {
 	logger := newLogger(os.Getenv("ALBUMREQ_SETTING_LOG_LEVEL"))
-
-	lidarrURL := os.Getenv("ALBUMREQ_SETTING_LIDARR_URL")
-	lidarrKey := os.Getenv("ALBUMREQ_SETTING_LIDARR_API_KEY")
-	if lidarrURL == "" || lidarrKey == "" {
-		logger.Fatal().Msg("ALBUMREQ_SETTING_LIDARR_URL and ALBUMREQ_SETTING_LIDARR_API_KEY must both be set")
-	}
-	requireHTTPURL(logger, "ALBUMREQ_SETTING_LIDARR_URL", lidarrURL)
 
 	// MusicBrainz requires a contact in the User-Agent. There is deliberately
 	// no default: it is the operator's to choose, and it is only ever sent to
@@ -92,11 +89,25 @@ func main() {
 		addr = defaultAddr
 	}
 
-	library := lidarr.New(lidarrURL, lidarrKey)
+	dataDir := os.Getenv("ALBUMREQ_DATA_DIR")
+	if dataDir == "" {
+		dataDir = defaultDataDir
+	}
+	st, err := store.Open(dataDir)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("cannot open the settings store in " + dataDir)
+	}
+
+	library := &lidarr.Live{}
 	cat := catalog.New(mb, lidarrmeta.New(metaURL), library)
-	enableRequests(logger, cat, library)
+	service := settings.NewService(st, library, cat, logger)
+	func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		service.Reload(ctx)
+	}()
 	mux := http.NewServeMux()
-	api.New(cat, coverart.New(coverURL), logger).Routes(mux)
+	api.New(cat, coverart.New(coverURL), service, logger).Routes(mux)
 
 	static, err := fs.Sub(staticFiles, "web/static")
 	if err != nil {
@@ -114,9 +125,9 @@ func main() {
 	defer stop()
 
 	go func() {
-		logger.Info().Msg(fmt.Sprintf("starting albumreq on %s, Lidarr at %s", addr, lidarrURL))
+		logger.Info().Msg(fmt.Sprintf("starting albumreq on %s, settings in %s", addr, dataDir))
 		if !isLoopback(addr) {
-			logger.Warn().Msg("listening beyond loopback with no login: anyone who can reach this port can search your Lidarr")
+			logger.Warn().Msg("listening beyond loopback with no login: anyone who can reach this port can search your Lidarr and change its settings" + readOnlyHint())
 		}
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal().Err(err).Msg("server stopped")
@@ -130,40 +141,13 @@ func main() {
 	_ = httpServer.Shutdown(shutdownCtx)
 }
 
-// enableRequests turns requesting on when, and only when, all three Lidarr
-// settings are given: where to put artists, and which profiles to give them.
-// Writes are opt-in. A setting that does not match Lidarr stops the process,
-// because a typo is better found now than at someone's first click; an
-// unreachable Lidarr only warns, since it may simply still be starting.
-func enableRequests(logger zerolog.Logger, cat *catalog.Catalog, library *lidarr.Client) {
-	root := os.Getenv("ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER")
-	qpRaw := os.Getenv("ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID")
-	mpRaw := os.Getenv("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID")
-
-	if root == "" && qpRaw == "" && mpRaw == "" {
-		logger.Info().Msg("requesting is off (read-only): set ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER, _QUALITY_PROFILE_ID and _METADATA_PROFILE_ID to turn it on")
-		return
+// readOnlyHint tells the operator how to stop the settings page being used by
+// whoever can reach the port.
+func readOnlyHint() string {
+	if settings.ReadOnly() {
+		return ""
 	}
-	if root == "" || qpRaw == "" || mpRaw == "" {
-		logger.Fatal().Msg("ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER, _QUALITY_PROFILE_ID and _METADATA_PROFILE_ID must be set together, or not at all")
-	}
-	qp, qerr := strconv.Atoi(qpRaw)
-	mp, merr := strconv.Atoi(mpRaw)
-	if qerr != nil || merr != nil || qp < 1 || mp < 1 {
-		logger.Fatal().Msg("ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID and _METADATA_PROFILE_ID must be positive whole numbers (Lidarr's profile IDs)")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	switch err := library.CheckSettings(ctx, root, qp, mp); {
-	case errors.Is(err, lidarr.ErrBadSettings):
-		logger.Fatal().Msg("requesting settings do not match Lidarr: " + err.Error())
-	case err != nil:
-		logger.Warn().Msg(fmt.Sprintf("could not check the requesting settings against Lidarr (%v); requests will fail until Lidarr answers", err))
-	}
-
-	cat.EnableRequests(catalog.RequestSettings{RootFolder: root, QualityProfileID: qp, MetadataProfileID: mp})
-	logger.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and metadata profile %d, nothing monitored", root, qp, mp))
+	return " (set ALBUMREQ_SETTINGS_READONLY=true to lock the settings page)"
 }
 
 // requireHTTPURL stops the process unless value is an absolute http(s) URL.

@@ -68,7 +68,7 @@ func (f *fakeCovers) Front(_ context.Context, id string, size int) ([]byte, stri
 
 func newMux(c Catalog, cv CoverFetcher) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(c, cv, zerolog.Nop()).Routes(mux)
+	New(c, cv, &fakeSettings{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 
