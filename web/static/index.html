@@ -18,13 +18,20 @@
       </div>
       <span>albumreq</span>
     </div>
+    <nav class="topnav" aria-label="Pages">
+      <a href="#" :class="{ active: page === 'search' }" @click.prevent="go('search')">Search</a>
+      <a href="#/settings" :class="{ active: page === 'settings' }" @click.prevent="go('settings')">Settings</a>
+    </nav>
   </header>
 
-  <main>
+  <main v-show="page === 'search'">
     <div class="title-block">
       <h1>Find an album</h1>
       <p class="lede">Search MusicBrainz and see what you already have in Lidarr.</p>
     </div>
+
+    <p class="banner" v-if="cfg && !cfg.configured">Lidarr is not set up yet, so library status is not shown. <a href="#/settings" @click.prevent="go('settings')">Open settings</a></p>
+    <p class="note-text" v-else-if="cfg && !cfg.requests_enabled">Requesting is off. Choose a root folder and profiles in <a href="#/settings" @click.prevent="go('settings')">settings</a> to turn it on.</p>
 
     <form class="search-box" @submit.prevent="search" role="search">
       <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.8"></circle><path d="M10.6 10.6L14 14"></path></svg>
@@ -73,6 +80,90 @@
         <span class="spinner" v-if="loadingMore"></span>{{ loadingMore ? 'Loading…' : (moreError ? 'Try again' : 'Show more') }}
       </button>
     </div>
+  </main>
+
+  <main class="settings" v-if="page === 'settings'">
+    <div class="title-block">
+      <h1>Settings</h1>
+      <p class="lede">Connect albumreq to Lidarr. A setting pinned by an environment variable is locked here.</p>
+    </div>
+
+    <p class="error-text" v-if="cfgError" role="alert">{{ cfgError }}</p>
+    <div class="searching" v-if="!cfg && !cfgError"><span class="spinner"></span>Loading…</div>
+
+    <p class="banner" v-if="cfg && cfg.read_only">Settings are read-only (<code>ALBUMREQ_SETTINGS_READONLY</code>). Nothing here can be changed from the page.</p>
+    <div class="banner warn" v-if="cfg && cfg.problems && cfg.problems.length">
+      <p v-for="p in cfg.problems">{{ p }}</p>
+    </div>
+
+    <form class="cards" v-if="cfg" @submit.prevent="save" autocomplete="off">
+      <section class="card">
+        <div class="card-head">
+          <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 3v11.55A4 4 0 1 0 11 18V8h6V3H9z"></path></svg></div>
+          <div class="card-text"><h2>Lidarr</h2><p>Where albums are looked up and added.</p></div>
+          <span class="conn-pill" :class="cfg.configured ? 'on' : 'off'">{{ cfg.configured ? 'Configured' : 'Not configured' }}</span>
+        </div>
+        <div class="card-grid">
+          <div class="field">
+            <label class="field-label" for="f-url">URL <span class="lock-label" v-if="lock('lidarr.url')">{{ lockText('lidarr.url') }}</span></label>
+            <input id="f-url" class="input plain" :class="{ locked: lock('lidarr.url') }" type="url" inputmode="url" v-model="form.url" :disabled="!!lock('lidarr.url')" placeholder="http://lidarr:8686" autocapitalize="off" autocorrect="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-key">API key <span class="lock-label" v-if="lock('lidarr.api_key')">{{ lockText('lidarr.api_key') }}</span></label>
+            <input id="f-key" class="input plain" :class="{ locked: lock('lidarr.api_key') }" type="password" v-model="form.api_key" :disabled="!!lock('lidarr.api_key')" :placeholder="cfg.values.api_key_set ? cfg.values.api_key + ' (saved, type to replace)' : 'Lidarr → Settings → General'" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+          </div>
+        </div>
+        <div class="card-foot">
+          <button type="button" class="btn btn-test" @click="runTest(true)" :disabled="testing">
+            <span class="spinner" v-if="testing"></span>{{ testing ? 'Testing…' : 'Test connection' }}
+          </button>
+          <span class="msg ok" v-if="testResult && testResult.ok">{{ testResult?.message }}</span>
+          <span class="msg bad" v-if="testResult && !testResult.ok">{{ testResult?.message }}</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></div>
+          <div class="card-text"><h2>Requesting</h2><p>Albums are added with the artist and album unmonitored; nothing is searched for or downloaded.</p></div>
+          <span class="conn-pill" :class="cfg.requests_enabled ? 'on' : 'off'">{{ cfg.requests_enabled ? 'On' : 'Off' }}</span>
+        </div>
+        <p class="note-text" v-if="!cfg.configured">Connect to Lidarr first.</p>
+        <div class="card-grid" v-else>
+          <div class="field">
+            <label class="field-label" for="f-root">Root folder <span class="lock-label" v-if="lock('lidarr.root_folder')">{{ lockText('lidarr.root_folder') }}</span></label>
+            <select id="f-root" class="input plain" :class="{ locked: lock('lidarr.root_folder') }" v-if="rootChoices().length" v-model="form.root_folder" :disabled="!!lock('lidarr.root_folder')">
+              <option value="">Choose…</option>
+              <option v-for="r in rootChoices()" :value="r">{{ r }}</option>
+            </select>
+            <input id="f-root" class="input plain" :class="{ locked: lock('lidarr.root_folder') }" v-else v-model="form.root_folder" :disabled="!!lock('lidarr.root_folder')" placeholder="/music" autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-qp">Quality profile <span class="lock-label" v-if="lock('lidarr.quality_profile_id')">{{ lockText('lidarr.quality_profile_id') }}</span></label>
+            <select id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-if="options" v-model.number="form.quality_profile_id" :disabled="!!lock('lidarr.quality_profile_id')">
+              <option :value="0">Choose…</option>
+              <option v-for="p in profileChoices('quality_profile_id', options?.qualityProfiles)" :value="p.id">{{ p.name }}</option>
+            </select>
+            <input id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-else type="number" min="0" v-model.number="form.quality_profile_id" :disabled="!!lock('lidarr.quality_profile_id')">
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-mp">Metadata profile <span class="lock-label" v-if="lock('lidarr.metadata_profile_id')">{{ lockText('lidarr.metadata_profile_id') }}</span></label>
+            <select id="f-mp" class="input plain" :class="{ locked: lock('lidarr.metadata_profile_id') }" v-if="options" v-model.number="form.metadata_profile_id" :disabled="!!lock('lidarr.metadata_profile_id')">
+              <option :value="0">Choose…</option>
+              <option v-for="p in profileChoices('metadata_profile_id', options?.metadataProfiles)" :value="p.id">{{ p.name }}</option>
+            </select>
+            <input id="f-mp" class="input plain" :class="{ locked: lock('lidarr.metadata_profile_id') }" v-else type="number" min="0" v-model.number="form.metadata_profile_id" :disabled="!!lock('lidarr.metadata_profile_id')">
+            <span class="hint">Decides how many of an artist's other albums Lidarr lists. A narrow profile keeps the library tidy.</span>
+          </div>
+        </div>
+      </section>
+
+      <p class="banner warn" v-if="warning">{{ warning }}</p>
+      <div class="save-bar" :class="saveState" v-if="!cfg.read_only">
+        <span class="save-text">{{ saveText() }}</span>
+        <button type="submit" class="btn primary" :disabled="saving || !dirty()"><span class="spinner" v-if="saving"></span>{{ saving ? 'Saving…' : 'Save' }}</button>
+      </div>
+    </form>
   </main>
 
   <!-- Album sheet -->

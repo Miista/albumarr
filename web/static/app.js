@@ -40,7 +40,169 @@ function App() {
     requestNote: '',
     requestError: '',
 
+    // --- settings page ---
+
+    page: 'search',
+    cfg: null, // GET /api/settings
+    cfgError: '',
+    form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0, metadata_profile_id: 0 },
+    options: null, // root folders and profiles Lidarr offered on the last successful test
+    testing: false,
+    testResult: null,
+    saving: false,
+    saveState: '',
+    saveError: '',
+    warning: '',
+
+    go(page) {
+      if (page === this.page) return;
+      if (this.selected) this.close();
+      history.pushState(null, '', location.pathname + (page === 'settings' ? '#/settings' : location.search));
+      this.showPage(page);
+    },
+
+    showPage(page) {
+      this.page = page;
+      if (page === 'settings') this.loadSettings();
+    },
+
+    async loadSettings() {
+      this.cfgError = '';
+      try {
+        const res = await fetch('/api/settings', { cache: 'no-store' });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.applySettings(await res.json());
+        if (this.cfg.configured && this.page === 'settings') this.runTest(false);
+      } catch (e) {
+        this.cfgError = e.message;
+      }
+    },
+
+    // applySettings makes the form show what the server now has. The API key is
+    // never sent to the page, so its field starts empty: empty means "keep".
+    applySettings(c) {
+      this.cfg = c;
+      const v = c.values;
+      this.form = {
+        url: v.url,
+        api_key: '',
+        root_folder: v.root_folder,
+        quality_profile_id: v.quality_profile_id,
+        metadata_profile_id: v.metadata_profile_id,
+      };
+    },
+
+    lock(key) {
+      return this.cfg && this.cfg.locks ? this.cfg.locks[key] : null;
+    },
+
+    lockText(key) {
+      const l = this.lock(key);
+      if (!l) return '';
+      if (l.reason === 'env') return 'Managed by ' + l.env_var;
+      if (l.reason === 'paired') return 'Locked with ' + l.env_var;
+      return 'Read-only';
+    },
+
+    // rootChoices lists Lidarr's root folders, plus the current value if Lidarr
+    // does not offer it, so a saved setting is never silently dropped.
+    rootChoices() {
+      if (!this.options) return [];
+      const l = this.options.rootFolders.slice();
+      if (this.form.root_folder && !l.includes(this.form.root_folder)) l.push(this.form.root_folder);
+      return l;
+    },
+
+    profileChoices(key, list) {
+      const l = (list || []).slice();
+      const id = this.form[key];
+      if (id && !l.some((p) => p.id === id)) l.push({ id, name: 'Profile ' + id + ' (not in Lidarr)' });
+      return l;
+    },
+
+    // runTest asks the server to try the connection. With the fields empty or
+    // unchanged the server uses the saved key against the saved URL; the page
+    // only ever sends a key it was typed. manual=false is the quiet refresh
+    // that fills the dropdowns.
+    async runTest(manual) {
+      if (this.testing) return;
+      this.testing = true;
+      if (manual) this.testResult = null;
+      try {
+        const res = await fetch('/api/settings/test', {
+          method: 'POST',
+          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: this.form.url, api_key: this.form.api_key }),
+        });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        const r = await res.json();
+        if (manual || !r.ok) this.testResult = r;
+        if (r.ok && r.options) this.options = r.options;
+      } catch (e) {
+        this.testResult = { ok: false, message: e.message };
+      } finally {
+        this.testing = false;
+      }
+    },
+
+    // changes is what differs from the server's view; locked fields and an
+    // empty API key are left out.
+    changes() {
+      if (!this.cfg) return {};
+      const v = this.cfg.values;
+      const f = this.form;
+      const out = {};
+      if (!this.lock('lidarr.url') && f.url.trim() !== v.url) out.url = f.url.trim();
+      if (!this.lock('lidarr.api_key') && f.api_key.trim() !== '') out.api_key = f.api_key.trim();
+      if (!this.lock('lidarr.root_folder') && f.root_folder.trim() !== v.root_folder) out.root_folder = f.root_folder.trim();
+      for (const k of ['quality_profile_id', 'metadata_profile_id']) {
+        const n = Number(f[k]) || 0;
+        if (!this.lock('lidarr.' + k) && n !== v[k]) out[k] = n;
+      }
+      return out;
+    },
+
+    dirty() {
+      return Object.keys(this.changes()).length > 0;
+    },
+
+    saveText() {
+      if (this.saving) return 'Saving…';
+      if (this.saveState === 'failed') return this.saveError;
+      if (this.saveState === 'saved') return 'Saved';
+      return this.dirty() ? 'Unsaved changes' : 'No changes';
+    },
+
+    async save() {
+      const body = this.changes();
+      if (this.saving || !Object.keys(body).length) return;
+      this.saving = true;
+      this.saveState = '';
+      this.warning = '';
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lidarr: body }),
+        });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        const data = await res.json();
+        this.applySettings(data.settings);
+        this.warning = data.warning || '';
+        this.saveState = 'saved';
+        this.testResult = null;
+        this.options = null;
+        if (this.cfg.configured) this.runTest(false);
+      } catch (e) {
+        this.saveError = e.message;
+        this.saveState = 'failed';
+      } finally {
+        this.saving = false;
+      }
+    },
+
     mounted() {
+      fetch('/api/settings', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((c) => { if (c && !this.cfg) this.cfg = c; }).catch(() => {});
       const q = new URLSearchParams(location.search).get('q');
       if (q) {
         this.query = q;
@@ -221,6 +383,16 @@ function App() {
     },
 
     syncFromHash() {
+      if (location.hash === '#/settings') {
+        if (this.selected) {
+          detailSeq++;
+          this.selected = null;
+          document.body.style.overflow = '';
+        }
+        this.showPage('settings');
+        return;
+      }
+      if (this.page !== 'search') this.showPage('search');
       const m = /^#album=(.+)$/.exec(location.hash);
       if (m && UUID.test(m[1])) {
         if (!this.selected || this.selected.id !== m[1]) {
