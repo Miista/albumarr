@@ -73,18 +73,29 @@ func Open(dataDir string) (*DB, error) {
 func (d *DB) Path() string { return d.path }
 
 // migrations are applied in order, each in its own transaction, and recorded in
-// PRAGMA user_version. Never edit one that has shipped: add the next.
+// PRAGMA user_version. Once something has shipped, never edit a migration: add the
+// next. Until then the schema is kept as one clean first migration.
 var migrations = []string{
-	// 1: the Lidarr connection (one row), and everyone who has signed in.
+	// 1: the Lidarr connection (one row), everyone who has signed in, and the
+	// request records.
+	//
+	// Requests: declined and approved ones stay as history; only a pending one is
+	// "open", and the partial unique index lets exactly one album be pending at a
+	// time, so two clicks or two people at once cannot make two. Approved records do
+	// not block a new request: if the album has since left Lidarr it can be asked for
+	// again, and Lidarr's own state, not this table, says whether it is wanted.
+	//
+	// There is no metadata profile setting: every requested artist gets the profile
+	// named "None", looked up in Lidarr when it is needed.
 	`CREATE TABLE lidarr (
-		id                  INTEGER PRIMARY KEY CHECK (id = 1),
-		url                 TEXT    NOT NULL DEFAULT '',
-		api_key             TEXT    NOT NULL DEFAULT '',
-		root_folder         TEXT    NOT NULL DEFAULT '',
-		quality_profile_id  INTEGER NOT NULL DEFAULT 0,
-		metadata_profile_id INTEGER NOT NULL DEFAULT 0
+		id                 INTEGER PRIMARY KEY CHECK (id = 1),
+		url                TEXT    NOT NULL DEFAULT '',
+		api_key            TEXT    NOT NULL DEFAULT '',
+		root_folder        TEXT    NOT NULL DEFAULT '',
+		quality_profile_id INTEGER NOT NULL DEFAULT 0
 	);
 	INSERT INTO lidarr (id) VALUES (1);
+
 	CREATE TABLE users (
 		sub        TEXT    PRIMARY KEY,
 		name       TEXT    NOT NULL,
@@ -93,39 +104,28 @@ var migrations = []string{
 		approver   INTEGER NOT NULL DEFAULT 0,
 		first_seen INTEGER NOT NULL,
 		last_seen  INTEGER NOT NULL
-	);`,
+	);
 
-	// 2: request records. Declined and approved ones stay as history; only a
-	// pending one is "open", and the partial unique index lets exactly one album
-	// be pending at a time, so two clicks or two people at once cannot make two.
-	// Approved records do not block a new request: if the album has since left
-	// Lidarr it can be asked for again, and Lidarr's own state, not this table,
-	// says whether it is wanted.
-	`CREATE TABLE requests (
-		id             INTEGER PRIMARY KEY AUTOINCREMENT,
-		album_id       TEXT    NOT NULL,
-		title          TEXT    NOT NULL,
-		artist         TEXT    NOT NULL,
-		requester_sub  TEXT    NOT NULL,
-		requester_name TEXT    NOT NULL,
-		state          TEXT    NOT NULL CHECK (state IN ('pending', 'approved', 'declined')),
-		decided_by_sub  TEXT   NOT NULL DEFAULT '',
-		decided_by_name TEXT   NOT NULL DEFAULT '',
-		decided_at     INTEGER NOT NULL DEFAULT 0,
-		auto           INTEGER NOT NULL DEFAULT 0,
-		decline_reason TEXT    NOT NULL DEFAULT '',
-		lidarr_result  TEXT    NOT NULL DEFAULT '',
-		created_at     INTEGER NOT NULL,
+	CREATE TABLE requests (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		album_id        TEXT    NOT NULL,
+		title           TEXT    NOT NULL,
+		artist          TEXT    NOT NULL,
+		requester_sub   TEXT    NOT NULL,
+		requester_name  TEXT    NOT NULL,
+		state           TEXT    NOT NULL CHECK (state IN ('pending', 'approved', 'declined')),
+		decided_by_sub  TEXT    NOT NULL DEFAULT '',
+		decided_by_name TEXT    NOT NULL DEFAULT '',
+		decided_at      INTEGER NOT NULL DEFAULT 0,
+		auto            INTEGER NOT NULL DEFAULT 0,
+		decline_reason  TEXT    NOT NULL DEFAULT '',
+		lidarr_result   TEXT    NOT NULL DEFAULT '',
+		created_at      INTEGER NOT NULL,
 		CHECK (state = 'pending' OR decided_at > 0)
 	);
 	CREATE UNIQUE INDEX requests_one_pending ON requests (album_id) WHERE state = 'pending';
 	CREATE INDEX requests_by_state     ON requests (state, created_at);
 	CREATE INDEX requests_by_requester ON requests (requester_sub, created_at);`,
-
-	// 3: the metadata profile is not a setting any more. Every requested artist gets
-	// the profile named "None", looked up in Lidarr when it is needed, so a request
-	// adds only the album asked for.
-	`ALTER TABLE lidarr DROP COLUMN metadata_profile_id;`,
 }
 
 func (d *DB) migrate() error {
