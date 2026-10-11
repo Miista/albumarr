@@ -161,6 +161,7 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
 .status-pill.processing { --pill-color: var(--amber); --pill-bg: oklch(0.24 0.05 80 / .9); --pill-border: oklch(0.5 0.12 80 / .6); }
 .status-pill.requested { --pill-color: var(--cyan); --pill-bg: oklch(0.22 0.05 200 / .9); --pill-border: oklch(0.5 0.12 200 / .6); }
 .status-pill.inlidarr { --pill-color: var(--muted); --pill-bg: oklch(0.22 0.01 270 / .92); --pill-border: oklch(0.42 0.02 270 / .7); }
+.status-pill.pending { --pill-color: oklch(0.8 0.12 290); --pill-bg: oklch(0.24 0.05 290 / .9); --pill-border: oklch(0.5 0.12 290 / .6); }
 .status-pill.notfound { --pill-color: var(--red-text); --pill-bg: oklch(0.24 0.06 25 / .9); --pill-border: oklch(0.5 0.14 25 / .6); }
 
 /* On a cover, the pills sit in the corners: type on top, status below. */

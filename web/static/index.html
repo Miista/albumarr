@@ -220,7 +220,7 @@
               <button type="button" class="btn primary" v-if="detail.canRequest && mayRequest()" @click="request" :disabled="requesting">
                 <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : 'Request' }}
               </button>
-              <p class="note-text" v-if="detail.canRequest && mayRequest() && !requestNote">Lidarr will search for this album and download it if it finds a release that fits your quality profile.</p>
+              <p class="note-text" v-if="detail.canRequest && mayRequest() && !requestNote">{{ canApprove() ? 'Lidarr will search for this album and download it if it finds a release that fits your quality profile.' : 'An approver will review your request before anything is downloaded.' }}</p>
               <p class="ok-text" v-if="requestNote">{{ requestNote }}</p>
               <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>
             </div>

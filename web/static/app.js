@@ -4,6 +4,7 @@ const STATUS_LABELS = {
   requested: 'Requested',
   notfound: 'Not found',
   inlidarr: 'In Lidarr',
+  pending: 'Pending approval',
 };
 
 // MusicBrainz answers about one search a second, so wait for a pause in the
@@ -102,10 +103,14 @@ function App() {
       };
     },
 
-    // mayRequest: a plain user's request would have to wait for an approval that
-    // does not exist yet, so only approvers and admins are offered the button.
+    // mayRequest: anyone let in may ask. What happens next depends on who asks (see
+    // canApprove): an approver's request goes straight to Lidarr, a user's waits.
     mayRequest() {
-      return !!this.me && (this.me.role === 'approver' || this.me.role === 'admin') && this.me.requests_enabled;
+      return !!this.me && this.me.role !== 'none' && !!this.me.requests_enabled;
+    },
+
+    canApprove() {
+      return !!this.me && (this.me.role === 'approver' || this.me.role === 'admin');
     },
 
     lock(key) {
@@ -393,6 +398,7 @@ function App() {
         if (!this.selected || this.selected.id !== id) return;
         this.requestNote = {
           added: 'Requested. Lidarr is searching for it now.',
+          pending: 'Requested. An approver will look at it before anything is downloaded.',
           added_unsearched: 'Added to Lidarr, but the search could not be started, so Lidarr will not look for it by itself. Try again in a moment, or search for it in Lidarr.',
         }[data.result] || 'Lidarr already has this album and is looking for it.';
         await this.loadDetail(id);
