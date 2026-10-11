@@ -46,11 +46,13 @@ func TestDeriveStatus(t *testing.T) {
 		{"monitored, empty lastSearchTime is requested", state(1, true, 0, 0, ""), false, StatusRequested},
 		{"monitored and searched is not found", state(1, true, 0, 0, searchedAt), false, StatusNotFound},
 		{"partial files, monitored, searched is not found", state(1, true, 4, 33, searchedAt), false, StatusNotFound},
-		// The refusing cases: nothing was requested, so there must be no chip.
-		{"unmonitored, no files is no chip", state(1, false, 0, 0, searchedAt), false, StatusNone},
-		{"unmonitored partial is no chip", state(1, false, 4, 33, searchedAt), false, StatusNone},
-		{"files but zero percent is not available", state(1, false, 1, 0, searchedAt), false, StatusNone},
-		{"100 percent with no files is not available", state(1, false, 0, 100, searchedAt), false, StatusNone},
+		// Known to Lidarr but nothing asked for: added, not monitored. Never "available"
+		// without every track on disk, and never mistaken for "not in Lidarr".
+		{"unmonitored, no files is in Lidarr", state(1, false, 0, 0, searchedAt), false, StatusInLidarr},
+		{"unmonitored, never searched is in Lidarr", state(1, false, 0, 0, never), false, StatusInLidarr},
+		{"unmonitored partial is in Lidarr", state(1, false, 4, 33, searchedAt), false, StatusInLidarr},
+		{"files but zero percent is not available", state(1, false, 1, 0, searchedAt), false, StatusInLidarr},
+		{"100 percent with no files is not available", state(1, false, 0, 100, searchedAt), false, StatusInLidarr},
 	}
 	for _, c := range cases {
 		if got := DeriveStatus(c.st, c.queued); got != c.want {
@@ -106,6 +108,8 @@ type fakeLib struct {
 	albumErr    error
 	queueErr    error
 	tracksErr   error
+	addErr      error
+	added       []lidarr.NewAlbum
 	albumCalls  atomic.Int32 // AlbumByForeignID runs from several goroutines
 	queueCalls  atomic.Int32
 	tracksCalls atomic.Int32
@@ -119,6 +123,13 @@ func (f *fakeLib) AlbumByForeignID(_ context.Context, id string) (*lidarr.AlbumS
 func (f *fakeLib) QueuedAlbumIDs(context.Context) (map[int]bool, error) {
 	f.queueCalls.Add(1)
 	return f.queued, f.queueErr
+}
+
+func (f *fakeLib) AddAlbum(_ context.Context, a lidarr.NewAlbum) error {
+	if f.addErr == nil {
+		f.added = append(f.added, a)
+	}
+	return f.addErr
 }
 
 func (f *fakeLib) Tracks(context.Context, int) ([]lidarr.LibraryTrack, error) {
@@ -406,5 +417,140 @@ func TestSearchRejectsOffsetsOutsideTheCap(t *testing.T) {
 	}
 	if _, err := c.Search(context.Background(), "x", MaxOffset); err != nil {
 		t.Errorf("the last allowed offset was rejected: %v", err)
+	}
+}
+
+// --- requests ---
+
+const artistMBID = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+
+func requestCatalog(meta *fakeMeta, lib *fakeLib) *Catalog {
+	c := New(&fakeSearch{}, meta, lib)
+	c.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1})
+	return c
+}
+
+func metaWithArtist() *fakeMeta {
+	m := okcMeta()
+	m.ArtistID = artistMBID
+	return &fakeMeta{album: m}
+}
+
+func TestRequestAddsTheAlbumWithTheConfiguredSettings(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}}
+	res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if err != nil || res != RequestAdded {
+		t.Fatalf("got %q, %v", res, err)
+	}
+	want := lidarr.NewAlbum{AlbumID: id1, ArtistID: artistMBID, RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1}
+	if len(lib.added) != 1 || lib.added[0] != want {
+		t.Errorf("added = %+v, want exactly %+v", lib.added, want)
+	}
+}
+
+func TestRequestForAnAlbumLidarrAlreadyHasChangesNothing(t *testing.T) {
+	meta := metaWithArtist()
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}}
+	res, err := requestCatalog(meta, lib).Request(context.Background(), id1)
+	if err != nil || res != RequestExists {
+		t.Fatalf("got %q, %v", res, err)
+	}
+	if len(lib.added) != 0 || meta.calls != 0 {
+		t.Errorf("nothing should be written or fetched: added=%d metadata calls=%d", len(lib.added), meta.calls)
+	}
+}
+
+func TestRequestRaceLidarrAddedItFirst(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, addErr: lidarr.ErrAlreadyAdded}
+	res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	if err != nil || res != RequestExists {
+		t.Errorf("an already-added answer from Lidarr is success: %q, %v", res, err)
+	}
+}
+
+func TestRequestRefusals(t *testing.T) {
+	boom := errors.New("boom")
+	cases := []struct {
+		name      string
+		enabled   bool
+		id        string
+		meta      *fakeMeta
+		lib       *fakeLib
+		want      error
+		wantAsErr bool
+	}{
+		{"requesting is off", false, id1, metaWithArtist(), &fakeLib{}, ErrRequestsDisabled, false},
+		{"invalid id", true, "../../x", metaWithArtist(), &fakeLib{}, ErrInvalidID, false},
+		{"Lidarr cannot be asked what it has", true, id1, metaWithArtist(), &fakeLib{albumErr: boom}, ErrUnavailable, false},
+		{"unknown to the metadata service", true, id1, &fakeMeta{err: lidarrmeta.ErrNotFound}, &fakeLib{}, ErrNotInMetadata, false},
+		{"metadata service down", true, id1, &fakeMeta{err: boom}, &fakeLib{}, ErrUnavailable, false},
+		{"metadata has no artist", true, id1, &fakeMeta{album: okcMeta()}, &fakeLib{}, ErrNotInMetadata, false},
+		{"metadata artist is not a UUID", true, id1, &fakeMeta{album: func() lidarrmeta.Album { m := okcMeta(); m.ArtistID = "../x"; return m }()}, &fakeLib{}, ErrNotInMetadata, false},
+		{"Lidarr unavailable on the write", true, id1, metaWithArtist(), &fakeLib{addErr: lidarr.ErrUnavailable}, ErrUnavailable, false},
+	}
+	for _, c := range cases {
+		if c.lib.states == nil {
+			c.lib.states = map[string]*lidarr.AlbumState{}
+		}
+		cat := New(&fakeSearch{}, c.meta, c.lib)
+		if c.enabled {
+			cat.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1})
+		}
+		_, err := cat.Request(context.Background(), c.id)
+		if !errors.Is(err, c.want) {
+			t.Errorf("%s: err = %v, want %v", c.name, err, c.want)
+		}
+		if len(c.lib.added) != 0 {
+			t.Errorf("%s: Lidarr was written to", c.name)
+		}
+	}
+
+	// A refusal that never reaches the metadata or Lidarr must not call them at all.
+	meta, lib := metaWithArtist(), &fakeLib{states: map[string]*lidarr.AlbumState{}}
+	cat := New(&fakeSearch{}, meta, lib) // requests never enabled
+	cat.Request(context.Background(), id1)
+	cat.Request(context.Background(), "nope")
+	if meta.calls != 0 || lib.albumCalls.Load() != 0 {
+		t.Errorf("a disabled or invalid request still called out: meta=%d lib=%d", meta.calls, lib.albumCalls.Load())
+	}
+}
+
+func TestRequestPassesLidarrsRejectionThrough(t *testing.T) {
+	rej := &lidarr.RejectedError{Messages: []string{"Root folder '/nope' does not exist"}}
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, addErr: rej}
+	_, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1)
+	var got *lidarr.RejectedError
+	if !errors.As(err, &got) || errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want Lidarr's rejection and not ErrUnavailable", err)
+	}
+}
+
+func TestDetailCanRequest(t *testing.T) {
+	notOwned := func() *fakeLib { return &fakeLib{states: map[string]*lidarr.AlbumState{}} }
+	owned := func() *fakeLib {
+		return &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}, queued: map[int]bool{}}
+	}
+	cases := []struct {
+		name    string
+		enabled bool
+		meta    *fakeMeta
+		lib     *fakeLib
+		want    bool
+	}{
+		{"enabled and not in Lidarr", true, &fakeMeta{album: okcMeta()}, notOwned(), true},
+		{"already in Lidarr", true, &fakeMeta{album: okcMeta()}, owned(), false},
+		{"requesting is off", false, &fakeMeta{album: okcMeta()}, notOwned(), false},
+		{"Lidarr unreachable", true, &fakeMeta{album: okcMeta()}, &fakeLib{albumErr: errors.New("boom")}, false},
+		{"metadata unavailable", true, &fakeMeta{err: errors.New("boom")}, notOwned(), false},
+	}
+	for _, c := range cases {
+		cat := New(&fakeSearch{}, c.meta, c.lib)
+		if c.enabled {
+			cat.EnableRequests(RequestSettings{RootFolder: "/music", QualityProfileID: 1, MetadataProfileID: 1})
+		}
+		d, err := cat.Detail(context.Background(), id1)
+		if err != nil || d.CanRequest != c.want {
+			t.Errorf("%s: CanRequest = %v (err %v), want %v", c.name, d.CanRequest, err, c.want)
+		}
 	}
 }

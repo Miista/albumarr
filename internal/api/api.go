@@ -18,6 +18,7 @@ import (
 
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumreq/internal/lidarr"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 type Catalog interface {
 	Search(ctx context.Context, term string, offset int) (catalog.SearchResult, error)
 	Detail(ctx context.Context, id string) (catalog.Detail, error)
+	Request(ctx context.Context, id string) (catalog.RequestResult, error)
 }
 
 // CoverFetcher fetches an album's front cover at 250 or 500 pixels.
@@ -52,6 +54,7 @@ func New(c Catalog, covers CoverFetcher, log zerolog.Logger) *Server {
 func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/search", s.handleSearch)
 	mux.HandleFunc("GET /api/album/{id}", s.handleAlbum)
+	mux.HandleFunc("POST /api/album/{id}/request", s.handleRequest)
 	mux.HandleFunc("GET /api/cover/{id}", s.handleCover)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
@@ -99,6 +102,64 @@ func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, d)
+}
+
+// writeGuard refuses a write that a browser sent on behalf of another site.
+// albumreq has no login, so anything that can reach the port can write; what
+// this prevents is a web page you merely visit making your browser do it. A
+// custom header cannot be sent cross-origin without a CORS preflight, which
+// this server never grants, and Sec-Fetch-Site says outright where a modern
+// browser's request came from.
+func writeGuard(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("X-Albumreq") != "1" {
+		http.Error(w, "missing X-Albumreq header", http.StatusForbidden)
+		return false
+	}
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		http.Error(w, "cross-site request refused", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	result, err := s.catalog.Request(r.Context(), id)
+
+	var rejected *lidarr.RejectedError
+	switch {
+	case err == nil:
+		s.log.Info().Msg(fmt.Sprintf("request for album %s: %s", id, result))
+		status := http.StatusOK
+		if result == catalog.RequestAdded {
+			status = http.StatusCreated
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": result})
+	case errors.Is(err, catalog.ErrInvalidID):
+		http.Error(w, "invalid album id", http.StatusBadRequest)
+	case errors.Is(err, catalog.ErrRequestsDisabled):
+		http.Error(w, "Requests are not enabled", http.StatusForbidden)
+	case errors.Is(err, catalog.ErrNotInMetadata):
+		http.Error(w, "Lidarr's metadata does not have this album yet", http.StatusUnprocessableEntity)
+	case errors.Is(err, catalog.ErrUnavailable):
+		s.log.Warn().Err(err).Msg(fmt.Sprintf("request for album %s failed: a service is unavailable", id))
+		http.Error(w, "Lidarr or its metadata service is unavailable, try again later", http.StatusServiceUnavailable)
+	case errors.As(err, &rejected):
+		// Lidarr's own words (a bad root folder, a missing profile) stay in the
+		// log: they describe albumreq's settings, not something a visitor can fix.
+		s.log.Error().Msg(fmt.Sprintf("request for album %s: %s", id, rejected))
+		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
+	default:
+		if r.Context().Err() == nil {
+			s.log.Error().Err(err).Msg(fmt.Sprintf("request for album %s failed", id))
+		}
+		http.Error(w, "Could not add the album", http.StatusBadGateway)
+	}
 }
 
 func (s *Server) handleCover(w http.ResponseWriter, r *http.Request) {

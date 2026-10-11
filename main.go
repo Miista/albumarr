@@ -1,7 +1,9 @@
 // albumreq: a small request frontend for Lidarr. Search for an album, see at a
 // glance whether it is already in the library, being downloaded, requested, or
-// could not be found, and open it for details and a track list. It never
-// writes to Lidarr: it only issues GET requests.
+// could not be found, and open it for details and a track list. Its one write
+// is requesting an album, which adds the artist and album to Lidarr without
+// monitoring either, so nothing is searched for or downloaded. Requesting is
+// off unless Lidarr's root folder and profiles are configured.
 //
 // Three sources, each doing what it is best at: MusicBrainz answers searches,
 // Lidarr's hosted metadata service gives an album's details and tracks (and
@@ -15,6 +17,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -22,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -90,6 +94,7 @@ func main() {
 
 	library := lidarr.New(lidarrURL, lidarrKey)
 	cat := catalog.New(mb, lidarrmeta.New(metaURL), library)
+	enableRequests(logger, cat, library)
 	mux := http.NewServeMux()
 	api.New(cat, coverart.New(coverURL), logger).Routes(mux)
 
@@ -123,6 +128,42 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutdownCtx)
+}
+
+// enableRequests turns requesting on when, and only when, all three Lidarr
+// settings are given: where to put artists, and which profiles to give them.
+// Writes are opt-in. A setting that does not match Lidarr stops the process,
+// because a typo is better found now than at someone's first click; an
+// unreachable Lidarr only warns, since it may simply still be starting.
+func enableRequests(logger zerolog.Logger, cat *catalog.Catalog, library *lidarr.Client) {
+	root := os.Getenv("ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER")
+	qpRaw := os.Getenv("ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID")
+	mpRaw := os.Getenv("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID")
+
+	if root == "" && qpRaw == "" && mpRaw == "" {
+		logger.Info().Msg("requesting is off (read-only): set ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER, _QUALITY_PROFILE_ID and _METADATA_PROFILE_ID to turn it on")
+		return
+	}
+	if root == "" || qpRaw == "" || mpRaw == "" {
+		logger.Fatal().Msg("ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER, _QUALITY_PROFILE_ID and _METADATA_PROFILE_ID must be set together, or not at all")
+	}
+	qp, qerr := strconv.Atoi(qpRaw)
+	mp, merr := strconv.Atoi(mpRaw)
+	if qerr != nil || merr != nil || qp < 1 || mp < 1 {
+		logger.Fatal().Msg("ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID and _METADATA_PROFILE_ID must be positive whole numbers (Lidarr's profile IDs)")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	switch err := library.CheckSettings(ctx, root, qp, mp); {
+	case errors.Is(err, lidarr.ErrBadSettings):
+		logger.Fatal().Msg("requesting settings do not match Lidarr: " + err.Error())
+	case err != nil:
+		logger.Warn().Msg(fmt.Sprintf("could not check the requesting settings against Lidarr (%v); requests will fail until Lidarr answers", err))
+	}
+
+	cat.EnableRequests(catalog.RequestSettings{RootFolder: root, QualityProfileID: qp, MetadataProfileID: mp})
+	logger.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and metadata profile %d, nothing monitored", root, qp, mp))
 }
 
 // requireHTTPURL stops the process unless value is an absolute http(s) URL.

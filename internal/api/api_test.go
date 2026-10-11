@@ -15,6 +15,7 @@ import (
 
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumreq/internal/lidarr"
 )
 
 const id1 = "b1392450-e666-3926-a536-22c65f834433"
@@ -28,12 +29,22 @@ type fakeCatalog struct {
 	detailCalls  int
 	lastDetailID string
 	lastOffset   int
+	requestRes   catalog.RequestResult
+	requestErr   error
+	requestCalls int
+	lastRequest  string
 }
 
 func (f *fakeCatalog) Search(_ context.Context, _ string, offset int) (catalog.SearchResult, error) {
 	f.searchCalls++
 	f.lastOffset = offset
 	return f.res, f.searchErr
+}
+
+func (f *fakeCatalog) Request(_ context.Context, id string) (catalog.RequestResult, error) {
+	f.requestCalls++
+	f.lastRequest = id
+	return f.requestRes, f.requestErr
 }
 
 func (f *fakeCatalog) Detail(_ context.Context, id string) (catalog.Detail, error) {
@@ -266,5 +277,116 @@ func TestSearchRejectsBadOffsets(t *testing.T) {
 	}
 	if rec := get(mux, fmt.Sprintf("/api/search?q=radiohead&offset=%d", catalog.MaxOffset)); rec.Code != http.StatusOK {
 		t.Errorf("the last allowed offset: status = %d, want 200", rec.Code)
+	}
+}
+
+// --- requests ---
+
+func post(mux http.Handler, target string, headers map[string]string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, target, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+var sameOrigin = map[string]string{"X-Albumreq": "1"}
+
+func TestRequestAddedAndExisting(t *testing.T) {
+	fc := &fakeCatalog{requestRes: catalog.RequestAdded}
+	mux := newMux(fc, &fakeCovers{})
+
+	rec := post(mux, "/api/album/"+id1+"/request", sameOrigin)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"result":"added"`) || fc.lastRequest != id1 {
+		t.Errorf("added: status = %d body = %s id = %q", rec.Code, rec.Body, fc.lastRequest)
+	}
+
+	fc.requestRes = catalog.RequestExists
+	rec = post(mux, "/api/album/"+id1+"/request", sameOrigin)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"result":"exists"`) {
+		t.Errorf("exists: status = %d body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestRequestIsRefusedWithoutProofItCameFromThisPage(t *testing.T) {
+	for name, headers := range map[string]map[string]string{
+		"no header":                 nil,
+		"a wrong header value":      {"X-Albumreq": "0"},
+		"an empty header value":     {"X-Albumreq": ""},
+		"a form-style cross-site":   {"Content-Type": "application/x-www-form-urlencoded"},
+		"the header but cross-site": {"X-Albumreq": "1", "Sec-Fetch-Site": "cross-site"},
+		"the header but same-site":  {"X-Albumreq": "1", "Sec-Fetch-Site": "same-site"},
+		"the header, an odd site":   {"X-Albumreq": "1", "Sec-Fetch-Site": "whatever"},
+	} {
+		fc := &fakeCatalog{requestRes: catalog.RequestAdded}
+		rec := post(newMux(fc, &fakeCovers{}), "/api/album/"+id1+"/request", headers)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s: status = %d, want 403", name, rec.Code)
+		}
+		if fc.requestCalls != 0 {
+			t.Errorf("%s: the catalog was asked to write", name)
+		}
+	}
+	// ...and what a real same-origin fetch looks like is accepted.
+	for _, site := range []string{"same-origin", "none", ""} {
+		fc := &fakeCatalog{requestRes: catalog.RequestAdded}
+		rec := post(newMux(fc, &fakeCovers{}), "/api/album/"+id1+"/request", map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": site})
+		if rec.Code != http.StatusCreated {
+			t.Errorf("Sec-Fetch-Site=%q: status = %d, want 201", site, rec.Code)
+		}
+	}
+}
+
+func TestRequestErrorMapping(t *testing.T) {
+	rejected := &lidarr.RejectedError{Messages: []string{"Root folder '/secret/place' does not exist"}}
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"invalid id", catalog.ErrInvalidID, http.StatusBadRequest},
+		{"requests off", catalog.ErrRequestsDisabled, http.StatusForbidden},
+		{"not in metadata", catalog.ErrNotInMetadata, http.StatusUnprocessableEntity},
+		{"unavailable", fmt.Errorf("%w: dial tcp 192.0.2.10:8686: refused", catalog.ErrUnavailable), http.StatusServiceUnavailable},
+		{"rejected by Lidarr", rejected, http.StatusBadGateway},
+		{"something else", errors.New("lidarr /api/v1/album returned 401 Unauthorized"), http.StatusBadGateway},
+	}
+	for _, c := range cases {
+		rec := post(newMux(&fakeCatalog{requestErr: c.err}, &fakeCovers{}), "/api/album/"+id1+"/request", sameOrigin)
+		if rec.Code != c.want {
+			t.Errorf("%s: status = %d, want %d", c.name, rec.Code, c.want)
+		}
+		for _, leaked := range []string{"/secret/place", "192.0.2.10", "401 Unauthorized", "dial tcp"} {
+			if strings.Contains(rec.Body.String(), leaked) {
+				t.Errorf("%s: %q leaked to the client: %s", c.name, leaked, rec.Body)
+			}
+		}
+	}
+}
+
+func TestRequestOnlyAcceptsPost(t *testing.T) {
+	fc := &fakeCatalog{requestRes: catalog.RequestAdded}
+	mux := newMux(fc, &fakeCovers{})
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/api/album/"+id1+"/request", nil)
+		req.Header.Set("X-Albumreq", "1")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s: status = %d, want 405", method, rec.Code)
+		}
+	}
+	if fc.requestCalls != 0 {
+		t.Error("a non-POST reached the catalog")
+	}
+}
+
+func TestAlbumDetailCarriesCanRequest(t *testing.T) {
+	fc := &fakeCatalog{detail: catalog.Detail{Album: catalog.Album{ID: id1}, CanRequest: true}}
+	rec := get(newMux(fc, &fakeCovers{}), "/api/album/"+id1)
+	if !strings.Contains(rec.Body.String(), `"canRequest":true`) {
+		t.Errorf("canRequest missing from %s", rec.Body)
 	}
 }

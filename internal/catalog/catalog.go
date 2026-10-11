@@ -10,6 +10,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -24,6 +25,18 @@ var ErrInvalidID = errors.New("catalog: invalid album id")
 
 // ErrInvalidOffset is returned for a search offset outside 0..MaxOffset.
 var ErrInvalidOffset = errors.New("catalog: invalid search offset")
+
+// ErrRequestsDisabled is returned when albumreq has not been told where to put
+// requested albums in Lidarr, which is what switches requesting on.
+var ErrRequestsDisabled = errors.New("catalog: requests are not enabled")
+
+// ErrNotInMetadata means Lidarr's metadata service does not know the album (a
+// very new MusicBrainz entry may not have reached it yet), so Lidarr cannot
+// add it.
+var ErrNotInMetadata = errors.New("catalog: album is not in Lidarr's metadata")
+
+// ErrUnavailable means Lidarr or its metadata service could not be reached.
+var ErrUnavailable = errors.New("catalog: a required service is unavailable")
 
 const (
 	// PageSize is how many results one search request returns.
@@ -45,6 +58,7 @@ const (
 	StatusProcessing Status = "processing" // an item for it is in the download queue
 	StatusRequested  Status = "requested"  // monitored, not searched yet
 	StatusNotFound   Status = "notfound"   // monitored and searched, but nothing was grabbed
+	StatusInLidarr   Status = "inlidarr"   // in Lidarr, not monitored: added but nothing asked for yet
 )
 
 // Album is one search result as the frontend renders it.
@@ -75,14 +89,27 @@ type Library interface {
 	AlbumByForeignID(ctx context.Context, foreignID string) (*lidarr.AlbumState, error)
 	QueuedAlbumIDs(ctx context.Context) (map[int]bool, error)
 	Tracks(ctx context.Context, albumID int) ([]lidarr.LibraryTrack, error)
+	AddAlbum(ctx context.Context, a lidarr.NewAlbum) error
 }
 
 // Catalog combines the sources.
 type Catalog struct {
-	search Searcher
-	meta   Metadata
-	lib    Library
+	search   Searcher
+	meta     Metadata
+	lib      Library
+	requests *RequestSettings // nil: requesting is off
 }
+
+// RequestSettings is where requested albums go in Lidarr. Giving them to the
+// catalog is what turns requesting on.
+type RequestSettings struct {
+	RootFolder        string
+	QualityProfileID  int
+	MetadataProfileID int
+}
+
+// EnableRequests switches requesting on.
+func (c *Catalog) EnableRequests(s RequestSettings) { c.requests = &s }
 
 // New returns a Catalog.
 func New(search Searcher, meta Metadata, lib Library) *Catalog {
@@ -165,7 +192,8 @@ func (c *Catalog) annotate(ctx context.Context, albums []Album) bool {
 	return true
 }
 
-// DeriveStatus maps an album already in Lidarr to its chip. "Not found" means
+// DeriveStatus maps an album already in Lidarr to its chip; StatusNone is only
+// for albums Lidarr does not have. "Not found" means
 // Lidarr has searched for a monitored album and grabbed nothing — it is
 // inferred from lastSearchTime, since Lidarr has no explicit "search failed"
 // state.
@@ -180,7 +208,7 @@ func DeriveStatus(st lidarr.AlbumState, queued bool) Status {
 	case st.Monitored:
 		return StatusRequested
 	default:
-		return StatusNone
+		return StatusInLidarr
 	}
 }
 
@@ -205,6 +233,7 @@ type Detail struct {
 	Library        *LibraryInfo `json:"library,omitempty"`
 	LibraryOK      bool         `json:"libraryOk"`
 	MetadataOK     bool         `json:"metadataOk"`
+	CanRequest     bool         `json:"canRequest"` // requesting is on, Lidarr does not have the album yet, and it can be added
 	Tracks         TrackList    `json:"trackList"`
 }
 
@@ -301,6 +330,8 @@ func (c *Catalog) Detail(ctx context.Context, id string) (Detail, error) {
 		}
 	}
 
+	d.CanRequest = c.requests != nil && d.MetadataOK && d.LibraryOK && st == nil
+
 	if albumID != 0 {
 		if lt, err := c.lib.Tracks(ctx, albumID); err == nil && len(lt) > 0 {
 			d.Tracks = libraryTrackList(lt)
@@ -311,6 +342,59 @@ func (c *Catalog) Detail(ctx context.Context, id string) (Detail, error) {
 		d.Tracks = editionTrackList(meta.Editions)
 	}
 	return d, nil
+}
+
+// RequestResult says what a request did.
+type RequestResult string
+
+const (
+	RequestAdded  RequestResult = "added"  // the artist and album were added to Lidarr, not monitored
+	RequestExists RequestResult = "exists" // Lidarr already had the album; nothing changed
+)
+
+// Request adds an album, and its artist if need be, to Lidarr without
+// monitoring either, so Lidarr searches for and downloads nothing. It is
+// idempotent: an album Lidarr already has is reported as such, not added twice,
+// and Lidarr is never written to when it cannot first be asked what it has.
+func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error) {
+	if !musicbrainz.ValidID(id) {
+		return "", ErrInvalidID
+	}
+	if c.requests == nil {
+		return "", ErrRequestsDisabled
+	}
+
+	st, err := c.lib.AlbumByForeignID(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("%w: asking Lidarr: %v", ErrUnavailable, err)
+	}
+	if st != nil {
+		return RequestExists, nil
+	}
+
+	meta, err := c.meta.Album(ctx, id)
+	switch {
+	case errors.Is(err, lidarrmeta.ErrNotFound):
+		return "", ErrNotInMetadata
+	case err != nil:
+		return "", fmt.Errorf("%w: asking the metadata service: %v", ErrUnavailable, err)
+	case meta.ArtistID == "" || !musicbrainz.ValidID(meta.ArtistID):
+		return "", ErrNotInMetadata
+	}
+
+	err = c.lib.AddAlbum(ctx, lidarr.NewAlbum{
+		AlbumID: id, ArtistID: meta.ArtistID,
+		RootFolder: c.requests.RootFolder, QualityProfileID: c.requests.QualityProfileID, MetadataProfileID: c.requests.MetadataProfileID,
+	})
+	switch {
+	case err == nil:
+		return RequestAdded, nil
+	case errors.Is(err, lidarr.ErrAlreadyAdded):
+		return RequestExists, nil
+	case errors.Is(err, lidarr.ErrUnavailable):
+		return "", fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	return "", err
 }
 
 func libraryTrackList(lt []lidarr.LibraryTrack) TrackList {

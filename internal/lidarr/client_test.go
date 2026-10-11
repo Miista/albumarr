@@ -2,11 +2,14 @@ package lidarr
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testKey = "s3cret-key"
@@ -142,5 +145,219 @@ func TestBadJSONIsAnError(t *testing.T) {
 	defer srv.Close()
 	if _, err := New(srv.URL, testKey).Tracks(context.Background(), 1); err == nil {
 		t.Error("an HTML response must not decode")
+	}
+}
+
+// --- AddAlbum ---
+
+func newAlbum() NewAlbum {
+	return NewAlbum{
+		AlbumID: "b1392450-e666-3926-a536-22c65f834433", ArtistID: "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+		RootFolder: "/music", QualityProfileID: 5, MetadataProfileID: 1,
+	}
+}
+
+func TestAddAlbumSendsExactlyTheUnmonitoredRequest(t *testing.T) {
+	var gotMethod, gotPath, gotKey, gotType string
+	var raw map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotKey, gotType = r.Method, r.URL.Path, r.Header.Get("X-Api-Key"), r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"id":1}`)
+	}))
+	defer srv.Close()
+
+	if err := New(srv.URL, testKey).AddAlbum(context.Background(), newAlbum()); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/album" || gotKey != testKey || gotType != "application/json" {
+		t.Errorf("request = %s %s key=%q type=%q", gotMethod, gotPath, gotKey, gotType)
+	}
+
+	// Every flag that could trigger a search or a download must be present and false/none:
+	// a missing key would fall back to Lidarr's default, which is to monitor.
+	artist, _ := raw["artist"].(map[string]any)
+	albumOpts, _ := raw["addOptions"].(map[string]any)
+	artistOpts, _ := artist["addOptions"].(map[string]any)
+	want := map[string]any{
+		"foreignAlbumId": "b1392450-e666-3926-a536-22c65f834433",
+		"monitored":      false,
+	}
+	for k, v := range want {
+		if raw[k] != v {
+			t.Errorf("%s = %v, want %v", k, raw[k], v)
+		}
+	}
+	checks := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"addOptions.addType", albumOpts["addType"], "manual"},
+		{"addOptions.searchForNewAlbum", albumOpts["searchForNewAlbum"], false},
+		{"artist.foreignArtistId", artist["foreignArtistId"], "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
+		{"artist.monitored", artist["monitored"], false},
+		{"artist.monitorNewItems", artist["monitorNewItems"], "none"},
+		{"artist.rootFolderPath", artist["rootFolderPath"], "/music"},
+		{"artist.qualityProfileId", artist["qualityProfileId"], float64(5)},
+		{"artist.metadataProfileId", artist["metadataProfileId"], float64(1)},
+		{"artist.addOptions.monitor", artistOpts["monitor"], "none"},
+		{"artist.addOptions.searchForMissingAlbums", artistOpts["searchForMissingAlbums"], false},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %v (%T), want %v", c.name, c.got, c.got, c.want)
+		}
+	}
+}
+
+func TestAddAlbumAlreadyAddedIsReportedNotRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `[{"propertyName":"ForeignAlbumId","errorMessage":"This album has already been added.","errorCode":"AlbumExistsValidator"}]`)
+	}))
+	defer srv.Close()
+	err := New(srv.URL, testKey).AddAlbum(context.Background(), newAlbum())
+	var rej *RejectedError
+	if !errors.Is(err, ErrAlreadyAdded) || errors.As(err, &rej) {
+		t.Errorf("err = %v, want ErrAlreadyAdded and not a RejectedError", err)
+	}
+}
+
+func TestAddAlbumRejections(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want []string
+	}{
+		"bad quality profile":   {`[{"errorMessage":"Quality Profile does not exist","errorCode":"QualityProfileExistsValidator"}]`, []string{"Quality Profile does not exist"}},
+		"several failures":      {`[{"errorMessage":"Root folder '/nope' does not exist"},{"errorMessage":"Metadata profile does not exist"}]`, []string{"Root folder '/nope' does not exist", "Metadata profile does not exist"}},
+		"unknown album":         {`[{"propertyName":"MusicbrainzId","errorMessage":"An album with this ID was not found"}]`, []string{"An album with this ID was not found"}},
+		"no body":               {``, []string{"no reason given"}},
+		"not json":              {`<html>`, []string{"no reason given"}},
+		"an empty failure list": {`[]`, []string{"no reason given"}},
+	}
+	for name, c := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, c.body)
+		}))
+		err := New(srv.URL, testKey).AddAlbum(context.Background(), newAlbum())
+		srv.Close()
+		var rej *RejectedError
+		if !errors.As(err, &rej) || errors.Is(err, ErrAlreadyAdded) {
+			t.Errorf("%s: err = %v, want a RejectedError", name, err)
+			continue
+		}
+		if strings.Join(rej.Messages, "|") != strings.Join(c.want, "|") {
+			t.Errorf("%s: messages = %v, want %v", name, rej.Messages, c.want)
+		}
+	}
+}
+
+func TestAddAlbumOutagesAreUnavailableAndNeverLeakTheKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom "+r.Header.Get("X-Api-Key"), http.StatusServiceUnavailable)
+	}))
+	c := New(srv.URL, testKey)
+	statusErr := c.AddAlbum(context.Background(), newAlbum())
+	srv.Close()
+	connErr := c.AddAlbum(context.Background(), newAlbum()) // the server is gone
+
+	for name, err := range map[string]error{"503": statusErr, "connection refused": connErr} {
+		if !errors.Is(err, ErrUnavailable) {
+			t.Errorf("%s: err = %v, want ErrUnavailable", name, err)
+			continue
+		}
+		if strings.Contains(err.Error(), testKey) {
+			t.Errorf("%s leaks the API key: %v", name, err)
+		}
+	}
+}
+
+func TestAddAlbumOtherStatusesAreNeitherSuccessNorRejection(t *testing.T) {
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(code)
+			fmt.Fprint(w, "secret detail "+testKey)
+		}))
+		err := New(srv.URL, testKey).AddAlbum(context.Background(), newAlbum())
+		srv.Close()
+		var rej *RejectedError
+		if err == nil || errors.Is(err, ErrAlreadyAdded) || errors.Is(err, ErrUnavailable) || errors.As(err, &rej) || strings.Contains(err.Error(), "secret") {
+			t.Errorf("status %d: err = %v", code, err)
+		}
+	}
+}
+
+func TestAddAlbumHonoursContextCancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+	}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	err := New(srv.URL, testKey).AddAlbum(ctx, newAlbum())
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want the context error and not ErrUnavailable", err)
+	}
+}
+
+// --- CheckSettings ---
+
+func settingsServer(roots, quality, metadata string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/rootfolder":
+			fmt.Fprint(w, roots)
+		case "/api/v1/qualityprofile":
+			fmt.Fprint(w, quality)
+		case "/api/v1/metadataprofile":
+			fmt.Fprint(w, metadata)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestCheckSettings(t *testing.T) {
+	const roots = `[{"id":1,"path":"/music"},{"id":2,"path":"/other"}]`
+	const quality = `[{"id":1,"name":"Any"},{"id":5,"name":"FLAC"}]`
+	const metadata = `[{"id":1,"name":"Standard"}]`
+	cases := []struct {
+		name            string
+		root            string
+		qp, mp          int
+		wantErrContains string
+	}{
+		{"all present", "/music", 5, 1, ""},
+		{"missing root folder", "/nope", 5, 1, `root folder "/nope"`},
+		{"root folder is matched exactly, not by prefix", "/mus", 5, 1, `root folder "/mus"`},
+		{"missing quality profile", "/music", 99, 1, "quality profile 99"},
+		{"missing metadata profile", "/music", 5, 99, "metadata profile 99"},
+	}
+	for _, c := range cases {
+		srv := settingsServer(roots, quality, metadata)
+		err := New(srv.URL, testKey).CheckSettings(context.Background(), c.root, c.qp, c.mp)
+		srv.Close()
+		switch {
+		case c.wantErrContains == "" && err != nil:
+			t.Errorf("%s: unexpected error %v", c.name, err)
+		case c.wantErrContains != "" && (err == nil || !strings.Contains(err.Error(), c.wantErrContains)):
+			t.Errorf("%s: err = %v, want it to mention %q", c.name, err, c.wantErrContains)
+		case c.wantErrContains != "" && !errors.Is(err, ErrBadSettings):
+			t.Errorf("%s: a mismatch must be ErrBadSettings so startup can tell it from an outage: %v", c.name, err)
+		}
+	}
+}
+
+func TestCheckSettingsWhenLidarrIsDown(t *testing.T) {
+	srv := settingsServer(`[]`, `[]`, `[]`)
+	c := New(srv.URL, testKey)
+	srv.Close()
+	if err := c.CheckSettings(context.Background(), "/music", 1, 1); err == nil {
+		t.Error("an unreachable Lidarr must be an error, not a pass")
 	}
 }
