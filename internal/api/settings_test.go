@@ -19,9 +19,10 @@ type fakeSettings struct {
 	testErr   error
 	patches   []settings.Patch
 	testCalls []string
+	reads     int
 }
 
-func (f *fakeSettings) View() settings.View { return f.view }
+func (f *fakeSettings) View() settings.View { f.reads++; return f.view }
 
 func (f *fakeSettings) Patch(_ context.Context, p settings.Patch) (settings.PatchResult, error) {
 	f.patches = append(f.patches, p)
@@ -35,7 +36,7 @@ func (f *fakeSettings) Test(_ context.Context, url, key string) (settings.TestRe
 
 func settingsMux(f *fakeSettings) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(&fakeCatalog{}, &fakeCovers{}, f, zerolog.Nop()).Routes(mux)
+	New(&fakeCatalog{}, &fakeCovers{}, f, adminAuth(), &fakeUsers{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 

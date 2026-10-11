@@ -11,8 +11,8 @@
 //
 // Lidarr is configured on the settings page; any setting can instead be pinned
 // by an environment variable, which locks it on the page (see the README). There is
-// no login yet, so by default the server binds to loopback only; bind it
-// wider (ALBUMREQ_ADDR) only behind something that authenticates.
+// login (oidcgate): a local account, plus optional OIDC, with roles from groups.
+// With the login switched off the server binds to loopback only by default.
 package main
 
 import (
@@ -25,12 +25,15 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/Miista/oidcgate"
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/api"
+	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/lidarr"
@@ -38,6 +41,7 @@ import (
 	"github.com/Miista/albumreq/internal/musicbrainz"
 	"github.com/Miista/albumreq/internal/settings"
 	"github.com/Miista/albumreq/internal/store"
+	"github.com/Miista/albumreq/internal/users"
 )
 
 // defaultAddr is loopback on purpose: with no login yet, nothing but this
@@ -47,6 +51,10 @@ const defaultAddr = "127.0.0.1:8768"
 // defaultDataDir holds config.json, the settings saved from the settings page.
 const defaultDataDir = "/app/data"
 
+// sessionTTL is how long a sign-in lasts without use, and so how long a change of
+// someone's groups at the identity provider can go unnoticed.
+const sessionTTL = 12 * time.Hour
+
 // staticFiles is the frontend (HTML, JS, CSS), compiled into the binary so
 // albumreq ships as a single file.
 //
@@ -55,6 +63,8 @@ var staticFiles embed.FS
 
 func main() {
 	logger := newLogger(os.Getenv("ALBUMREQ_SETTING_LOG_LEVEL"))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// MusicBrainz requires a contact in the User-Agent. There is deliberately
 	// no default: it is the operator's to choose, and it is only ever sent to
@@ -98,6 +108,31 @@ func main() {
 		logger.Fatal().Err(err).Msg("cannot open the settings store in " + dataDir)
 	}
 
+	// Login. oidcgate is on unless ALBUMREQ_AUTH_DISABLED=true: the first visitor
+	// creates a local account (the admin), and ALBUMREQ_OIDC_* add single sign-on.
+	// albumreq asks the provider for groups, which is how admin and user are told
+	// apart. Sessions are shorter than oidcgate's week because a person's groups
+	// are only read when they sign in: a change at the provider reaches albumreq
+	// at the next sign-in, so this is also how long a demotion can take.
+	gate, err := oidcgate.FromEnv(ctx, "albumreq",
+		oidcgate.WithScopes("openid", "profile", "email", "groups"),
+		oidcgate.WithSessionTTL(sessionTTL),
+		oidcgate.WithDataDir(filepath.Join(dataDir, "auth")))
+	if err != nil {
+		logger.Fatal().Err(err).Msg("login is misconfigured")
+	}
+	known, err := users.Open(dataDir)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("cannot open the users list in " + dataDir)
+	}
+	roles := auth.ConfigFromEnv(gate != nil)
+	switch {
+	case gate == nil:
+		logger.Warn().Msg("login is OFF (ALBUMREQ_AUTH_DISABLED): everyone who can reach this port is an admin")
+	case roles.AdminGroup == "":
+		logger.Warn().Msg("ALBUMREQ_ROLE_ADMIN_GROUP is not set: no one signing in through OIDC is an admin, only the local account")
+	}
+
 	library := &lidarr.Live{}
 	cat := catalog.New(mb, lidarrmeta.New(metaURL), library)
 	service := settings.NewService(st, library, cat, logger)
@@ -107,7 +142,7 @@ func main() {
 		service.Reload(ctx)
 	}()
 	mux := http.NewServeMux()
-	api.New(cat, coverart.New(coverURL), service, logger).Routes(mux)
+	api.New(cat, coverart.New(coverURL), service, auth.New(roles, known, logger), known, logger).Routes(mux)
 
 	static, err := fs.Sub(staticFiles, "web/static")
 	if err != nil {
@@ -117,17 +152,14 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           gate.Wrap(mux), // a no-op with the login off
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	go func() {
 		logger.Info().Msg(fmt.Sprintf("starting albumreq on %s, settings in %s", addr, dataDir))
-		if !isLoopback(addr) {
-			logger.Warn().Msg("listening beyond loopback with no login: anyone who can reach this port can search your Lidarr and change its settings" + readOnlyHint())
+		if gate == nil && !isLoopback(addr) {
+			logger.Warn().Msg("listening beyond loopback with no login: anyone who can reach this port can search your Lidarr, request albums and change its settings" + readOnlyHint())
 		}
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal().Err(err).Msg("server stopped")

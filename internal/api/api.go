@@ -1,7 +1,8 @@
 // Package api implements albumreq's HTTP handlers: album search, one album's
-// detail, the cover-art proxy, and a health probe. These handlers do no
-// authentication themselves; until a login is added in main.go the server is
-// meant for loopback or a proxy that authenticates for it.
+// detail, requesting, settings, users, the cover-art proxy, and a health probe.
+// Signing in is oidcgate's, wrapped around the whole server in main.go; what a
+// signed-in person may do is decided here, per route, from their role (see
+// internal/auth).
 package api
 
 import (
@@ -16,10 +17,12 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/settings"
+	"github.com/Miista/albumreq/internal/users"
 )
 
 const (
@@ -46,31 +49,100 @@ type Settings interface {
 	Test(ctx context.Context, url, key string) (settings.TestResult, error)
 }
 
+// Authenticator says who a request is from and what they may do.
+type Authenticator interface {
+	Principal(r *http.Request) (auth.Principal, bool)
+}
+
+// Users is the list of people who have signed in, and who is an approver.
+type Users interface {
+	List() []users.User
+	SetApprover(sub string, approver bool) error
+}
+
 // Server holds the handlers' dependencies.
 type Server struct {
 	catalog  Catalog
 	covers   CoverFetcher
 	settings Settings
+	auth     Authenticator
+	users    Users
 	log      zerolog.Logger
 }
 
 // New returns a Server.
-func New(c Catalog, covers CoverFetcher, st Settings, log zerolog.Logger) *Server {
-	return &Server{catalog: c, covers: covers, settings: st, log: log}
+func New(c Catalog, covers CoverFetcher, st Settings, a Authenticator, u Users, log zerolog.Logger) *Server {
+	return &Server{catalog: c, covers: covers, settings: st, auth: a, users: u, log: log}
+}
+
+type principalKey struct{}
+
+// guard runs h only for someone signed in who may do what min may. Nobody signed
+// in is 401, so the page knows to sign in; signed in but not allowed is 403. The
+// check is here, in the handler's path, and not in the page: a hidden button is
+// not access control.
+func (s *Server) guard(min auth.Role, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, ok := s.auth.Principal(r)
+		switch {
+		case !ok:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		case !p.Role.AtLeast(min) || p.Role == auth.None:
+			http.Error(w, "You do not have access to this", http.StatusForbidden)
+			return
+		}
+		h(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+	}
+}
+
+// who is the signed-in person behind a guarded request, for the log.
+func who(r *http.Request) auth.Principal {
+	p, _ := r.Context().Value(principalKey{}).(auth.Principal)
+	return p
 }
 
 // Routes registers the API on mux.
 func (s *Server) Routes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/search", s.handleSearch)
-	mux.HandleFunc("GET /api/album/{id}", s.handleAlbum)
-	mux.HandleFunc("POST /api/album/{id}/request", s.handleRequest)
-	mux.HandleFunc("GET /api/cover/{id}", s.handleCover)
-	mux.HandleFunc("GET /api/settings", s.handleSettings)
-	mux.HandleFunc("POST /api/settings", s.handleSaveSettings)
-	mux.HandleFunc("POST /api/settings/test", s.handleTestSettings)
+	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("GET /api/search", s.guard(auth.User, s.handleSearch))
+	mux.HandleFunc("GET /api/album/{id}", s.guard(auth.User, s.handleAlbum))
+	// Approver for now: a request goes straight to Lidarr, which spends indexer
+	// queries and starts a download. A plain user's request will wait for approval
+	// once requests are recorded; until then it is not theirs to make.
+	mux.HandleFunc("POST /api/album/{id}/request", s.guard(auth.Approver, s.handleRequest))
+	mux.HandleFunc("GET /api/cover/{id}", s.guard(auth.User, s.handleCover))
+	mux.HandleFunc("GET /api/settings", s.guard(auth.Admin, s.handleSettings))
+	mux.HandleFunc("POST /api/settings", s.guard(auth.Admin, s.handleSaveSettings))
+	mux.HandleFunc("POST /api/settings/test", s.guard(auth.Admin, s.handleTestSettings))
+	mux.HandleFunc("GET /api/users", s.guard(auth.Admin, s.handleUsers))
+	mux.HandleFunc("POST /api/users/approver", s.guard(auth.Admin, s.handleSetApprover))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
+}
+
+// handleMe tells the page who is signed in and what to show. It is open to anyone
+// signed in, including someone who has no access, so the page can say so instead
+// of failing every call; it says nothing about Lidarr beyond what a user sees anyway.
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.auth.Principal(r)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		return
+	}
+	me := map[string]any{"name": p.Name, "email": p.Email, "role": p.Role.String(), "local": p.Local}
+	if p.Role.AtLeast(auth.User) {
+		v := s.settings.View()
+		me["lidarr_configured"] = v.Configured
+		me["requests_enabled"] = v.RequestsEnabled
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, me)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +211,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	s.log.Info().Str("by", who(r).Sub).Msg(fmt.Sprintf("%s requests album %s", who(r).Name, id))
 	result, err := s.catalog.Request(r.Context(), id)
 
 	var rejected *lidarr.RejectedError
@@ -229,6 +302,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	l := body.Lidarr
+	s.log.Info().Str("by", who(r).Sub).Msg(who(r).Name + " is changing the settings")
 	res, err := s.settings.Patch(r.Context(), settings.Patch{
 		URL: l.URL, APIKey: l.APIKey, RootFolder: l.RootFolder,
 		QualityProfileID: l.QualityProfileID, MetadataProfileID: l.MetadataProfileID,
@@ -259,6 +333,40 @@ func (s *Server) handleTestSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, res)
+}
+
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]any{"users": s.users.List()})
+}
+
+func (s *Server) handleSetApprover(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	var body struct {
+		Sub      string `json:"sub"`
+		Approver *bool  `json:"approver"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if body.Sub == "" || body.Approver == nil {
+		http.Error(w, "sub and approver are required", http.StatusBadRequest)
+		return
+	}
+	switch err := s.users.SetApprover(body.Sub, *body.Approver); {
+	case errors.Is(err, users.ErrNotFound):
+		http.Error(w, "No such user", http.StatusNotFound)
+		return
+	case err != nil:
+		s.log.Error().Err(err).Msg("could not save an approver change")
+		http.Error(w, "Could not save the change", http.StatusInternalServerError)
+		return
+	}
+	s.log.Info().Str("by", who(r).Sub).Str("user", body.Sub).Bool("approver", *body.Approver).
+		Msg(fmt.Sprintf("%s set approver=%v for %s", who(r).Name, *body.Approver, body.Sub))
+	s.handleUsers(w, r)
 }
 
 func (s *Server) handleCover(w http.ResponseWriter, r *http.Request) {
