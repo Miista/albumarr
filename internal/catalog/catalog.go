@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Miista/albumreq/internal/lidarr"
@@ -97,7 +98,7 @@ type Catalog struct {
 	search   Searcher
 	meta     Metadata
 	lib      Library
-	requests *RequestSettings // nil: requesting is off
+	requests atomic.Pointer[RequestSettings] // nil: requesting is off; replaced when the settings change
 }
 
 // RequestSettings is where requested albums go in Lidarr. Giving them to the
@@ -108,8 +109,20 @@ type RequestSettings struct {
 	MetadataProfileID int
 }
 
+// SetRequests switches requesting on with the given settings, or off with nil.
+// It is safe to call while requests are being served: the settings page uses it
+// to apply a change without a restart.
+func (c *Catalog) SetRequests(s *RequestSettings) {
+	if s == nil {
+		c.requests.Store(nil)
+		return
+	}
+	cp := *s
+	c.requests.Store(&cp)
+}
+
 // EnableRequests switches requesting on.
-func (c *Catalog) EnableRequests(s RequestSettings) { c.requests = &s }
+func (c *Catalog) EnableRequests(s RequestSettings) { c.SetRequests(&s) }
 
 // New returns a Catalog.
 func New(search Searcher, meta Metadata, lib Library) *Catalog {
@@ -330,7 +343,7 @@ func (c *Catalog) Detail(ctx context.Context, id string) (Detail, error) {
 		}
 	}
 
-	d.CanRequest = c.requests != nil && d.MetadataOK && d.LibraryOK && st == nil
+	d.CanRequest = c.requests.Load() != nil && d.MetadataOK && d.LibraryOK && st == nil
 
 	if albumID != 0 {
 		if lt, err := c.lib.Tracks(ctx, albumID); err == nil && len(lt) > 0 {
@@ -360,7 +373,8 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 	if !musicbrainz.ValidID(id) {
 		return "", ErrInvalidID
 	}
-	if c.requests == nil {
+	req := c.requests.Load()
+	if req == nil {
 		return "", ErrRequestsDisabled
 	}
 
@@ -384,7 +398,7 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 
 	err = c.lib.AddAlbum(ctx, lidarr.NewAlbum{
 		AlbumID: id, ArtistID: meta.ArtistID,
-		RootFolder: c.requests.RootFolder, QualityProfileID: c.requests.QualityProfileID, MetadataProfileID: c.requests.MetadataProfileID,
+		RootFolder: req.RootFolder, QualityProfileID: req.QualityProfileID, MetadataProfileID: req.MetadataProfileID,
 	})
 	switch {
 	case err == nil:

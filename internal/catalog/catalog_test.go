@@ -554,3 +554,60 @@ func TestDetailCanRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestSettingsCanBeSwappedWhileServing(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}}
+	cat := New(&fakeSearch{}, metaWithArtist(), lib)
+
+	if _, err := cat.Request(context.Background(), id1); !errors.Is(err, ErrRequestsDisabled) {
+		t.Fatalf("before any settings: err = %v, want ErrRequestsDisabled", err)
+	}
+	cat.SetRequests(&RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfileID: 2})
+	if _, err := cat.Request(context.Background(), id1); err != nil {
+		t.Fatal(err)
+	}
+	cat.SetRequests(&RequestSettings{RootFolder: "/b", QualityProfileID: 3, MetadataProfileID: 4})
+	cat.Request(context.Background(), id1)
+	if len(lib.added) != 2 || lib.added[0].RootFolder != "/a" || lib.added[1].RootFolder != "/b" || lib.added[1].QualityProfileID != 3 || lib.added[1].MetadataProfileID != 4 {
+		t.Errorf("each request must use the settings in force when it ran: %+v", lib.added)
+	}
+	cat.SetRequests(nil)
+	if _, err := cat.Request(context.Background(), id1); !errors.Is(err, ErrRequestsDisabled) {
+		t.Errorf("after switching off: err = %v", err)
+	}
+}
+
+func TestSetRequestsCopiesItsArgument(t *testing.T) {
+	cat := New(&fakeSearch{}, metaWithArtist(), &fakeLib{states: map[string]*lidarr.AlbumState{}})
+	s := RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfileID: 1}
+	cat.SetRequests(&s)
+	s.RootFolder = "/mutated"
+	lib := cat.lib.(*fakeLib)
+	cat.Request(context.Background(), id1)
+	if len(lib.added) != 1 || lib.added[0].RootFolder != "/a" {
+		t.Errorf("the catalog must keep its own copy of the settings: %+v", lib.added)
+	}
+}
+
+func TestSwappingRequestSettingsIsRaceFree(t *testing.T) {
+	cat := New(&fakeSearch{}, metaWithArtist(), &fakeLib{states: map[string]*lidarr.AlbumState{}})
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 300; i++ {
+			if i%2 == 0 {
+				cat.SetRequests(&RequestSettings{RootFolder: "/a", QualityProfileID: 1, MetadataProfileID: 1})
+			} else {
+				cat.SetRequests(nil)
+			}
+		}
+		close(done)
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			cat.Detail(context.Background(), id1)
+		}
+	}
+}
