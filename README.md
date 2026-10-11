@@ -81,7 +81,9 @@ The pages for it:
   Everyone who has signed in, with an Approver checkbox that saves at once.
 
 A page a role may not use is not in its nav, and opening its address sends the
-person to search; the server refuses the calls regardless.
+person to search; the server refuses the calls regardless. On a phone the nav is a
+bottom tab bar (icon over label, a count on the icon), as in Reaparr, with the
+Settings sub-tabs floating just above it.
 
 ## Requesting
 

@@ -327,12 +327,6 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .req-actions .btn { flex: 1; }
 }
 
-/* Four nav links do not fit beside the brand on a phone: give them their own row. */
-@media (max-width: 640px) {
-  .topbar { flex-wrap: wrap; row-gap: 8px; }
-  .topnav { order: 3; width: 100%; overflow-x: auto; margin: 0 -4px; }
-  .topnav a { white-space: nowrap; padding: 7px 10px; }
-}
 
 /* Settings sub-tabs and the save bar, after reaparr's. */
 .subtabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); margin-top: -8px; }
@@ -378,3 +372,48 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .sev-pill.error { color: var(--red-text); border-color: oklch(0.5 0.14 25 / .6); background: oklch(0.24 0.06 25 / .6); }
 .sev-pill.warning { color: var(--amber); border-color: oklch(0.5 0.12 80 / .6); background: oklch(0.24 0.05 80 / .5); }
 .sev-pill.info { color: var(--cyan); border-color: oklch(0.5 0.12 200 / .6); background: oklch(0.22 0.05 200 / .5); }
+
+/* Mobile: the page tabs become a bottom tab bar, as in reaparr: an icon over a small
+   label, a count on the icon's corner, the settings sub-tabs floating just above it
+   and the save bar above both. */
+.tab-icon { display: none; }
+@media (max-width: 640px) {
+  /* A backdrop-filter makes its element the containing block of fixed descendants,
+     which would pin the tab bar to the top bar. The top bar is not sticky, so the
+     blur shows nothing here anyway. */
+  .topbar { padding: 14px 16px; backdrop-filter: none; }
+  main { padding: 28px 16px calc(96px + env(safe-area-inset-bottom)); }
+  main:has(.subtabs) { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+  h1 { font-size: 26px; }
+
+  .topnav {
+    position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border); background: rgba(14,15,20,.92); backdrop-filter: blur(14px);
+  }
+  .topnav a {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    padding: 6px 2px; font-size: 11px; font-weight: 500; border-radius: 10px; white-space: nowrap; min-width: 0;
+  }
+  .topnav a:hover { background: none; }
+  .topnav a.active { background: transparent; color: oklch(0.8 0.15 290); font-weight: 600; }
+  .tab-icon { display: flex; }
+  .topnav a .count { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 10px; padding: 0 5px; min-width: 16px; }
+
+  /* Settings sub-tabs: a segmented control floating just above the tab bar. */
+  .subtabs {
+    position: fixed; z-index: 39; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom));
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0; padding: 4px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: rgba(18,19,26,.92); backdrop-filter: blur(14px); box-shadow: 0 10px 30px -10px rgba(0,0,0,.7);
+  }
+  .subtabs a { justify-content: center; padding: 9px 8px; margin: 0; border: none; border-radius: 8px; }
+  .subtabs a.active {
+    color: #fff; background: oklch(0.55 0.2 290);
+    box-shadow: 0 4px 16px oklch(0.55 0.2 290 / .45), inset 0 1px 0 rgba(255,255,255,.18);
+  }
+
+  /* Sticky save bars sit above both bottom bars where there are two, else above the tab bar. */
+  .save-bar { bottom: calc(128px + env(safe-area-inset-bottom)); }
+}
