@@ -22,9 +22,17 @@ import (
 // ErrInvalidID is returned for an album ID that is not a MusicBrainz UUID.
 var ErrInvalidID = errors.New("catalog: invalid album id")
 
+// ErrInvalidOffset is returned for a search offset outside 0..MaxOffset.
+var ErrInvalidOffset = errors.New("catalog: invalid search offset")
+
 const (
-	resultLimit = 24
-	maxLookups  = 6 // concurrent Lidarr library lookups per search
+	// PageSize is how many results one search request returns.
+	PageSize = 24
+	// MaxOffset is the furthest page a search can reach (ten pages): past that
+	// a query is better refined than paged through, and it bounds the load put
+	// on MusicBrainz.
+	MaxOffset  = 9 * PageSize
+	maxLookups = 6 // concurrent Lidarr library lookups per search
 )
 
 // Status is the chip shown on an album card. The empty value means "not in
@@ -54,7 +62,7 @@ type Album struct {
 
 // Searcher finds albums by free text.
 type Searcher interface {
-	Search(ctx context.Context, term string, limit int) ([]musicbrainz.Hit, error)
+	Search(ctx context.Context, term string, limit, offset int) (musicbrainz.Page, error)
 }
 
 // Metadata supplies one album's details, editions and tracks.
@@ -82,28 +90,38 @@ func New(search Searcher, meta Metadata, lib Library) *Catalog {
 }
 
 // SearchResult is what a search returns. LibraryOK is false when Lidarr could
-// not be asked, in which case no album carries a status.
+// not be asked, in which case no album carries a status. HasMore says another
+// page can be fetched with the next offset.
 type SearchResult struct {
 	Albums    []Album
 	LibraryOK bool
+	HasMore   bool
 }
 
-// Search finds albums on MusicBrainz and annotates them with their state in
-// the Lidarr library.
-func (c *Catalog) Search(ctx context.Context, term string) (SearchResult, error) {
-	hits, err := c.search.Search(ctx, term, resultLimit)
+// Search finds one page of albums on MusicBrainz, starting at offset, and
+// annotates them with their state in the Lidarr library.
+func (c *Catalog) Search(ctx context.Context, term string, offset int) (SearchResult, error) {
+	if offset < 0 || offset > MaxOffset {
+		return SearchResult{}, ErrInvalidOffset
+	}
+	page, err := c.search.Search(ctx, term, PageSize, offset)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	albums := make([]Album, 0, len(hits))
-	for _, h := range hits {
+	albums := make([]Album, 0, len(page.Hits))
+	for _, h := range page.Hits {
 		albums = append(albums, Album{
 			ID: h.ID, Title: h.Title, Artist: h.Artist, ArtistID: h.ArtistID,
 			Type: h.Type, SecondaryTypes: h.SecondaryTypes, Year: year(h.FirstReleaseDate),
 			Cover: "/api/cover/" + h.ID,
 		})
 	}
-	return SearchResult{Albums: albums, LibraryOK: c.annotate(ctx, albums)}, nil
+	next := offset + len(page.Hits)
+	return SearchResult{
+		Albums:    albums,
+		LibraryOK: c.annotate(ctx, albums),
+		HasMore:   len(page.Hits) > 0 && next < page.Total && next <= MaxOffset,
+	}, nil
 }
 
 // annotate sets each album's Status from Lidarr and reports whether Lidarr

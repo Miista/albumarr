@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,10 +27,12 @@ type fakeCatalog struct {
 	searchCalls  int
 	detailCalls  int
 	lastDetailID string
+	lastOffset   int
 }
 
-func (f *fakeCatalog) Search(context.Context, string) (catalog.SearchResult, error) {
+func (f *fakeCatalog) Search(_ context.Context, _ string, offset int) (catalog.SearchResult, error) {
 	f.searchCalls++
+	f.lastOffset = offset
 	return f.res, f.searchErr
 }
 
@@ -222,5 +225,46 @@ func TestOnlyGetIsAllowed(t *testing.T) {
 func TestHealthz(t *testing.T) {
 	if rec := get(newMux(&fakeCatalog{}, &fakeCovers{}), "/healthz"); rec.Code != http.StatusOK {
 		t.Errorf("status = %d", rec.Code)
+	}
+}
+
+func TestSearchPagingParameters(t *testing.T) {
+	fc := &fakeCatalog{res: catalog.SearchResult{Albums: []catalog.Album{}, HasMore: true}}
+	mux := newMux(fc, &fakeCovers{})
+
+	rec := get(mux, "/api/search?q=radiohead&offset=48")
+	if rec.Code != http.StatusOK || fc.lastOffset != 48 {
+		t.Fatalf("status = %d, offset passed = %d", rec.Code, fc.lastOffset)
+	}
+	var body struct {
+		Offset  int  `json:"offset"`
+		HasMore bool `json:"hasMore"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Offset != 48 || !body.HasMore {
+		t.Errorf("offset and hasMore should be echoed: %s", rec.Body)
+	}
+
+	get(mux, "/api/search?q=radiohead")
+	if fc.lastOffset != 0 {
+		t.Errorf("a missing offset must mean 0, got %d", fc.lastOffset)
+	}
+}
+
+func TestSearchRejectsBadOffsets(t *testing.T) {
+	fc := &fakeCatalog{}
+	mux := newMux(fc, &fakeCovers{})
+	for _, off := range []string{"-1", "abc", "1.5", "24px", "%20", "999999999999999999999", fmt.Sprint(catalog.MaxOffset + 1)} {
+		if rec := get(mux, "/api/search?q=radiohead&offset="+off); rec.Code != http.StatusBadRequest {
+			t.Errorf("offset=%s: status = %d, want 400", off, rec.Code)
+		}
+	}
+	if fc.searchCalls != 0 {
+		t.Errorf("rejected offsets reached the catalog %d times", fc.searchCalls)
+	}
+	if rec := get(mux, fmt.Sprintf("/api/search?q=radiohead&offset=%d", catalog.MaxOffset)); rec.Code != http.StatusOK {
+		t.Errorf("the last allowed offset: status = %d, want 200", rec.Code)
 	}
 }

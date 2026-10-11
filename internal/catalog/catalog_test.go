@@ -70,14 +70,22 @@ func TestYear(t *testing.T) {
 // --- fakes ---
 
 type fakeSearch struct {
-	hits  []musicbrainz.Hit
-	err   error
-	limit int
+	hits   []musicbrainz.Hit
+	total  int // total matches; defaults to len(hits)
+	err    error
+	limit  int
+	offset int
+	calls  int
 }
 
-func (f *fakeSearch) Search(_ context.Context, _ string, limit int) ([]musicbrainz.Hit, error) {
-	f.limit = limit
-	return f.hits, f.err
+func (f *fakeSearch) Search(_ context.Context, _ string, limit, offset int) (musicbrainz.Page, error) {
+	f.calls++
+	f.limit, f.offset = limit, offset
+	total := f.total
+	if total == 0 {
+		total = len(f.hits)
+	}
+	return musicbrainz.Page{Hits: f.hits, Total: total}, f.err
 }
 
 type fakeMeta struct {
@@ -135,7 +143,7 @@ func TestSearchMapsHitsAndAnnotatesStatus(t *testing.T) {
 		},
 		queued: map[int]bool{2: true},
 	}
-	res, err := New(fs, &fakeMeta{}, lib).Search(context.Background(), "x")
+	res, err := New(fs, &fakeMeta{}, lib).Search(context.Background(), "x", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +159,14 @@ func TestSearchMapsHitsAndAnnotatesStatus(t *testing.T) {
 	if a.ID != id1 || a.Artist != "Radiohead" || a.Year != 1997 || a.Type != "Album" || a.Cover != "/api/cover/"+id1 {
 		t.Errorf("fields not mapped: %+v", a)
 	}
-	if fs.limit != resultLimit {
-		t.Errorf("search limit = %d, want %d", fs.limit, resultLimit)
+	if fs.limit != PageSize || fs.offset != 0 {
+		t.Errorf("search asked for limit=%d offset=%d, want %d and 0", fs.limit, fs.offset, PageSize)
 	}
 }
 
 func TestSearchSkipsTheQueueWhenNothingIsInLidarr(t *testing.T) {
 	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}}
-	if _, err := New(&fakeSearch{hits: []musicbrainz.Hit{hit(id1, "New")}}, &fakeMeta{}, lib).Search(context.Background(), "x"); err != nil {
+	if _, err := New(&fakeSearch{hits: []musicbrainz.Hit{hit(id1, "New")}}, &fakeMeta{}, lib).Search(context.Background(), "x", 0); err != nil {
 		t.Fatal(err)
 	}
 	if lib.queueCalls.Load() != 0 {
@@ -173,7 +181,7 @@ func TestSearchDegradesWhenLidarrFails(t *testing.T) {
 		"album lookup fails": {states: owned, albumErr: errors.New("boom")},
 		"queue fails":        {states: owned, queueErr: errors.New("boom")},
 	} {
-		res, err := New(&fakeSearch{hits: hits}, &fakeMeta{}, lib).Search(context.Background(), "x")
+		res, err := New(&fakeSearch{hits: hits}, &fakeMeta{}, lib).Search(context.Background(), "x", 0)
 		if err != nil {
 			t.Fatalf("%s: a Lidarr failure must not fail the search: %v", name, err)
 		}
@@ -190,7 +198,7 @@ func TestSearchDegradesWhenLidarrFails(t *testing.T) {
 
 func TestSearchFailsWhenMusicBrainzFails(t *testing.T) {
 	boom := errors.New("boom")
-	if _, err := New(&fakeSearch{err: boom}, &fakeMeta{}, &fakeLib{}).Search(context.Background(), "x"); !errors.Is(err, boom) {
+	if _, err := New(&fakeSearch{err: boom}, &fakeMeta{}, &fakeLib{}).Search(context.Background(), "x", 0); !errors.Is(err, boom) {
 		t.Errorf("err = %v, want boom", err)
 	}
 }
@@ -341,5 +349,62 @@ func TestEditionTracksAreNumberedByPositionNotByVinylNumbering(t *testing.T) {
 	d, _ := New(&fakeSearch{}, &fakeMeta{album: m}, &fakeLib{states: map[string]*lidarr.AlbumState{}}).Detail(context.Background(), id1)
 	if got := d.Tracks.Tracks; len(got) != 2 || got[0].Number != "1" || got[1].Number != "2" {
 		t.Errorf("tracks should be numbered 1, 2, not A1, B1: %+v", got)
+	}
+}
+
+func TestSearchPaging(t *testing.T) {
+	page := func(n int) []musicbrainz.Hit {
+		out := make([]musicbrainz.Hit, n)
+		for i := range out {
+			out[i] = hit(id3, "x")
+		}
+		return out
+	}
+	cases := []struct {
+		name     string
+		offset   int
+		got      int
+		total    int
+		wantMore bool
+	}{
+		{"first page of many", 0, PageSize, 60, true},
+		{"middle page", PageSize, PageSize, 60, true},
+		{"last page exactly full", 2 * PageSize, PageSize, 3 * PageSize, false},
+		{"last page partly full", 48, 12, 60, false},
+		{"a single page", 0, 5, 5, false},
+		{"no results", 0, 0, 0, false},
+		{"an empty page never offers more", 24, 0, 60, false},
+		{"the page cap stops the button", MaxOffset, PageSize, 5000, false},
+		{"one page before the cap still offers more", MaxOffset - PageSize, PageSize, 5000, true},
+	}
+	for _, c := range cases {
+		fs := &fakeSearch{hits: page(c.got), total: c.total}
+		fs.hits = page(c.got)
+		res, err := New(fs, &fakeMeta{}, &fakeLib{states: map[string]*lidarr.AlbumState{}}).Search(context.Background(), "x", c.offset)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if res.HasMore != c.wantMore {
+			t.Errorf("%s: HasMore = %v, want %v", c.name, res.HasMore, c.wantMore)
+		}
+		if fs.offset != c.offset {
+			t.Errorf("%s: asked MusicBrainz for offset %d, want %d", c.name, fs.offset, c.offset)
+		}
+	}
+}
+
+func TestSearchRejectsOffsetsOutsideTheCap(t *testing.T) {
+	fs := &fakeSearch{}
+	c := New(fs, &fakeMeta{}, &fakeLib{})
+	for _, off := range []int{-1, -24, MaxOffset + 1, MaxOffset + PageSize, 1 << 30} {
+		if _, err := c.Search(context.Background(), "x", off); !errors.Is(err, ErrInvalidOffset) {
+			t.Errorf("offset %d: err = %v, want ErrInvalidOffset", off, err)
+		}
+	}
+	if fs.calls != 0 {
+		t.Errorf("rejected offsets reached MusicBrainz %d times", fs.calls)
+	}
+	if _, err := c.Search(context.Background(), "x", MaxOffset); err != nil {
+		t.Errorf("the last allowed offset was rejected: %v", err)
 	}
 }

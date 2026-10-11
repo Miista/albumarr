@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -121,14 +122,29 @@ type Hit struct {
 	Score            int
 }
 
-// Search finds release groups (albums, EPs, singles, …) matching term.
-func (c *Client) Search(ctx context.Context, term string, limit int) ([]Hit, error) {
-	q := url.Values{"query": {escapeLucene(term)}, "limit": {fmt.Sprint(limit)}, "fmt": {"json"}}
+// Page is one page of search results and the total number of matches.
+type Page struct {
+	Hits  []Hit
+	Total int
+}
+
+// Search finds release groups (albums, EPs, singles, …) matching term: limit
+// results (1-100) starting at offset.
+func (c *Client) Search(ctx context.Context, term string, limit, offset int) (Page, error) {
+	limit = min(max(limit, 1), 100)
+	offset = max(offset, 0)
+	q := url.Values{
+		"query":  {escapeLucene(term)},
+		"limit":  {strconv.Itoa(limit)},
+		"offset": {strconv.Itoa(offset)},
+		"fmt":    {"json"},
+	}
 	body, err := c.cached(ctx, "/release-group?"+q.Encode(), searchTTL)
 	if err != nil {
-		return nil, err
+		return Page{}, err
 	}
 	var resp struct {
+		Count  int `json:"count"`
 		Groups []struct {
 			ID             string   `json:"id"`
 			Title          string   `json:"title"`
@@ -140,18 +156,18 @@ func (c *Client) Search(ctx context.Context, term string, limit int) ([]Hit, err
 		} `json:"release-groups"`
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("musicbrainz search: decoding response: %w", err)
+		return Page{}, fmt.Errorf("musicbrainz search: decoding response: %w", err)
 	}
-	hits := make([]Hit, 0, len(resp.Groups))
+	page := Page{Hits: make([]Hit, 0, len(resp.Groups)), Total: resp.Count}
 	for _, g := range resp.Groups {
 		artist, artistID := creditName(g.ArtistCredit)
-		hits = append(hits, Hit{
+		page.Hits = append(page.Hits, Hit{
 			ID: g.ID, Title: g.Title, Artist: artist, ArtistID: artistID,
 			Type: g.PrimaryType, SecondaryTypes: nonNil(g.SecondaryTypes),
 			FirstReleaseDate: g.FirstRelease, Score: g.Score,
 		})
 	}
-	return hits, nil
+	return page, nil
 }
 
 type credit struct {

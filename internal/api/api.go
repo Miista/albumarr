@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -26,7 +27,7 @@ const (
 
 // Catalog is the part of the catalog the handlers use.
 type Catalog interface {
-	Search(ctx context.Context, term string) (catalog.SearchResult, error)
+	Search(ctx context.Context, term string, offset int) (catalog.SearchResult, error)
 	Detail(ctx context.Context, id string) (catalog.Detail, error)
 }
 
@@ -64,7 +65,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.catalog.Search(r.Context(), q)
+	offset := 0
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > catalog.MaxOffset {
+			http.Error(w, fmt.Sprintf("offset must be a whole number from 0 to %d", catalog.MaxOffset), http.StatusBadRequest)
+			return
+		}
+		offset = n
+	}
+
+	res, err := s.catalog.Search(r.Context(), q, offset)
 	if err != nil {
 		if r.Context().Err() == nil {
 			s.log.Error().Err(err).Msg(fmt.Sprintf("search for %q failed", q))
@@ -73,7 +84,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, map[string]any{"query": q, "albums": res.Albums, "libraryOk": res.LibraryOK})
+	writeJSON(w, map[string]any{"query": q, "offset": offset, "albums": res.Albums, "libraryOk": res.LibraryOK, "hasMore": res.HasMore})
 }
 
 func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
