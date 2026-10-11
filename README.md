@@ -10,7 +10,9 @@ never writes to Lidarr, it only issues `GET` requests. Requesting an album
 
 ## What it does
 
-A search page with an album poster grid. Each card shows the cover, a **type
+A search page with an album poster grid, 24 results at a time: a **Show more**
+button fetches the next page (up to ten pages, 240 results; past that, refine the
+query). Each card shows the cover, a **type
 badge** (Album, EP, Single, …) and, when Lidarr knows about the album, a
 **status chip**:
 
