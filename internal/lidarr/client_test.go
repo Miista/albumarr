@@ -361,3 +361,135 @@ func TestCheckSettingsWhenLidarrIsDown(t *testing.T) {
 		t.Error("an unreachable Lidarr must be an error, not a pass")
 	}
 }
+
+// --- settings page support: Version, Options, Live ---
+
+func TestVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/system/status" || r.Header.Get("X-Api-Key") != testKey {
+			t.Errorf("unexpected request %s key=%q", r.URL, r.Header.Get("X-Api-Key"))
+		}
+		fmt.Fprint(w, `{"appName":"Lidarr","version":"3.1.0.4875"}`)
+	}))
+	defer srv.Close()
+	v, err := New(srv.URL, testKey).Version(context.Background())
+	if err != nil || v != "3.1.0.4875" {
+		t.Errorf("got %q, %v", v, err)
+	}
+}
+
+func TestVersionRecognisesAWrongKeyAndANonLidarr(t *testing.T) {
+	for _, code := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) }))
+		_, err := New(srv.URL, "wrong").Version(context.Background())
+		srv.Close()
+		if !errors.Is(err, ErrUnauthorized) {
+			t.Errorf("status %d: err = %v, want ErrUnauthorized", code, err)
+		}
+	}
+	// Something that answers 200 with JSON but is not Lidarr must not pass as it.
+	for name, body := range map[string]string{"empty object": `{}`, "a list": `[]`, "html": `<html>`} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) }))
+		_, err := New(srv.URL, testKey).Version(context.Background())
+		srv.Close()
+		if err == nil {
+			t.Errorf("%s: a non-Lidarr answer was accepted", name)
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	c := New(srv.URL, testKey)
+	srv.Close()
+	if _, err := c.Version(context.Background()); err == nil || errors.Is(err, ErrUnauthorized) || strings.Contains(err.Error(), testKey) {
+		t.Errorf("an unreachable Lidarr: err = %v", err)
+	}
+}
+
+func TestOptions(t *testing.T) {
+	srv := settingsServer(`[{"id":1,"path":"/music"},{"id":2,"path":"/data/music/lidarr"}]`,
+		`[{"id":1,"name":"Any"},{"id":5,"name":"FLAC then 192+"}]`, `[{"id":1,"name":"Standard"},{"id":2,"name":"None"}]`)
+	defer srv.Close()
+	o, err := New(srv.URL, testKey).Options(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(o.RootFolders) != 2 || o.RootFolders[1] != "/data/music/lidarr" || len(o.QualityProfiles) != 2 || o.QualityProfiles[1] != (Profile{5, "FLAC then 192+"}) || o.MetadataProfiles[0].Name != "Standard" {
+		t.Errorf("unexpected options: %+v", o)
+	}
+	empty := settingsServer(`[]`, `[]`, `[]`)
+	defer empty.Close()
+	o, _ = New(empty.URL, testKey).Options(context.Background())
+	if o.RootFolders == nil || o.QualityProfiles == nil || o.MetadataProfiles == nil {
+		t.Error("empty lists must encode as [], not null")
+	}
+}
+
+func TestLiveAnswersNotConfiguredUntilGivenAClient(t *testing.T) {
+	var l Live
+	ctx := context.Background()
+	if _, err := l.AlbumByForeignID(ctx, "x"); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("AlbumByForeignID: %v", err)
+	}
+	if _, err := l.QueuedAlbumIDs(ctx); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("QueuedAlbumIDs: %v", err)
+	}
+	if _, err := l.Tracks(ctx, 1); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("Tracks: %v", err)
+	}
+	if err := l.AddAlbum(ctx, newAlbum()); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("AddAlbum must refuse to write when nothing is configured: %v", err)
+	}
+	if l.Client() != nil {
+		t.Error("Client() must be nil before Set")
+	}
+}
+
+func TestLiveSwitchesLidarrAtRuntime(t *testing.T) {
+	var hits [2]int
+	mk := func(i int) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits[i]++
+			fmt.Fprint(w, `[]`)
+		}))
+	}
+	a, b := mk(0), mk(1)
+	defer a.Close()
+	defer b.Close()
+
+	var l Live
+	l.Set(New(a.URL, testKey))
+	l.AlbumByForeignID(context.Background(), "x")
+	l.Set(New(b.URL, testKey))
+	l.AlbumByForeignID(context.Background(), "x")
+	if hits[0] != 1 || hits[1] != 1 {
+		t.Errorf("calls went to %v, want one each", hits)
+	}
+	l.Set(nil)
+	if _, err := l.AlbumByForeignID(context.Background(), "x"); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("after Set(nil): %v", err)
+	}
+}
+
+func TestLiveIsSafeUnderConcurrentSwaps(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `[]`) }))
+	defer srv.Close()
+	var l Live
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 200; i++ {
+			if i%2 == 0 {
+				l.Set(New(srv.URL, testKey))
+			} else {
+				l.Set(nil)
+			}
+		}
+		close(done)
+	}()
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			l.AlbumByForeignID(context.Background(), "x")
+		}
+	}
+}

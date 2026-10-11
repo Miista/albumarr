@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -102,6 +103,12 @@ type LibraryTrack struct {
 	DurationMs int    `json:"duration"`
 	HasFile    bool   `json:"hasFile"`
 }
+
+// ErrUnauthorized means Lidarr refused the API key.
+var ErrUnauthorized = errors.New("lidarr: API key rejected")
+
+// ErrNotConfigured is what a Live client answers until it is given a Lidarr.
+var ErrNotConfigured = errors.New("lidarr: not configured")
 
 // ErrAlreadyAdded means Lidarr already has the album. Adding is idempotent: a
 // caller can treat this as success.
@@ -214,6 +221,55 @@ func (c *Client) CheckSettings(ctx context.Context, rootFolder string, qualityPr
 	return nil
 }
 
+// Version asks Lidarr who it is and returns its version, which proves the URL
+// and the API key both work.
+func (c *Client) Version(ctx context.Context) (string, error) {
+	var st struct {
+		Version string `json:"version"`
+	}
+	if err := c.get(ctx, "/api/v1/system/status", nil, &st); err != nil {
+		return "", err
+	}
+	if st.Version == "" {
+		return "", errors.New("lidarr: the answer does not look like Lidarr's")
+	}
+	return st.Version, nil
+}
+
+// Profile is a quality or metadata profile.
+type Profile struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// Options is what the settings page offers to choose from.
+type Options struct {
+	RootFolders      []string  `json:"rootFolders"`
+	QualityProfiles  []Profile `json:"qualityProfiles"`
+	MetadataProfiles []Profile `json:"metadataProfiles"`
+}
+
+// Options lists Lidarr's root folders and profiles.
+func (c *Client) Options(ctx context.Context) (Options, error) {
+	opts := Options{RootFolders: []string{}, QualityProfiles: []Profile{}, MetadataProfiles: []Profile{}}
+	var roots []struct {
+		Path string `json:"path"`
+	}
+	if err := c.get(ctx, "/api/v1/rootfolder", nil, &roots); err != nil {
+		return Options{}, err
+	}
+	for _, r := range roots {
+		opts.RootFolders = append(opts.RootFolders, r.Path)
+	}
+	if err := c.get(ctx, "/api/v1/qualityprofile", nil, &opts.QualityProfiles); err != nil {
+		return Options{}, err
+	}
+	if err := c.get(ctx, "/api/v1/metadataprofile", nil, &opts.MetadataProfiles); err != nil {
+		return Options{}, err
+	}
+	return opts, nil
+}
+
 // Tracks returns the tracks of the library album with the given Lidarr ID.
 func (c *Client) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error) {
 	var out []LibraryTrack
@@ -298,6 +354,9 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 		return fmt.Errorf("lidarr %s: %w", path, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("%w: %s returned %s", ErrUnauthorized, path, resp.Status)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("lidarr %s returned %s", path, resp.Status)
 	}
@@ -305,4 +364,60 @@ func (c *Client) get(ctx context.Context, path string, q url.Values, out any) er
 		return fmt.Errorf("lidarr %s: decoding response: %w", path, err)
 	}
 	return nil
+}
+
+// Live is a Client that can be replaced while the process runs, so changing the
+// Lidarr settings takes effect without a restart. Until it is given a client
+// every call answers ErrNotConfigured.
+type Live struct {
+	mu sync.RWMutex
+	c  *Client
+}
+
+// Set replaces the client; nil means "not configured".
+func (l *Live) Set(c *Client) {
+	l.mu.Lock()
+	l.c = c
+	l.mu.Unlock()
+}
+
+// Client returns the current client, or nil.
+func (l *Live) Client() *Client {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.c
+}
+
+// AlbumByForeignID, QueuedAlbumIDs, Tracks and AddAlbum make Live a drop-in for
+// Client wherever the catalog needs one.
+func (l *Live) AlbumByForeignID(ctx context.Context, foreignID string) (*AlbumState, error) {
+	c := l.Client()
+	if c == nil {
+		return nil, ErrNotConfigured
+	}
+	return c.AlbumByForeignID(ctx, foreignID)
+}
+
+func (l *Live) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
+	c := l.Client()
+	if c == nil {
+		return nil, ErrNotConfigured
+	}
+	return c.QueuedAlbumIDs(ctx)
+}
+
+func (l *Live) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error) {
+	c := l.Client()
+	if c == nil {
+		return nil, ErrNotConfigured
+	}
+	return c.Tracks(ctx, albumID)
+}
+
+func (l *Live) AddAlbum(ctx context.Context, a NewAlbum) error {
+	c := l.Client()
+	if c == nil {
+		return ErrNotConfigured
+	}
+	return c.AddAlbum(ctx, a)
 }
