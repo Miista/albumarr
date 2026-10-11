@@ -141,7 +141,7 @@
           <button type="button" class="btn btn-test" @click="runTest(true)" :disabled="testing">
             <span class="spinner" v-if="testing"></span>{{ testing ? 'Testing…' : 'Test connection' }}
           </button>
-          <span class="msg ok" v-if="testResult && testResult.ok">{{ testResult?.message }}</span>
+          <span class="msg ok" v-if="testResult && testResult.ok">{{ testResult?.version ? 'Connected · ' + testResult?.version : testResult?.message }}</span>
           <span class="msg bad" v-if="testResult && !testResult.ok">{{ testResult?.message }}</span>
         </div>
       </section>
