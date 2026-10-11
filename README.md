@@ -201,7 +201,10 @@ open the page.
 
 Any setting can instead be set by `ALBUMREQ_SETTING_<NAME>`. A non-empty
 variable wins over what is saved, the field shows **Managed by `<VAR>`** and is
-read-only, and the value is never written to the database. URL and API key are
+read-only, and the value is never written to the database. As in Reaparr, a note
+under the title explains the lock chip, a pinned field carries a lock and the name
+of the variable ("Managed by …") and is tinted amber and read-only (readonly, so
+its value can still be selected and copied). URL and API key are
 locked as a pair: pinning either locks both, so a key that is pinned can never be
 sent to an address typed into the page.
 

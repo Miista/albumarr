@@ -103,7 +103,11 @@
   <main class="settings" v-if="page === 'settings' && me && me.role === 'admin'">
     <div class="title-block">
       <h1>Settings</h1>
-      <p class="lede">Connect albumreq to Lidarr. A setting pinned by an environment variable is locked here.</p>
+      <p class="env-note" v-if="settingsTab === 'lidarr'">
+        Fields locked with
+        <span class="env-chip">ENV</span>
+        are pinned by an environment variable and cannot be changed here.
+      </p>
     </div>
 
     <nav class="subtabs" aria-label="Settings sections">
@@ -126,11 +130,11 @@
         <div class="card-grid">
           <div class="field">
             <label class="field-label" for="f-url">URL <span class="lock-label" v-if="lock('lidarr.url')">{{ lockText('lidarr.url') }}</span></label>
-            <input id="f-url" class="input plain" :class="{ locked: lock('lidarr.url') }" type="url" inputmode="url" v-model="form.url" :disabled="!!lock('lidarr.url')" placeholder="http://lidarr:8686" autocapitalize="off" autocorrect="off" spellcheck="false">
+            <input id="f-url" class="input plain" :class="{ locked: lock('lidarr.url') }" type="url" inputmode="url" v-model="form.url" :readonly="lock('lidarr.url') ? true : null" placeholder="http://lidarr:8686" autocapitalize="off" autocorrect="off" spellcheck="false">
           </div>
           <div class="field">
             <label class="field-label" for="f-key">API key <span class="lock-label" v-if="lock('lidarr.api_key')">{{ lockText('lidarr.api_key') }}</span></label>
-            <input id="f-key" class="input plain" :class="{ locked: lock('lidarr.api_key') }" type="password" v-model="form.api_key" :disabled="!!lock('lidarr.api_key')" :placeholder="cfg.values.api_key_set ? cfg.values.api_key + ' (saved, type to replace)' : 'Lidarr → Settings → General'" autocomplete="new-password" autocapitalize="off" spellcheck="false">
+            <input id="f-key" class="input plain" :class="{ locked: lock('lidarr.api_key') }" type="password" v-model="form.api_key" :readonly="lock('lidarr.api_key') ? true : null" :placeholder="cfg.values.api_key_set ? cfg.values.api_key + ' (saved, type to replace)' : 'Lidarr → Settings → General'" autocomplete="new-password" autocapitalize="off" spellcheck="false">
           </div>
         </div>
         <div class="card-foot">
@@ -156,7 +160,7 @@
               <option value="">Choose…</option>
               <option v-for="r in rootChoices()" :value="r">{{ r }}</option>
             </select>
-            <input id="f-root" class="input plain" :class="{ locked: lock('lidarr.root_folder') }" v-else v-model="form.root_folder" :disabled="!!lock('lidarr.root_folder')" placeholder="/music" autocapitalize="off" spellcheck="false">
+            <input id="f-root" class="input plain" :class="{ locked: lock('lidarr.root_folder') }" v-else v-model="form.root_folder" :readonly="lock('lidarr.root_folder') ? true : null" placeholder="/music" autocapitalize="off" spellcheck="false">
           </div>
           <div class="field">
             <label class="field-label" for="f-qp">Quality profile <span class="lock-label" v-if="lock('lidarr.quality_profile_id')">{{ lockText('lidarr.quality_profile_id') }}</span></label>
@@ -164,7 +168,7 @@
               <option :value="0">Choose…</option>
               <option v-for="p in profileChoices('quality_profile_id', options?.qualityProfiles)" :value="p.id">{{ p.name }}</option>
             </select>
-            <input id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-else type="number" min="0" v-model.number="form.quality_profile_id" :disabled="!!lock('lidarr.quality_profile_id')">
+            <input id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-else type="number" min="0" v-model.number="form.quality_profile_id" :readonly="lock('lidarr.quality_profile_id') ? true : null">
           </div>
         </div>
       </section>
