@@ -118,7 +118,8 @@ what it can before saving:
   key.
 
 Settings are saved in `config.json` under `ALBUMREQ_DATA_DIR` (default
-`/app/data`, mode 0600), so that directory needs a volume.
+`/app/data`, mode 0600), so that directory needs a volume. Only admins can open
+the page.
 
 ### Pinning a setting with an environment variable
 
@@ -137,8 +138,9 @@ sent to an address typed into the page.
 | Metadata profile ID | `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` |
 
 `ALBUMREQ_SETTINGS_READONLY=true` locks every setting and refuses all changes
-from the page. **Use it while the port can be reached by anyone you do not trust**:
-there is no login, so without it the page can repoint albumreq at another Lidarr.
+from the page, for whoever is signed in. With the login off it is the only thing
+standing between anyone who can reach the port and the page that can repoint
+albumreq at another Lidarr.
 
 An environment value Lidarr cannot use (a profile that does not exist, an ID
 that is not a number) leaves requesting off, says why on the Settings page, and
@@ -152,7 +154,7 @@ Environment variables:
 |---|---|---|---|
 | `ALBUMREQ_SETTING_LIDARR_*` | no | | The five Lidarr settings above. Not needed when you use the Settings page. |
 | `ALBUMREQ_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
-| `ALBUMREQ_DATA_DIR` | no | `/app/data` | Where `config.json` is kept |
+| `ALBUMREQ_DATA_DIR` | no | `/app/data` | Where `config.json` (settings, holds the Lidarr key), `users.json` and `auth/` (the local account and session key) are kept |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT` | yes | | An email address or a project URL. MusicBrainz requires a way to contact whoever runs an application, in the User-Agent. **There is no default:** it is yours to choose, and it is sent to MusicBrainz only, never to Lidarr's services. |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_URL` | no | public MusicBrainz | Another MusicBrainz web service (WS/2), e.g. a self-hosted mirror |
 | `ALBUMREQ_SETTING_METADATA_URL` | no | `https://api.lidarr.audio/api/v0.4` | Another metadata service |
@@ -160,19 +162,46 @@ Environment variables:
 | `ALBUMREQ_SETTING_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
 | `ALBUMREQ_ADDR` | no | `127.0.0.1:8768` | Listen address. The container image sets `:8768`. |
 
-### There is no login yet
+## Login and roles
 
-Anyone who can reach the port can search your Lidarr and see your library
-state, and **change the settings, including which Lidarr albumreq talks to**
-(see `ALBUMREQ_SETTINGS_READONLY`). **With requesting on, they can also add artists and albums to it** and make Lidarr search and download, which uses your indexers and your
-disk, so turn it on only where the port is not exposed, or behind something that authenticates.
-The write endpoints (request and settings) refuse any call without an `X-Albumreq` header and any
-browser request marked cross-site, so a web page you merely visit cannot make
-your browser request albums; that is not a substitute for a login. That is why the default bind is loopback only, and why the server logs a
-warning when started on anything wider. Until a login is added, run it on a
-network only you can reach, or behind a proxy that authenticates. Lidarr has no
-scoped API keys, so the key albumreq holds can do everything the Lidarr UI can;
-the code only ever reads.
+The login is [oidcgate](https://github.com/Miista/oidcgate), the same as Reaparr:
+on by default, a local account made on first launch (the owner, an admin), and
+optional single sign-on through any OIDC provider. `/healthz` is open; everything
+else, including the API, needs a sign-in (a page load is redirected, an API call
+gets `401`). Sessions last 12 hours.
+
+| Variable | Meaning |
+|---|---|
+| `ALBUMREQ_AUTH_DISABLED` | `true`: no login at all, and **everyone who can reach the port is an admin**. For loopback or a proxy that authenticates for it. |
+| `ALBUMREQ_OIDC_ENABLED`, `_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_BASE_URL` | Single sign-on; see oidcgate's README. Register the client with scopes `openid profile email groups`. |
+| `ALBUMREQ_ROLE_ADMIN_GROUP` | The provider group whose members are **admins** |
+| `ALBUMREQ_ROLE_USER_GROUP` | If set, the only way in besides the admin group: a signed-in person in neither group is turned away. Unset: anyone the provider lets sign in is a user. |
+
+Four roles; a higher one may do all a lower one may:
+
+| Role | From | May |
+|---|---|---|
+| none | signed in, not in the groups | see a "no access" page, nothing else |
+| user | the user group | search and open albums |
+| approver | a user an admin has made an approver | also **request** an album (for now: see below) |
+| admin | the admin group, or the local account | also the settings, and who the approvers are |
+
+Roles are enforced on the server for every route, never by hiding buttons.
+Group names are the provider's: they are read when someone signs in, so **a change
+of group takes effect at their next sign-in** (within 12 hours).
+
+Approvers are the one role albumreq keeps itself. `users.json` in the data
+directory remembers everyone who has signed in (only people who were let in), and
+an admin marks approvers in it (`POST /api/users/approver`; the page for it comes
+with the approval flow). Until requests can wait for approval, **a request goes
+straight to Lidarr**, so only approvers and admins can make one: a plain user's
+request would start a download nobody approved.
+
+Hardening that stays: every write refuses a call without an `X-Albumreq` header
+and any browser request marked cross-site, and requesting and the settings keep
+their own switches. Lidarr has no scoped API keys, so the key albumreq holds can
+do everything the Lidarr UI can; the code only ever adds an album, monitors it,
+and searches for it.
 
 Everything that reaches an upstream URL is validated first: album IDs must be
 lowercase UUIDs, cover sizes are 250 or 500, and a cover redirect may only go to
@@ -197,6 +226,9 @@ Layout:
 - `internal/coverart` — cover images through Lidarr's image CDN
 - `internal/lidarr` — your Lidarr: library state, queue, library tracks
 - `internal/store` — `config.json`: atomic, 0600, one writer
+- `internal/jsonfile` — one JSON file, atomic, 0600; `store` and `users` are built on it
+- `internal/users` — who has signed in, and who is an approver
+- `internal/auth` — groups and the approver flag to a role
 - `internal/settings` — env-over-store resolution, locks, validation, the service behind the page
 - `internal/catalog` — combines them, and degrades when one is missing
 - `internal/api` — HTTP handlers
@@ -225,6 +257,7 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 
 1. **Done:** search, poster grid, type badges, status chips, album details and tracks.
 2. **Done:** request an album: add it, monitor it and search for it.
-3. Request records (who asked, when, what was decided), keyed by MusicBrainz ID,
-   with an approval step and "My requests".
-4. Login (Authelia OIDC).
+3. **Done:** login (oidcgate, OIDC), roles from groups, approvers.
+4. Request records (who asked, when, what was decided), keyed by MusicBrainz ID,
+   an approval step, "My requests", and the page where an admin picks approvers.
+   See `PLAN-REQUESTS.md`.
