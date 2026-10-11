@@ -120,7 +120,7 @@
       <section class="card">
         <div class="card-head">
           <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 3v11.55A4 4 0 1 0 11 18V8h6V3H9z"></path></svg></div>
-          <div class="card-text"><h2>Lidarr</h2><p>Where albums are looked up and added.</p></div>
+          <div class="card-text"><h2>Lidarr</h2></div>
           <span class="conn-pill" :class="cfg.configured ? 'on' : 'off'">{{ cfg.configured ? 'Configured' : 'Not configured' }}</span>
         </div>
         <div class="card-grid">
@@ -145,7 +145,7 @@
       <section class="card">
         <div class="card-head">
           <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></div>
-          <div class="card-text"><h2>Requesting</h2><p>A request adds the album to Lidarr, monitors it and searches for it, so a download starts if a release is found. The artist is not monitored.</p></div>
+          <div class="card-text"><h2>Requesting</h2></div>
           <span class="conn-pill" :class="cfg.requests_enabled ? 'on' : 'off'">{{ cfg.requests_enabled ? 'On' : 'Off' }}</span>
         </div>
         <p class="note-text" v-if="!cfg.configured && !options">Connect to Lidarr first.</p>
