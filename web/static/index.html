@@ -102,13 +102,22 @@
             <dl class="facts">
               <div v-if="detail.released"><dt>Released</dt><dd>{{ detail.released }}</dd></div>
               <div v-if="detail.rating"><dt>Rating</dt><dd>{{ detail.rating.value.toFixed(1) }} / 10 <span class="faint">({{ detail.rating.votes }} votes)</span></dd></div>
-              <div v-if="detail.library"><dt>In library</dt><dd>{{ detail.library.tracksHave }} of {{ detail.library.tracksTotal }} tracks<span v-if="detail.library.sizeOnDisk" class="faint"> · {{ fmtSize(detail.library.sizeOnDisk) }}</span></dd></div>
+              <div v-if="detail.library"><dt>In library</dt><dd v-if="detail.library.tracksTotal">{{ detail.library.tracksHave }} of {{ detail.library.tracksTotal }} tracks<span v-if="detail.library.sizeOnDisk" class="faint"> · {{ fmtSize(detail.library.sizeOnDisk) }}</span></dd>
+                <dd v-else>Just added <span class="faint">· Lidarr is still fetching its details</span></dd></div>
             </dl>
             <div class="genres" v-if="detail.genres.length"><span class="tag" v-for="g in detail.genres">{{ g }}</span></div>
             <p class="overview" v-if="detail.overview">{{ detail.overview }}</p>
             <p class="overview" v-if="detail.disambiguation">{{ detail.disambiguation }}</p>
             <p class="note-text" v-if="!detail.metadataOk">Details are not available for this album right now: the metadata service has none, or did not answer.</p>
             <p class="note-text" v-if="!detail.libraryOk">Lidarr could not be reached, so library status is not shown.</p>
+            <div class="request" v-if="detail.canRequest || requestNote || requestError">
+              <button type="button" class="btn primary" v-if="detail.canRequest" @click="request" :disabled="requesting">
+                <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : 'Request' }}
+              </button>
+              <p class="note-text" v-if="detail.canRequest && !requestNote">Adds the artist and album to Lidarr, not monitored. Nothing is downloaded.</p>
+              <p class="ok-text" v-if="requestNote">{{ requestNote }}</p>
+              <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>
+            </div>
             <a class="ext-link" :href="detail.musicbrainzUrl" target="_blank" rel="noopener noreferrer">View on MusicBrainz &#8599;</a>
           </div>
           <div class="searching left" v-if="detailLoading"><span class="spinner"></span>Loading details…</div>

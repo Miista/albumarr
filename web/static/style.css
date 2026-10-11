@@ -97,6 +97,10 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
 .btn:hover:not(:disabled) { border-color: oklch(0.6 0.18 290); background: oklch(0.25 0.06 290 / .5); }
 .btn:focus-visible { outline: 2px solid oklch(0.65 0.2 290); outline-offset: 2px; }
 .btn:disabled { cursor: default; opacity: .6; }
+.btn.primary { background: oklch(0.55 0.2 290); border-color: oklch(0.62 0.2 290); color: #fff; box-shadow: 0 4px 16px oklch(0.55 0.2 290 / .35); }
+.btn.primary:hover:not(:disabled) { background: oklch(0.6 0.2 290); border-color: oklch(0.7 0.18 290); }
+.request { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ok-text { margin: 0; color: var(--green); font-size: 13px; }
 .note-text { margin: 0; color: var(--muted-2); font-size: 13px; }
 .faint { color: var(--faint); }
 .searching.left { justify-content: flex-start; }
@@ -156,6 +160,7 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
 .status-pill.available { --pill-color: var(--green); --pill-bg: oklch(0.22 0.05 155 / .9); --pill-border: oklch(0.5 0.12 155 / .6); }
 .status-pill.processing { --pill-color: var(--amber); --pill-bg: oklch(0.24 0.05 80 / .9); --pill-border: oklch(0.5 0.12 80 / .6); }
 .status-pill.requested { --pill-color: var(--cyan); --pill-bg: oklch(0.22 0.05 200 / .9); --pill-border: oklch(0.5 0.12 200 / .6); }
+.status-pill.inlidarr { --pill-color: var(--muted); --pill-bg: oklch(0.22 0.01 270 / .92); --pill-border: oklch(0.42 0.02 270 / .7); }
 .status-pill.notfound { --pill-color: var(--red-text); --pill-bg: oklch(0.24 0.06 25 / .9); --pill-border: oklch(0.5 0.14 25 / .6); }
 
 /* On a cover, the pills sit in the corners: type on top, status below. */

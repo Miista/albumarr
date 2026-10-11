@@ -3,6 +3,7 @@ const STATUS_LABELS = {
   processing: 'Processing',
   requested: 'Requested',
   notfound: 'Not found',
+  inlidarr: 'In Lidarr',
 };
 
 // MusicBrainz answers about one search a second, so wait for a pause in the
@@ -35,6 +36,9 @@ function App() {
     detail: null,
     detailLoading: false,
     detailError: '',
+    requesting: false,
+    requestNote: '',
+    requestError: '',
 
     mounted() {
       const q = new URLSearchParams(location.search).get('q');
@@ -150,6 +154,9 @@ function App() {
       }
       this.detail = null;
       this.detailError = '';
+      this.requestNote = '';
+      this.requestError = '';
+      this.requesting = false;
       this.detailLoading = true;
       this.selected = card;
       document.body.style.overflow = 'hidden';
@@ -163,10 +170,38 @@ function App() {
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const d = await res.json();
         if (mine === detailSeq) this.detail = d;
+        // Keep the card behind the sheet in step with what Lidarr just said.
+        const card = this.albums.find((a) => a.id === id);
+        if (card && d.libraryOk) card.status = d.status;
       } catch (e) {
         if (mine === detailSeq) this.detailError = e.message;
       } finally {
         if (mine === detailSeq) this.detailLoading = false;
+      }
+    },
+
+    // request adds the open album, and its artist, to Lidarr without
+    // monitoring either. The header proves the call came from this page: the
+    // server refuses a write without it.
+    async request() {
+      if (this.requesting || !this.selected || !this.detail || !this.detail.canRequest) return;
+      const id = this.selected.id;
+      this.requesting = true;
+      this.requestError = '';
+      this.requestNote = '';
+      try {
+        const res = await fetch('/api/album/' + id + '/request', { method: 'POST', headers: { 'X-Albumreq': '1' } });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        const data = await res.json();
+        if (!this.selected || this.selected.id !== id) return;
+        this.requestNote = data.result === 'added'
+          ? 'Added to Lidarr. Nothing is monitored, so nothing will be searched for or downloaded.'
+          : 'Lidarr already has this album.';
+        await this.loadDetail(id);
+      } catch (e) {
+        if (this.selected && this.selected.id === id) this.requestError = e.message;
+      } finally {
+        this.requesting = false;
       }
     },
 
