@@ -60,6 +60,7 @@ type fakeRequests struct {
 	listErr error
 
 	submitted string
+	ask       requests.Ask
 	approved  int64
 	declined  int64
 	reason    string
@@ -73,9 +74,9 @@ type fakeRequests struct {
 	pendingCalls int
 }
 
-func (f *fakeRequests) Submit(_ context.Context, p auth.Principal, id string) (requests.Outcome, error) {
+func (f *fakeRequests) Submit(_ context.Context, p auth.Principal, a requests.Ask) (requests.Outcome, error) {
 	f.calls++
-	f.by, f.submitted = p, id
+	f.by, f.submitted, f.ask = p, a.AlbumID, a
 	return f.out, f.err
 }
 func (f *fakeRequests) Approve(_ context.Context, p auth.Principal, id int64) (requests.Outcome, error) {
@@ -108,6 +109,9 @@ type fakeIssues struct {
 func (f *fakeIssues) Issues(context.Context) []issues.Issue { f.issueCalls++; return f.list }
 func (f *fakeIssues) Fresh(context.Context) []issues.Issue  { f.freshCalls++; return f.list }
 
+// requestBody is what a card sends with a request.
+const requestBody = `{"artistId":"a74b1b7f-71a5-4011-9441-d0b5e4122711","title":"OK Computer","artist":"Radiohead"}`
+
 // routes is every endpoint and the lowest role that may use it.
 var routes = []struct {
 	method, path, body string
@@ -116,7 +120,7 @@ var routes = []struct {
 	{"GET", "/api/search?q=radiohead", "", auth.User},
 	{"GET", "/api/album/" + id1, "", auth.User},
 	{"GET", "/api/cover/" + id1, "", auth.User},
-	{"POST", "/api/album/" + id1 + "/request", "", auth.User},
+	{"POST", "/api/album/" + id1 + "/request", requestBody, auth.User},
 	{"GET", "/api/requests", "", auth.User},
 	{"POST", "/api/requests/1/approve", "", auth.Approver},
 	{"POST", "/api/requests/1/decline", `{"reason":"no"}`, auth.Approver},

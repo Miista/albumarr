@@ -40,7 +40,7 @@ type Catalog interface {
 
 // Requests is the approval flow: asking, deciding, listing, and what is waiting.
 type Requests interface {
-	Submit(ctx context.Context, p auth.Principal, albumID string) (requests.Outcome, error)
+	Submit(ctx context.Context, p auth.Principal, a requests.Ask) (requests.Outcome, error)
 	Approve(ctx context.Context, by auth.Principal, id int64) (requests.Outcome, error)
 	Decline(ctx context.Context, by auth.Principal, id int64, reason string) (requests.Outcome, error)
 	List(p auth.Principal, scope requests.Scope) ([]requests.Record, error)
@@ -275,7 +275,18 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, p := r.PathValue("id"), who(r)
-	out, err := s.requests.Submit(r.Context(), p, id)
+	// What the card carried: the artist's ID and the names for the queue. Lidarr
+	// works out the real artist from the album, so none of it can file an album under
+	// the wrong artist; it is only validated for shape (see requests.Service.Submit).
+	var body struct {
+		ArtistID string `json:"artistId"`
+		Title    string `json:"title"`
+		Artist   string `json:"artist"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	out, err := s.requests.Submit(r.Context(), p, requests.Ask{AlbumID: id, ArtistID: body.ArtistID, Title: body.Title, Artist: body.Artist})
 	if err != nil {
 		s.requestFailed(w, r, err, "request for album "+id)
 		return
@@ -311,7 +322,9 @@ func (s *Server) requestFailed(w http.ResponseWriter, r *http.Request, err error
 	var rejected *lidarr.RejectedError
 	switch {
 	case errors.Is(err, catalog.ErrInvalidID):
-		http.Error(w, "invalid album id", http.StatusBadRequest)
+		http.Error(w, "invalid album or artist id", http.StatusBadRequest)
+	case errors.Is(err, requests.ErrBadInput):
+		http.Error(w, "A request needs the album's title and artist", http.StatusBadRequest)
 	case errors.Is(err, requests.ErrForbidden):
 		http.Error(w, "You do not have access to this", http.StatusForbidden)
 	case errors.Is(err, requests.ErrNotFound):

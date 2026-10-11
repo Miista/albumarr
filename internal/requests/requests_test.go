@@ -19,42 +19,49 @@ const (
 	album2 = "48140466-cff6-3222-bd55-63c27e43190d"
 )
 
+// artist1 is the artist ID the cards in these tests carry.
+const artist1 = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+
 type fakeCatalog struct {
 	mu        sync.Mutex
 	enabled   bool
-	detail    catalog.Detail
-	detailErr error
+	wanted    bool // would a request change anything in Lidarr
+	wantedErr error
 	result    catalog.RequestResult
 	reqErr    error
-	requested []string
-	details   atomic.Int32
+	requested []string // album IDs sent to Lidarr
+	artists   []string // and the artist ID each was sent with
+	asked     atomic.Int32
 }
 
 func newFake() *fakeCatalog {
-	return &fakeCatalog{
-		enabled: true, result: catalog.RequestAdded,
-		detail: catalog.Detail{Album: catalog.Album{Title: "OK Computer", Artist: "Radiohead"}, MetadataOK: true, LibraryOK: true, CanRequest: true},
-	}
+	return &fakeCatalog{enabled: true, wanted: true, result: catalog.RequestAdded}
 }
 
 func (f *fakeCatalog) RequestsEnabled() bool { return f.enabled }
-func (f *fakeCatalog) Detail(context.Context, string) (catalog.Detail, error) {
-	f.details.Add(1)
-	return f.detail, f.detailErr
+func (f *fakeCatalog) Wanted(context.Context, string) (bool, error) {
+	f.asked.Add(1)
+	return f.wanted, f.wantedErr
 }
-func (f *fakeCatalog) Request(_ context.Context, id string) (catalog.RequestResult, error) {
+func (f *fakeCatalog) Request(_ context.Context, album, artist string) (catalog.RequestResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.reqErr != nil {
 		return "", f.reqErr
 	}
-	f.requested = append(f.requested, id)
+	f.requested = append(f.requested, album)
+	f.artists = append(f.artists, artist)
 	return f.result, nil
 }
 func (f *fakeCatalog) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.requested)
+}
+
+// askFor is what a card for the album carries.
+func askFor(id string) Ask {
+	return Ask{AlbumID: id, ArtistID: artist1, Title: "OK Computer", Artist: "Radiohead"}
 }
 
 func p(role auth.Role, name string) auth.Principal {
@@ -81,7 +88,7 @@ func rig(t *testing.T) (*Service, *fakeCatalog, *db.DB) {
 
 func submit(t *testing.T, s *Service, who auth.Principal, id string) Outcome {
 	t.Helper()
-	o, err := s.Submit(context.Background(), who, id)
+	o, err := s.Submit(context.Background(), who, askFor(id))
 	if err != nil {
 		t.Fatalf("Submit as %s: %v", who.Name, err)
 	}
@@ -151,8 +158,7 @@ func TestAnApproversRequestForAPendingAlbumApprovesTheExistingOne(t *testing.T) 
 
 func TestNothingIsRecordedForAnAlbumLidarrAlreadyWants(t *testing.T) {
 	s, f, d := rig(t)
-	f.detail.CanRequest = false
-	f.detail.Status = catalog.StatusRequested
+	f.wanted = false // Lidarr is already looking for it
 	o := submit(t, s, alice, album1)
 	if o.Result != "exists" || count(t, d, "1=1") != 0 || f.calls() != 0 {
 		t.Errorf("%+v records=%d calls=%d", o, count(t, d, "1=1"), f.calls())
@@ -160,28 +166,33 @@ func TestNothingIsRecordedForAnAlbumLidarrAlreadyWants(t *testing.T) {
 }
 
 func TestSubmitRefusals(t *testing.T) {
+	good := askFor(album1)
+	with := func(f func(*Ask)) Ask { a := good; f(&a); return a }
 	for name, tc := range map[string]struct {
 		setup func(*fakeCatalog)
 		who   auth.Principal
-		id    string
+		ask   Ask
 		want  error
 	}{
-		"requesting is off":          {func(f *fakeCatalog) { f.enabled = false }, alice, album1, catalog.ErrRequestsDisabled},
-		"an invalid id":              {func(*fakeCatalog) {}, alice, "../../etc/passwd", catalog.ErrInvalidID},
-		"an empty id":                {func(*fakeCatalog) {}, alice, "", catalog.ErrInvalidID},
-		"someone with no access":     {func(*fakeCatalog) {}, p(auth.None, "eve"), album1, ErrForbidden},
-		"the metadata is down":       {func(f *fakeCatalog) { f.detail.MetadataOK = false }, alice, album1, catalog.ErrUnavailable},
-		"Lidarr is down":             {func(f *fakeCatalog) { f.detail.LibraryOK = false }, alice, album1, catalog.ErrUnavailable},
-		"the lookup itself fails":    {func(f *fakeCatalog) { f.detailErr = errors.New("boom") }, alice, album1, catalog.ErrUnavailable},
-		"Lidarr refuses an approver": {func(f *fakeCatalog) { f.reqErr = catalog.ErrUnavailable }, anna, album1, catalog.ErrUnavailable},
+		"requesting is off":          {func(f *fakeCatalog) { f.enabled = false }, alice, good, catalog.ErrRequestsDisabled},
+		"an invalid album id":        {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.AlbumID = "../../etc/passwd" }), catalog.ErrInvalidID},
+		"an empty album id":          {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.AlbumID = "" }), catalog.ErrInvalidID},
+		"an invalid artist id":       {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.ArtistID = "x; DROP TABLE" }), catalog.ErrInvalidID},
+		"an empty artist id":         {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.ArtistID = "" }), catalog.ErrInvalidID},
+		"no title":                   {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.Title = "" }), ErrBadInput},
+		"a title of only spaces":     {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.Title = "  \n\t " }), ErrBadInput},
+		"no artist":                  {func(*fakeCatalog) {}, alice, with(func(a *Ask) { a.Artist = "" }), ErrBadInput},
+		"someone with no access":     {func(*fakeCatalog) {}, p(auth.None, "eve"), good, ErrForbidden},
+		"Lidarr cannot be asked":     {func(f *fakeCatalog) { f.wantedErr = catalog.ErrUnavailable }, alice, good, catalog.ErrUnavailable},
+		"Lidarr refuses an approver": {func(f *fakeCatalog) { f.reqErr = catalog.ErrUnavailable }, anna, good, catalog.ErrUnavailable},
 	} {
 		s, f, d := rig(t)
 		tc.setup(f)
-		_, err := s.Submit(context.Background(), tc.who, tc.id)
+		_, err := s.Submit(context.Background(), tc.who, tc.ask)
 		if !errors.Is(err, tc.want) {
 			t.Errorf("%s: err = %v, want %v", name, err, tc.want)
 		}
-		if tc.want != catalog.ErrUnavailable || name != "Lidarr refuses an approver" {
+		if name != "Lidarr refuses an approver" {
 			if n := count(t, d, "1=1"); n != 0 {
 				t.Errorf("%s: %d records written for a refused request", name, n)
 			}
@@ -189,10 +200,41 @@ func TestSubmitRefusals(t *testing.T) {
 	}
 }
 
+func TestTheArtistIDTheRequestCarriedIsWhatApprovalSends(t *testing.T) {
+	s, f, _ := rig(t)
+	other := "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+	ask := askFor(album1)
+	ask.ArtistID = other
+	o, err := s.Submit(context.Background(), alice, ask)
+	if err != nil || o.Record.ArtistID != other {
+		t.Fatalf("%+v %v: the record must keep the artist ID", o, err)
+	}
+	if f.calls() != 0 {
+		t.Fatal("nothing reaches Lidarr until approved")
+	}
+	// Approval has only the record: it must use the stored artist ID.
+	if _, err := s.Approve(context.Background(), anna, o.Record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if f.calls() != 1 || f.artists[0] != other || f.requested[0] != album1 {
+		t.Errorf("Lidarr was sent album %v with artist %v, want %s with %s", f.requested, f.artists, album1, other)
+	}
+}
+
+func TestTheNamesAreCleanedAndCutBeforeTheyAreStored(t *testing.T) {
+	s, _, _ := rig(t)
+	ask := askFor(album1)
+	ask.Title, ask.Artist = "  OK\x00 Comp\x07uter \n", strings.Repeat("é", 500)
+	o, err := s.Submit(context.Background(), alice, ask)
+	if err != nil || o.Record.Title != "OK Computer" || len([]rune(o.Record.Artist)) != maxText {
+		t.Errorf("%q / %d runes: %v", o.Record.Title, len([]rune(o.Record.Artist)), err)
+	}
+}
+
 func TestWhenLidarrRefusesAnApproversRequestItStaysPendingToRetry(t *testing.T) {
 	s, f, d := rig(t)
 	f.reqErr = catalog.ErrUnavailable
-	if _, err := s.Submit(context.Background(), anna, album1); !errors.Is(err, catalog.ErrUnavailable) {
+	if _, err := s.Submit(context.Background(), anna, askFor(album1)); !errors.Is(err, catalog.ErrUnavailable) {
 		t.Fatalf("err = %v", err)
 	}
 	if count(t, d, "state = 'pending'") != 1 {
@@ -353,9 +395,14 @@ func truncate(s string) string {
 }
 
 func TestTextWithSQLCharactersIsStoredVerbatim(t *testing.T) {
-	s, f, d := rig(t)
-	f.detail.Title, f.detail.Artist = "Robert'); DROP TABLE requests;--", "<script>alert(1)</script>"
-	rec := submit(t, s, p(auth.User, "O'Brien"), album1).Record
+	s, _, d := rig(t)
+	ask := askFor(album1)
+	ask.Title, ask.Artist = "Robert'); DROP TABLE requests;--", "<script>alert(1)</script>"
+	o, err := s.Submit(context.Background(), p(auth.User, "O'Brien"), ask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := o.Record
 	if rec.Title != "Robert'); DROP TABLE requests;--" || rec.Artist != "<script>alert(1)</script>" || rec.Requester.Name != "O'Brien" || count(t, d, "1=1") != 1 {
 		t.Errorf("%+v", rec)
 	}
@@ -434,7 +481,7 @@ func TestManyPeopleRequestingTheSameAlbumAtOnceMakeOneRecord(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			if _, err := s.Submit(context.Background(), p(auth.User, string(rune('a'+i))), album1); err != nil {
+			if _, err := s.Submit(context.Background(), p(auth.User, string(rune('a'+i))), askFor(album1)); err != nil {
 				t.Error(err)
 			}
 		}(i)
@@ -455,7 +502,7 @@ func TestTheStoreItselfRefusesASecondPendingRecord(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, ok, err := st.CreatePending(album1, "t", "a", Person{Sub: "s", Name: "n"})
+			_, ok, err := st.CreatePending(album1, artist1, "t", "a", Person{Sub: "s", Name: "n"})
 			if err != nil {
 				t.Error(err)
 			}
@@ -525,10 +572,10 @@ func TestApprovingAndDecliningAtOnceHasOneWinner(t *testing.T) {
 
 func TestTheDatabaseRefusesAnInvalidState(t *testing.T) {
 	_, _, d := rig(t)
-	if _, err := d.Exec(`INSERT INTO requests (album_id, title, artist, state, requester_sub, requester_name, created_at) VALUES ('x','t','a','maybe','s','n',1)`); err == nil {
+	if _, err := d.Exec(`INSERT INTO requests (album_id, artist_id, title, artist, state, requester_sub, requester_name, created_at) VALUES ('x','y','t','a','maybe','s','n',1)`); err == nil {
 		t.Error("an unknown state must be refused by the schema, not trusted to the code")
 	}
-	if _, err := d.Exec(`INSERT INTO requests (album_id, title, artist, state, requester_sub, requester_name, created_at) VALUES ('x','t','a','approved','s','n',1)`); err == nil {
+	if _, err := d.Exec(`INSERT INTO requests (album_id, artist_id, title, artist, state, requester_sub, requester_name, created_at) VALUES ('x','y','t','a','approved','s','n',1)`); err == nil {
 		t.Error("a decided request must have a decision time")
 	}
 }

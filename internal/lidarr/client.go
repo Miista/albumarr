@@ -114,6 +114,11 @@ var ErrNotConfigured = errors.New("lidarr: not configured")
 // caller can treat this as success.
 var ErrAlreadyAdded = errors.New("lidarr: album already added")
 
+// ErrAlbumNotFound means Lidarr's own metadata does not know the album (a very new
+// MusicBrainz entry, say), so it cannot be added yet. It is how albumreq finds
+// out: Lidarr answers 400 "An album with this ID was not found".
+var ErrAlbumNotFound = errors.New("lidarr: album not found in its metadata")
+
 // ErrUnavailable means Lidarr, or the metadata service behind it, could not
 // answer (a 5xx or no connection). Trying again later may work.
 var ErrUnavailable = errors.New("lidarr: unavailable")
@@ -346,8 +351,9 @@ func (c *Client) send(ctx context.Context, method, path string, body any) error 
 		return nil
 	case resp.StatusCode == http.StatusBadRequest:
 		var failures []struct {
-			Message   string `json:"errorMessage"`
-			ErrorCode string `json:"errorCode"`
+			Message      string `json:"errorMessage"`
+			ErrorCode    string `json:"errorCode"`
+			PropertyName string `json:"propertyName"`
 		}
 		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&failures); err != nil || len(failures) == 0 {
 			return &RejectedError{Messages: []string{"no reason given"}}
@@ -356,6 +362,9 @@ func (c *Client) send(ctx context.Context, method, path string, body any) error 
 		for _, f := range failures {
 			if f.ErrorCode == "AlbumExistsValidator" {
 				return ErrAlreadyAdded
+			}
+			if f.PropertyName == "MusicbrainzId" && strings.Contains(strings.ToLower(f.Message), "not found") {
+				return ErrAlbumNotFound
 			}
 			rejected.Messages = append(rejected.Messages, f.Message)
 		}

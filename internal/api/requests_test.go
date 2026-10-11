@@ -235,3 +235,54 @@ func TestTheSheetWorksWhenTheRecordsCannotBeRead(t *testing.T) {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }
+
+// --- what a request carries ---
+
+func TestTheRequestPassesTheCardsValuesToTheFlow(t *testing.T) {
+	rq := &fakeRequests{out: requests.Outcome{Result: "pending"}}
+	rec := postBody(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request",
+		`{"artistId":"5b11f4ce-a62d-471e-81fc-a69a8278c7da","title":"Nevermind","artist":"Nirvana"}`, sameOrigin)
+	want := requests.Ask{AlbumID: id1, ArtistID: "5b11f4ce-a62d-471e-81fc-a69a8278c7da", Title: "Nevermind", Artist: "Nirvana"}
+	if rec.Code != http.StatusAccepted || rq.ask != want {
+		t.Errorf("%d: the flow got %+v, want %+v", rec.Code, rq.ask, want)
+	}
+	if rq.by.Role != auth.User {
+		t.Errorf("the flow must be told who asked: %+v", rq.by)
+	}
+}
+
+func TestTheRequestBodyIsValidatedForShape(t *testing.T) {
+	for name, body := range map[string]string{
+		"no body":       ``,
+		"not json":      `nope`,
+		"unknown field": `{"artistId":"a","title":"t","artist":"a","approve":true}`,
+		"wrong type":    `{"artistId":5,"title":"t","artist":"a"}`,
+		"trailing data": `{} {}`,
+		"far too large": `{"title":"` + strings.Repeat("a", 20000) + `"}`,
+	} {
+		rq := &fakeRequests{out: requests.Outcome{Result: "pending"}}
+		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", body, sameOrigin)
+		if rec.Code != http.StatusBadRequest || rq.calls != 0 {
+			t.Errorf("%s: %d calls=%d, want 400 and nothing run", name, rec.Code, rq.calls)
+		}
+	}
+}
+
+func TestMissingOrBadValuesAreRefusedByTheFlowAndShownAs400(t *testing.T) {
+	for name, err := range map[string]error{
+		"no title or artist": requests.ErrBadInput,
+		"a bad id":           catalog.ErrInvalidID,
+	} {
+		rec := postBody(muxWith(&fakeRequests{err: err}, adminAuth()), "/api/album/"+id1+"/request", `{"artistId":"","title":"","artist":""}`, sameOrigin)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", name, rec.Code)
+		}
+	}
+}
+
+func TestAnAlbumLidarrDoesNotKnowIsA422(t *testing.T) {
+	rec := postBody(muxWith(&fakeRequests{err: catalog.ErrNotInMetadata}, adminAuth()), "/api/album/"+id1+"/request", requestBody, sameOrigin)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "does not have this album") {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+}

@@ -74,7 +74,7 @@ func (d *DB) Path() string { return d.path }
 
 // migrations are applied in order, each in its own transaction, and recorded in
 // PRAGMA user_version. Once something has shipped, never edit a migration: add the
-// next. Until then the schema is kept as one clean first migration.
+// next.
 var migrations = []string{
 	// 1: the Lidarr connection (one row), everyone who has signed in, and the
 	// request records.
@@ -126,6 +126,17 @@ var migrations = []string{
 	CREATE UNIQUE INDEX requests_one_pending ON requests (album_id) WHERE state = 'pending';
 	CREATE INDEX requests_by_state     ON requests (state, created_at);
 	CREATE INDEX requests_by_requester ON requests (requester_sub, created_at);`,
+
+	// 2: a request keeps the artist's MusicBrainz ID that came with the album, so an
+	// approval can add it without asking anyone else. Requests made before this
+	// have none: the ones already decided stay as history, but one still pending
+	// could never be approved, so it is closed with a reason that says to ask again.
+	`ALTER TABLE requests ADD COLUMN artist_id TEXT NOT NULL DEFAULT '';
+	UPDATE requests
+	   SET state = 'declined', decided_by_sub = 'albumreq', decided_by_name = 'albumreq',
+	       decided_at = CAST(strftime('%s', 'now') AS INTEGER),
+	       decline_reason = 'This was requested before albumreq recorded the artist, so it cannot be approved. Please request it again.'
+	 WHERE state = 'pending';`,
 }
 
 func (d *DB) migrate() error {

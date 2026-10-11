@@ -378,14 +378,35 @@ const (
 	RequestExists          RequestResult = "exists" // Lidarr already had the album; nothing changed
 )
 
+// Wanted reports whether requesting the album would change anything in Lidarr:
+// Lidarr does not have it, or has it but is not looking for it and it is not
+// complete. It is how a request learns "already requested" without recording one.
+// Lidarr being unable to answer is ErrUnavailable.
+func (c *Catalog) Wanted(ctx context.Context, id string) (bool, error) {
+	if !musicbrainz.ValidID(id) {
+		return false, ErrInvalidID
+	}
+	st, err := c.lib.AlbumByForeignID(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: asking Lidarr: %v", ErrUnavailable, err)
+	}
+	return st == nil || wanted(*st), nil
+}
+
 // Request adds an album to Lidarr, monitored, with its artist if need be
 // (unmonitored), and starts a search for it, so Lidarr looks for and downloads
 // it. Two calls, not one flag: Lidarr only searches on add when it also adds the
 // artist. It is idempotent: an album Lidarr already has is reported as such, not
 // added or searched again, and Lidarr is never written to when it cannot first
 // be asked what it has.
-func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error) {
-	if !musicbrainz.ValidID(id) {
+//
+// The artist's ID is the one MusicBrainz gave with the album. Lidarr only insists
+// that one is present: it works out the real artist from the album (checked: a
+// different artist's ID, or a made-up one, still files the album under its own
+// artist). So nothing here asks the metadata service; an album Lidarr's own
+// metadata does not know is refused by Lidarr, and reported as ErrNotInMetadata.
+func (c *Catalog) Request(ctx context.Context, id, artistID string) (RequestResult, error) {
+	if !musicbrainz.ValidID(id) || !musicbrainz.ValidID(artistID) {
 		return "", ErrInvalidID
 	}
 	req := c.requests.Load()
@@ -406,16 +427,6 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 		return RequestExists, nil
 	}
 
-	meta, err := c.meta.Album(ctx, id)
-	switch {
-	case errors.Is(err, lidarrmeta.ErrNotFound):
-		return "", ErrNotInMetadata
-	case err != nil:
-		return "", fmt.Errorf("%w: asking the metadata service: %v", ErrUnavailable, err)
-	case meta.ArtistID == "" || !musicbrainz.ValidID(meta.ArtistID):
-		return "", ErrNotInMetadata
-	}
-
 	profile, err := c.lib.MetadataProfileByName(ctx, req.MetadataProfile)
 	switch {
 	case errors.Is(err, lidarr.ErrBadSettings):
@@ -425,7 +436,7 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 	}
 
 	err = c.lib.AddAlbum(ctx, lidarr.NewAlbum{
-		AlbumID: id, ArtistID: meta.ArtistID,
+		AlbumID: id, ArtistID: artistID,
 		RootFolder: req.RootFolder, QualityProfileID: req.QualityProfileID, MetadataProfileID: profile,
 	})
 	switch {
@@ -433,6 +444,8 @@ func (c *Catalog) Request(ctx context.Context, id string) (RequestResult, error)
 		return c.startSearch(ctx, id), nil
 	case errors.Is(err, lidarr.ErrAlreadyAdded):
 		return RequestExists, nil
+	case errors.Is(err, lidarr.ErrAlbumNotFound):
+		return "", ErrNotInMetadata
 	case errors.Is(err, lidarr.ErrUnavailable):
 		return "", fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}

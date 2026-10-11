@@ -301,7 +301,7 @@ func TestRequestResultsMapToStatuses(t *testing.T) {
 		"pending":          http.StatusAccepted,
 	} {
 		rq := &fakeRequests{out: requests.Outcome{Result: result}}
-		rec := post(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", sameOrigin)
+		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", requestBody, sameOrigin)
 		if rec.Code != want || !strings.Contains(rec.Body.String(), `"result":"`+result+`"`) || rq.submitted != id1 {
 			t.Errorf("%s: %d %s id=%q", result, rec.Code, rec.Body, rq.submitted)
 		}
@@ -310,12 +310,12 @@ func TestRequestResultsMapToStatuses(t *testing.T) {
 
 func TestRequestAnswerCarriesTheRecordWhenThereIsOne(t *testing.T) {
 	rq := &fakeRequests{out: requests.Outcome{Result: "pending", Record: requests.Record{ID: 7, AlbumID: id1, Title: "OK Computer", State: requests.Pending}}}
-	rec := post(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request", sameOrigin)
+	rec := postBody(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request", requestBody, sameOrigin)
 	if !strings.Contains(rec.Body.String(), `"request":{"id":7`) {
 		t.Errorf("%s", rec.Body)
 	}
 	rq = &fakeRequests{out: requests.Outcome{Result: "exists"}}
-	if rec := post(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request", sameOrigin); strings.Contains(rec.Body.String(), `"request"`) {
+	if rec := postBody(muxWith(rq, as(auth.User)), "/api/album/"+id1+"/request", requestBody, sameOrigin); strings.Contains(rec.Body.String(), `"request"`) {
 		t.Errorf("no record, so no request field: %s", rec.Body)
 	}
 }
@@ -331,7 +331,7 @@ func TestRequestIsRefusedWithoutProofItCameFromThisPage(t *testing.T) {
 		"the header, an odd site":   {"X-Albumreq": "1", "Sec-Fetch-Site": "whatever"},
 	} {
 		rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
-		rec := post(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", headers)
+		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", requestBody, headers)
 		if rec.Code != http.StatusForbidden || rq.calls != 0 {
 			t.Errorf("%s: status = %d, calls = %d, want 403 and no call", name, rec.Code, rq.calls)
 		}
@@ -339,7 +339,7 @@ func TestRequestIsRefusedWithoutProofItCameFromThisPage(t *testing.T) {
 	// ...and what a real same-origin fetch looks like is accepted.
 	for _, site := range []string{"same-origin", "none", ""} {
 		rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
-		rec := post(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": site})
+		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", requestBody, map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": site})
 		if rec.Code != http.StatusCreated {
 			t.Errorf("Sec-Fetch-Site=%q: status = %d, want 201", site, rec.Code)
 		}
@@ -364,7 +364,7 @@ func TestRequestErrorMapping(t *testing.T) {
 		{"a database error", errors.New("database is locked: /app/data/albumreq.db"), http.StatusBadGateway},
 	}
 	for _, c := range cases {
-		rec := post(muxWith(&fakeRequests{err: c.err}, adminAuth()), "/api/album/"+id1+"/request", sameOrigin)
+		rec := postBody(muxWith(&fakeRequests{err: c.err}, adminAuth()), "/api/album/"+id1+"/request", requestBody, sameOrigin)
 		if rec.Code != c.want {
 			t.Errorf("%s: status = %d, want %d", c.name, rec.Code, c.want)
 		}

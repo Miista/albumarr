@@ -484,7 +484,14 @@ function App() {
       this.requestError = '';
       this.requestNote = '';
       try {
-        const res = await api('/api/album/' + id + '/request', { method: 'POST', headers: { 'X-Albumreq': '1' } });
+        // The request carries what the card already showed: the artist's ID and the
+        // names for the approver's queue.
+        const v = this.view();
+        const res = await api('/api/album/' + id + '/request', {
+          method: 'POST',
+          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ artistId: v.artistId, title: v.title, artist: v.artist }),
+        });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const data = await res.json();
         if (!this.selected || this.selected.id !== id) return;
@@ -551,6 +558,7 @@ function App() {
       const d = this.detail && this.detail.metadataOk ? this.detail : {};
       return {
         id: s.id,
+        artistId: d.artistId || s.artistId || '',
         title: d.title || s.title || '',
         artist: d.artist || s.artist || '',
         type: d.type || s.type || '',

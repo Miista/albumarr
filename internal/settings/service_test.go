@@ -134,7 +134,7 @@ func sp(s string) *string { return &s }
 func ip(i int) *int       { return &i }
 
 func (e *env) requestsOn() bool {
-	_, err := e.cat.Request(context.Background(), someID)
+	_, err := e.cat.Request(context.Background(), someID, "a74b1b7f-71a5-4011-9441-d0b5e4122711")
 	return !errors.Is(err, catalog.ErrRequestsDisabled)
 }
 
@@ -436,7 +436,7 @@ func TestAMissingNoneProfileStopsARequestWithoutWritingAnything(t *testing.T) {
 	if !e.requestsOn() {
 		t.Fatal("setup: requesting is configured")
 	}
-	_, err := e.cat.Request(context.Background(), someID)
+	_, err := e.cat.Request(context.Background(), someID, "a74b1b7f-71a5-4011-9441-d0b5e4122711")
 	if errors.Is(err, catalog.ErrRequestsDisabled) {
 		t.Errorf("requesting should be configured, got %v", err)
 	}

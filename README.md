@@ -61,7 +61,7 @@ marked automatic: they could approve it themselves a second later.
 
 | Endpoint | Who |
 |---|---|
-| `POST /api/album/{id}/request` | any user: pending for a user, approved at once for an approver or admin |
+| `POST /api/album/{id}/request` with `{"artistId", "title", "artist"}` | any user: pending for a user, approved at once for an approver or admin |
 | `GET /api/requests?scope=mine` | any user: their own |
 | `GET /api/issues` (`?fresh=1` to check again) | admins |
 | `GET /api/requests?scope=pending` | approvers: the queue, oldest first |
@@ -128,8 +128,19 @@ data, never against a real library):
   Lidarr what it has.
 - If the album is added but the search cannot be started, the page says so: the
   album is in Lidarr and monitored, but Lidarr will not look for it by itself.
-- An album Lidarr's metadata service does not know yet (a very new MusicBrainz
-  entry) cannot be added, and says so.
+- An album Lidarr's own metadata does not know yet (a very new MusicBrainz entry)
+  cannot be added: Lidarr refuses it ("An album with this ID was not found") and
+  the request says so.
+
+**What a request carries.** The album's MusicBrainz ID is in the address; the body
+carries what the card already showed: the artist's MusicBrainz ID and the title and
+artist for the queue. Nothing else is asked: the metadata service is not involved in
+requesting at all, so a request works when it is down. The IDs are checked for shape
+(UUIDs), the text is trimmed and limited. A wrong artist ID cannot file an album under
+the wrong artist: checked on a throwaway Lidarr, a different artist's ID or a made-up
+one still gives the album its own artist, because Lidarr works the artist out from the
+album and only insists that an ID is present. The artist ID is kept with the request,
+so an approval, which has only the record, sends the same one.
 
 There is **no request tracking yet**: nothing records who asked, when, or what
 was decided. The only state is Lidarr's own.

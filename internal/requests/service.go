@@ -11,12 +11,26 @@ import (
 	"github.com/Miista/albumreq/internal/musicbrainz"
 )
 
-// Fulfiller is the part of the catalog the flow uses: look an album up, and get
-// Lidarr to add, monitor and search for it.
+// Fulfiller is the part of the catalog the flow uses: whether asking would change
+// anything in Lidarr, and getting Lidarr to add, monitor and search for an album.
 type Fulfiller interface {
 	RequestsEnabled() bool
-	Detail(ctx context.Context, id string) (catalog.Detail, error)
-	Request(ctx context.Context, id string) (catalog.RequestResult, error)
+	Wanted(ctx context.Context, id string) (bool, error)
+	Request(ctx context.Context, albumID, artistID string) (catalog.RequestResult, error)
+}
+
+// ErrBadInput means the request did not carry what a request needs.
+var ErrBadInput = errors.New("requests: a request needs the album's and the artist's IDs, a title and an artist")
+
+// Ask is what a request carries: the album and artist as the card showed them. The
+// browser sends them; nothing here asks another service. Lidarr works out the real
+// artist from the album, so a wrong artist ID cannot file an album under the wrong
+// artist, and the title and artist are for the people reading the queue.
+type Ask struct {
+	AlbumID  string
+	ArtistID string
+	Title    string
+	Artist   string
 }
 
 // ErrForbidden means the person's role may not do that.
@@ -72,12 +86,16 @@ func person(p auth.Principal) Person { return Person{Sub: p.Sub, Name: p.Name} }
 // requested. A request for an album with a pending request is not a second one:
 // a user is told it is pending, an approver's click approves the existing one.
 //
-// Errors are the catalog's (an invalid ID, requesting switched off, Lidarr or the
-// metadata service unavailable, an album the metadata does not know), so one
-// mapping serves both.
-func (s *Service) Submit(ctx context.Context, p auth.Principal, albumID string) (Outcome, error) {
-	if !musicbrainz.ValidID(albumID) {
+// Errors are the catalog's (an invalid ID, requesting switched off, Lidarr
+// unavailable, an album Lidarr's metadata does not know), so one mapping serves
+// both.
+func (s *Service) Submit(ctx context.Context, p auth.Principal, a Ask) (Outcome, error) {
+	if !musicbrainz.ValidID(a.AlbumID) || !musicbrainz.ValidID(a.ArtistID) {
 		return Outcome{}, catalog.ErrInvalidID
+	}
+	a.Title, a.Artist = clip(a.Title, maxText), clip(a.Artist, maxText)
+	if a.Title == "" || a.Artist == "" {
+		return Outcome{}, ErrBadInput
 	}
 	if !p.Role.AtLeast(auth.User) || p.Role == auth.None {
 		return Outcome{}, ErrForbidden
@@ -88,7 +106,7 @@ func (s *Service) Submit(ctx context.Context, p auth.Principal, albumID string) 
 		return Outcome{}, catalog.ErrRequestsDisabled
 	}
 
-	if rec, found, err := s.store.PendingFor(albumID); err != nil {
+	if rec, found, err := s.store.PendingFor(a.AlbumID); err != nil {
 		return Outcome{}, err
 	} else if found {
 		if p.Role.AtLeast(auth.Approver) {
@@ -97,21 +115,16 @@ func (s *Service) Submit(ctx context.Context, p auth.Principal, albumID string) 
 		return Outcome{Result: string(ResultPending), Record: rec}, nil
 	}
 
-	d, err := s.f.Detail(ctx, albumID)
+	// Would a request change anything? Not if Lidarr already wants the album.
+	wanted, err := s.f.Wanted(ctx, a.AlbumID)
 	if err != nil {
-		return Outcome{}, fmt.Errorf("%w: %v", catalog.ErrUnavailable, err)
+		return Outcome{}, err
 	}
-	switch {
-	case !d.LibraryOK || !d.MetadataOK:
-		// The record needs a title and an artist to be worth an approver's time,
-		// and approving needs Lidarr; neither can be had now.
-		return Outcome{}, catalog.ErrUnavailable
-	case !d.CanRequest:
-		// Lidarr is already looking for it, or has it.
+	if !wanted {
 		return Outcome{Result: string(ResultExists)}, nil
 	}
 
-	rec, _, err := s.store.CreatePending(albumID, d.Title, d.Artist, person(p))
+	rec, _, err := s.store.CreatePending(a.AlbumID, a.ArtistID, a.Title, a.Artist, person(p))
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -144,7 +157,7 @@ func (s *Service) Approve(ctx context.Context, by auth.Principal, id int64) (Out
 }
 
 func (s *Service) approveLocked(ctx context.Context, rec Record, by auth.Principal) (Outcome, error) {
-	res, err := s.f.Request(ctx, rec.AlbumID)
+	res, err := s.f.Request(ctx, rec.AlbumID, rec.ArtistID)
 	if err != nil {
 		return Outcome{}, err // still pending
 	}

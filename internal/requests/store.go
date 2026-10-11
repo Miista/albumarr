@@ -36,11 +36,12 @@ type Person struct {
 
 // Record is one request.
 type Record struct {
-	ID      int64  `json:"id"`
-	AlbumID string `json:"albumId"` // MusicBrainz release-group ID
-	Title   string `json:"title"`
-	Artist  string `json:"artist"`
-	State   State  `json:"state"`
+	ID       int64  `json:"id"`
+	AlbumID  string `json:"albumId"`  // MusicBrainz release-group ID
+	ArtistID string `json:"artistId"` // the artist's MusicBrainz ID, as the album's card carried it
+	Title    string `json:"title"`
+	Artist   string `json:"artist"`
+	State    State  `json:"state"`
 
 	Requester     Person     `json:"requester"`
 	DecidedBy     *Person    `json:"decidedBy,omitempty"`
@@ -58,7 +59,7 @@ var (
 	ErrNotPending = errors.New("requests: the request is not pending")
 )
 
-const columns = `id, album_id, title, artist, state, requester_sub, requester_name,
+const columns = `id, album_id, artist_id, title, artist, state, requester_sub, requester_name,
 	decided_by_sub, decided_by_name, decided_at, auto, decline_reason, lidarr_result, created_at`
 
 // Store is the requests table.
@@ -74,7 +75,7 @@ func scan(row interface{ Scan(...any) error }) (Record, error) {
 	var r Record
 	var decidedBySub, decidedByName string
 	var decidedAt, createdAt int64
-	if err := row.Scan(&r.ID, &r.AlbumID, &r.Title, &r.Artist, &r.State, &r.Requester.Sub, &r.Requester.Name,
+	if err := row.Scan(&r.ID, &r.AlbumID, &r.ArtistID, &r.Title, &r.Artist, &r.State, &r.Requester.Sub, &r.Requester.Name,
 		&decidedBySub, &decidedByName, &decidedAt, &r.AutoApproved, &r.DeclineReason, &r.LidarrResult, &createdAt); err != nil {
 		return Record{}, err
 	}
@@ -138,10 +139,10 @@ func (s *Store) Pending(albumIDs []string) (map[string]Record, error) {
 // CreatePending adds a pending request. If one is already pending for the album
 // (the unique index says so, atomically) it returns that one and created=false:
 // there is never a second.
-func (s *Store) CreatePending(albumID, title, artist string, by Person) (rec Record, created bool, err error) {
-	res, err := s.db.Exec(`INSERT INTO requests (album_id, title, artist, state, requester_sub, requester_name, created_at)
-		VALUES (?, ?, ?, 'pending', ?, ?, ?)
-		ON CONFLICT DO NOTHING`, albumID, clip(title, maxText), clip(artist, maxText), by.Sub, clip(by.Name, maxText), s.now().Unix())
+func (s *Store) CreatePending(albumID, artistID, title, artist string, by Person) (rec Record, created bool, err error) {
+	res, err := s.db.Exec(`INSERT INTO requests (album_id, artist_id, title, artist, state, requester_sub, requester_name, created_at)
+		VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+		ON CONFLICT DO NOTHING`, albumID, artistID, clip(title, maxText), clip(artist, maxText), by.Sub, clip(by.Name, maxText), s.now().Unix())
 	if err != nil {
 		return Record{}, false, err
 	}

@@ -263,6 +263,20 @@ func TestSearchAlbumOutageIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestAddAlbumLidarrDoesNotKnowTheAlbum(t *testing.T) {
+	// The exact answer Lidarr gives for an album its metadata lacks (seen on a throwaway).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `[{"propertyName":"MusicbrainzId","errorMessage":"An album with this ID was not found","attemptedValue":"701fd6ee-7c58-436b-be67-0b52df74aac0","severity":"error"}]`)
+	}))
+	defer srv.Close()
+	err := New(srv.URL, testKey).AddAlbum(context.Background(), newAlbum())
+	var rej *RejectedError
+	if !errors.Is(err, ErrAlbumNotFound) || errors.As(err, &rej) {
+		t.Errorf("err = %v, want ErrAlbumNotFound (and not a generic rejection)", err)
+	}
+}
+
 func TestAddAlbumAlreadyAddedIsReportedNotRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -281,12 +295,12 @@ func TestAddAlbumRejections(t *testing.T) {
 		body string
 		want []string
 	}{
-		"bad quality profile":   {`[{"errorMessage":"Quality Profile does not exist","errorCode":"QualityProfileExistsValidator"}]`, []string{"Quality Profile does not exist"}},
-		"several failures":      {`[{"errorMessage":"Root folder '/nope' does not exist"},{"errorMessage":"Metadata profile does not exist"}]`, []string{"Root folder '/nope' does not exist", "Metadata profile does not exist"}},
-		"unknown album":         {`[{"propertyName":"MusicbrainzId","errorMessage":"An album with this ID was not found"}]`, []string{"An album with this ID was not found"}},
-		"no body":               {``, []string{"no reason given"}},
-		"not json":              {`<html>`, []string{"no reason given"}},
-		"an empty failure list": {`[]`, []string{"no reason given"}},
+		"bad quality profile":          {`[{"errorMessage":"Quality Profile does not exist","errorCode":"QualityProfileExistsValidator"}]`, []string{"Quality Profile does not exist"}},
+		"several failures":             {`[{"errorMessage":"Root folder '/nope' does not exist"},{"errorMessage":"Metadata profile does not exist"}]`, []string{"Root folder '/nope' does not exist", "Metadata profile does not exist"}},
+		"another property, same words": {`[{"propertyName":"Artist.RootFolderPath","errorMessage":"A folder was not found"}]`, []string{"A folder was not found"}},
+		"no body":                      {``, []string{"no reason given"}},
+		"not json":                     {`<html>`, []string{"no reason given"}},
+		"an empty failure list":        {`[]`, []string{"no reason given"}},
 	}
 	for name, c := range cases {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
