@@ -153,7 +153,7 @@
               <option v-for="p in profileChoices('metadata_profile_id', options?.metadataProfiles)" :value="p.id">{{ p.name }}</option>
             </select>
             <input id="f-mp" class="input plain" :class="{ locked: lock('lidarr.metadata_profile_id') }" v-else type="number" min="0" v-model.number="form.metadata_profile_id" :disabled="!!lock('lidarr.metadata_profile_id')">
-            <span class="hint">Decides how many of an artist's other albums Lidarr lists. A narrow profile keeps the library tidy.</span>
+            <span class="hint">Decides which of the artist's other albums Lidarr lists. "None" adds only the album you request.</span>
           </div>
         </div>
       </section>

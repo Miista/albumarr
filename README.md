@@ -90,7 +90,11 @@ what it can before saving:
   since it may just be starting.
 - A root folder or profile Lidarr does not have is refused, and requesting stays
   off until all three are valid. **Test connection** lists Lidarr's own root
-  folders and profiles, so you pick instead of typing IDs.
+  folders and profiles, so you pick instead of typing IDs. Two empty fields are
+  pre-filled for you to confirm with Save: the root folder when Lidarr has only
+  one, and the metadata profile named **None**, which imports none of the
+  artist's other albums (verified on a throwaway Lidarr: only the requested
+  album appears, unmonitored). The quality profile is always your choice.
 - The API key never leaves the server: the page shows only that one is saved,
   and an empty key field means "keep it". The saved key is only ever sent to the
   saved URL, so changing the URL means typing the key again, and **Test

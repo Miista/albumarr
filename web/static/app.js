@@ -137,11 +137,30 @@ function App() {
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const r = await res.json();
         if (manual || !r.ok) this.testResult = r;
-        if (r.ok && r.options) this.options = r.options;
+        if (r.ok && r.options) {
+          this.options = r.options;
+          this.applyDefaults();
+        }
       } catch (e) {
         this.testResult = { ok: false, message: e.message };
       } finally {
         this.testing = false;
+      }
+    },
+
+    // applyDefaults pre-fills what only has one sensible answer, never over a
+    // value that is set or locked: the only root folder Lidarr has, and the
+    // metadata profile named "None", which imports none of an artist's other
+    // albums so a request adds just the album asked for. The user still saves.
+    applyDefaults() {
+      const o = this.options;
+      if (!o) return;
+      if (!this.lock('lidarr.root_folder') && !this.form.root_folder && o.rootFolders.length === 1) {
+        this.form.root_folder = o.rootFolders[0];
+      }
+      if (!this.lock('lidarr.metadata_profile_id') && !this.form.metadata_profile_id) {
+        const none = o.metadataProfiles.find((p) => p.name.trim().toLowerCase() === 'none');
+        if (none) this.form.metadata_profile_id = none.id;
       }
     },
 
