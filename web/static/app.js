@@ -12,6 +12,15 @@ const DEBOUNCE_MS = 600;
 const MIN_QUERY = 2;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+// api is fetch, except that a 401 (the sign-in ended) reloads the page, which the
+// login gate sends through sign-in and back again.
+function api(url, opts) {
+  return fetch(url, opts).then((res) => {
+    if (res.status === 401) location.reload();
+    return res;
+  });
+}
+
 function App() {
   // Kept out of the reactive scope: timers and the in-flight counters have no
   // reason to trigger a re-render.
@@ -43,7 +52,8 @@ function App() {
     // --- settings page ---
 
     page: 'search',
-    cfg: null, // GET /api/settings
+    me: null, // GET /api/me: who is signed in and what they may do
+    cfg: null, // GET /api/settings (admins)
     cfgError: '',
     form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0, metadata_profile_id: 0 },
     options: null, // root folders and profiles Lidarr offered on the last successful test
@@ -69,7 +79,7 @@ function App() {
     async loadSettings() {
       this.cfgError = '';
       try {
-        const res = await fetch('/api/settings', { cache: 'no-store' });
+        const res = await api('/api/settings', { cache: 'no-store' });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         this.applySettings(await res.json());
         if (this.cfg.configured && this.page === 'settings') this.runTest(false);
@@ -90,6 +100,12 @@ function App() {
         quality_profile_id: v.quality_profile_id,
         metadata_profile_id: v.metadata_profile_id,
       };
+    },
+
+    // mayRequest: a plain user's request would have to wait for an approval that
+    // does not exist yet, so only approvers and admins are offered the button.
+    mayRequest() {
+      return !!this.me && (this.me.role === 'approver' || this.me.role === 'admin') && this.me.requests_enabled;
     },
 
     lock(key) {
@@ -129,7 +145,7 @@ function App() {
       this.testing = true;
       if (manual) this.testResult = null;
       try {
-        const res = await fetch('/api/settings/test', {
+        const res = await api('/api/settings/test', {
           method: 'POST',
           headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: this.form.url, api_key: this.form.api_key }),
@@ -199,7 +215,7 @@ function App() {
       this.saveState = '';
       this.warning = '';
       try {
-        const res = await fetch('/api/settings', {
+        const res = await api('/api/settings', {
           method: 'POST',
           headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ lidarr: body }),
@@ -221,7 +237,7 @@ function App() {
     },
 
     mounted() {
-      fetch('/api/settings', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((c) => { if (c && !this.cfg) this.cfg = c; }).catch(() => {});
+      api('/api/me', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((m) => { if (m) this.me = m; }).catch(() => {});
       const q = new URLSearchParams(location.search).get('q');
       if (q) {
         this.query = q;
@@ -261,7 +277,7 @@ function App() {
       this.error = '';
       this.replaceQuery('?q=' + encodeURIComponent(q));
       try {
-        const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+        const res = await api('/api/search?q=' + encodeURIComponent(q));
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const data = await res.json();
         if (mine !== seq) return; // a newer search has superseded this one
@@ -291,7 +307,7 @@ function App() {
       this.loadingMore = true;
       this.moreError = '';
       try {
-        const res = await fetch('/api/search?q=' + encodeURIComponent(this.shownQuery) + '&offset=' + this.nextOffset);
+        const res = await api('/api/search?q=' + encodeURIComponent(this.shownQuery) + '&offset=' + this.nextOffset);
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const data = await res.json();
         if (mine !== seq) return;
@@ -347,7 +363,7 @@ function App() {
     async loadDetail(id) {
       const mine = ++detailSeq;
       try {
-        const res = await fetch('/api/album/' + id);
+        const res = await api('/api/album/' + id);
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const d = await res.json();
         if (mine === detailSeq) this.detail = d;
@@ -371,7 +387,7 @@ function App() {
       this.requestError = '';
       this.requestNote = '';
       try {
-        const res = await fetch('/api/album/' + id + '/request', { method: 'POST', headers: { 'X-Albumreq': '1' } });
+        const res = await api('/api/album/' + id + '/request', { method: 'POST', headers: { 'X-Albumreq': '1' } });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         const data = await res.json();
         if (!this.selected || this.selected.id !== id) return;

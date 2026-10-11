@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23d9d2ee'/%3E%3Cpath d='M9 3v11.55A4 4 0 1 0 11 18V8h6V3H9z' fill='%234a2fa0' transform='translate(1.5 1.5) scale(.88)'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<!-- oidcgate marks the page when a login is in place; without one there is nobody to sign out. -->
+<script src="/auth/client.js"></script>
+<style>html:not([data-oidcgate]) .only-with-gate { display: none !important }</style>
 </head>
 <body>
 
@@ -18,20 +21,32 @@
       </div>
       <span>albumreq</span>
     </div>
-    <nav class="topnav" aria-label="Pages">
+    <nav class="topnav" aria-label="Pages" v-if="me && me.role !== 'none'">
       <a href="#" :class="{ active: page === 'search' }" @click.prevent="go('search')">Search</a>
-      <a href="#/settings" :class="{ active: page === 'settings' }" @click.prevent="go('settings')">Settings</a>
+      <a href="#/settings" v-if="me.role === 'admin'" :class="{ active: page === 'settings' }" @click.prevent="go('settings')">Settings</a>
     </nav>
+    <div class="whoami" v-if="me">
+      <span class="who-name" :title="me.email || ''">{{ me.name }}</span>
+      <span class="role-pill" v-if="me.role !== 'none'">{{ me.role }}</span>
+      <a class="only-with-gate signout" href="/auth/logout">Sign out</a>
+    </div>
   </header>
 
-  <main v-show="page === 'search'">
+  <main class="no-access" v-if="me && me.role === 'none'">
+    <div class="empty">
+      <span class="title">You do not have access</span>
+      <span class="sub">You are signed in as {{ me.name }}, but this account has not been let in. Ask whoever runs albumreq to add you to the right group.</span>
+    </div>
+  </main>
+
+  <main v-show="page === 'search' && (!me || me.role !== 'none')">
     <div class="title-block">
       <h1>Find an album</h1>
       <p class="lede">Search MusicBrainz and see what you already have in Lidarr.</p>
     </div>
 
-    <p class="banner" v-if="cfg && !cfg.configured">Lidarr is not set up yet, so library status is not shown. <a href="#/settings" @click.prevent="go('settings')">Open settings</a></p>
-    <p class="note-text" v-else-if="cfg && !cfg.requests_enabled">Requesting is off. Choose a root folder and profiles in <a href="#/settings" @click.prevent="go('settings')">settings</a> to turn it on.</p>
+    <p class="banner" v-if="me && !me.lidarr_configured">Lidarr is not set up yet, so library status is not shown. <span v-if="me.role === 'admin'"><a href="#/settings" @click.prevent="go('settings')">Open settings</a></span><span v-else>An admin needs to set it up.</span></p>
+    <p class="note-text" v-else-if="me && me.role === 'admin' && !me.requests_enabled">Requesting is off. Choose a root folder and profiles in <a href="#/settings" @click.prevent="go('settings')">settings</a> to turn it on.</p>
 
     <form class="search-box" @submit.prevent="search" role="search">
       <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.8"></circle><path d="M10.6 10.6L14 14"></path></svg>
@@ -82,7 +97,7 @@
     </div>
   </main>
 
-  <main class="settings" v-if="page === 'settings'">
+  <main class="settings" v-if="page === 'settings' && me && me.role === 'admin'">
     <div class="title-block">
       <h1>Settings</h1>
       <p class="lede">Connect albumreq to Lidarr. A setting pinned by an environment variable is locked here.</p>
@@ -201,11 +216,11 @@
             <p class="overview" v-if="detail.disambiguation">{{ detail.disambiguation }}</p>
             <p class="note-text" v-if="!detail.metadataOk">Details are not available for this album right now: the metadata service has none, or did not answer.</p>
             <p class="note-text" v-if="!detail.libraryOk">Lidarr could not be reached, so library status is not shown.</p>
-            <div class="request" v-if="detail.canRequest || requestNote || requestError">
-              <button type="button" class="btn primary" v-if="detail.canRequest" @click="request" :disabled="requesting">
+            <div class="request" v-if="(detail.canRequest && mayRequest()) || requestNote || requestError">
+              <button type="button" class="btn primary" v-if="detail.canRequest && mayRequest()" @click="request" :disabled="requesting">
                 <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : 'Request' }}
               </button>
-              <p class="note-text" v-if="detail.canRequest && !requestNote">Lidarr will search for this album and download it if it finds a release that fits your quality profile.</p>
+              <p class="note-text" v-if="detail.canRequest && mayRequest() && !requestNote">Lidarr will search for this album and download it if it finds a release that fits your quality profile.</p>
               <p class="ok-text" v-if="requestNote">{{ requestNote }}</p>
               <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>
             </div>

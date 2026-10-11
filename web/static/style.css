@@ -285,3 +285,11 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .save-text { font-size: 13px; color: var(--muted); }
 .save-bar.saved .save-text { color: var(--green); }
 .save-bar.failed .save-text { color: var(--red-text); }
+
+/* Who is signed in */
+.whoami { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.who-name { color: var(--text); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-2); color: var(--muted); text-transform: capitalize; }
+.signout { color: var(--muted); text-decoration: none; padding: 4px 8px; border-radius: 8px; }
+.signout:hover { color: var(--text); background: oklch(0.25 0.03 290 / .4); }
+@media (max-width: 640px) { .who-name, .role-pill { display: none; } }
