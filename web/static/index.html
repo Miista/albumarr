@@ -168,12 +168,13 @@
       </section>
 
       <p class="banner warn" v-if="warning">{{ warning }}</p>
-      <div class="save-bar" :class="saveState" v-if="!cfg.read_only">
+      <div class="save-bar" :class="barState()" v-if="!cfg.read_only && showBar()" role="status">
         <span class="save-text">{{ saveText() }}</span>
         <button type="submit" class="btn primary" :disabled="saving || !dirty()"><span class="spinner" v-if="saving"></span>{{ saving ? 'Saving…' : 'Save' }}</button>
       </div>
     </form>
 
+    <h2 class="section-title" v-if="cfg">People</h2>
     <section class="card users-card" v-if="cfg" aria-labelledby="users-h">
       <div class="card-head">
         <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5M16 6.2a3 3 0 0 1 0 5.6M18 14.4c1.7.6 3 2 3 4.6"></path></svg></div>

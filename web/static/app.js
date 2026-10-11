@@ -257,11 +257,29 @@ function App() {
       return Object.keys(this.changes()).length > 0;
     },
 
+    // The save bar only appears when it has something to say: unsaved changes, a
+    // save under way, a failure, or a moment's "Saved". An always-visible bar that
+    // says "No changes" is noise, and floats between the cards like a part of
+    // whatever is below it.
+    showBar() {
+      return this.saving || this.dirty() || this.saveState === 'failed' || this.saveState === 'saved';
+    },
+
+    // "Saved" wins for its few seconds even if the form is dirty again at once: after
+    // the connection is saved the only root folder is pre-filled, which is a change
+    // still to confirm, and showing "Unsaved changes" straight away would read as
+    // if the save had not worked.
+    barState() {
+      if (this.saving) return '';
+      if (this.saveState === 'failed' || this.saveState === 'saved') return this.saveState;
+      return this.dirty() ? 'dirty' : '';
+    },
+
     saveText() {
       if (this.saving) return 'Saving…';
       if (this.saveState === 'failed') return this.saveError;
       if (this.saveState === 'saved') return 'Saved';
-      return this.dirty() ? 'Unsaved changes' : 'No changes';
+      return this.dirty() ? 'Unsaved changes' : '';
     },
 
     async save() {
@@ -281,6 +299,9 @@ function App() {
         this.applySettings(data.settings);
         this.warning = data.warning || '';
         this.saveState = 'saved';
+        // "Saved" is a confirmation, not a state: let it go after a moment, unless
+        // something newer has happened.
+        setTimeout(() => { if (this.saveState === 'saved') this.saveState = ''; }, 3000);
         this.testResult = null;
         this.options = null;
         if (this.cfg.configured) this.runTest(false);
