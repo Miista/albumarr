@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/auth"
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/users"
 )
@@ -97,6 +98,16 @@ func (f *fakeRequests) Pending(ids []string) (map[string]requests.Record, error)
 	return f.pending, f.pendingErr
 }
 
+// fakeIssues stands in for the checks.
+type fakeIssues struct {
+	list       []issues.Issue
+	issueCalls int
+	freshCalls int
+}
+
+func (f *fakeIssues) Issues(context.Context) []issues.Issue { f.issueCalls++; return f.list }
+func (f *fakeIssues) Fresh(context.Context) []issues.Issue  { f.freshCalls++; return f.list }
+
 // routes is every endpoint and the lowest role that may use it.
 var routes = []struct {
 	method, path, body string
@@ -112,6 +123,8 @@ var routes = []struct {
 	{"GET", "/api/settings", "", auth.Admin},
 	{"POST", "/api/settings", `{"lidarr":{"url":"http://x:1"}}`, auth.Admin},
 	{"POST", "/api/settings/test", `{"url":"http://x:1","api_key":"k"}`, auth.Admin},
+	{"GET", "/api/issues", "", auth.Admin},
+	{"GET", "/api/issues?fresh=1", "", auth.Admin},
 	{"GET", "/api/users", "", auth.Admin},
 	{"POST", "/api/users/approver", `{"sub":"sub-user","approver":true}`, auth.Admin},
 }
@@ -123,20 +136,21 @@ type rig struct {
 	settings *fakeSettings
 	users    *fakeUsers
 	requests *fakeRequests
+	issues   *fakeIssues
 }
 
 func newRig(a Authenticator) *rig {
 	r := &rig{cat: &fakeCatalog{}, covers: &fakeCovers{data: []byte("img"), ct: "image/png"}, settings: &fakeSettings{}, users: &fakeUsers{},
-		requests: &fakeRequests{out: requests.Outcome{Result: "added"}}}
+		requests: &fakeRequests{out: requests.Outcome{Result: "added"}}, issues: &fakeIssues{}}
 	r.mux = http.NewServeMux()
-	New(r.cat, r.covers, r.settings, a, r.users, r.requests, zerolog.Nop()).Routes(r.mux)
+	New(r.cat, r.covers, r.settings, a, r.users, r.requests, r.issues, zerolog.Nop()).Routes(r.mux)
 	return r
 }
 
 // touched reports whether anything behind the handlers was reached.
 func (r *rig) touched() bool {
 	return r.cat.searchCalls+r.cat.detailCalls != 0 || r.requests.calls+r.requests.listCalls != 0 || r.covers.lastID != "" ||
-		len(r.settings.patches)+len(r.settings.testCalls)+r.settings.reads != 0 || r.users.calls+r.users.reads != 0
+		len(r.settings.patches)+len(r.settings.testCalls)+r.settings.reads != 0 || r.users.calls+r.users.reads != 0 || r.issues.issueCalls+r.issues.freshCalls != 0
 }
 
 func call(r *rig, method, path, body string) *httptest.ResponseRecorder {
@@ -287,5 +301,50 @@ func TestAFailedUsersReadIsA500NotAnEmptyList(t *testing.T) {
 	rec := call(rg, "GET", "/api/users", "")
 	if rec.Code != 500 || strings.Contains(rec.Body.String(), "albumreq.db") {
 		t.Errorf("%d %s: an outage must not read as 'nobody has signed in', nor leak a path", rec.Code, rec.Body)
+	}
+}
+
+func TestIssuesAreAnAdminsAndFreshRunsTheChecksAgain(t *testing.T) {
+	rg := newRig(adminAuth())
+	rg.issues.list = []issues.Issue{
+		{ID: "no-none-profile", Severity: issues.Error, Title: "Lidarr has no metadata profile named “None”"},
+		{ID: "login-off", Severity: issues.Warning, Title: "The login is off"},
+		{ID: "x", Severity: issues.Info, Title: "a note"},
+	}
+	rec := call(rg, "GET", "/api/issues", "")
+	if rec.Code != 200 || rg.issues.issueCalls != 1 || rg.issues.freshCalls != 0 || !strings.Contains(rec.Body.String(), `"count":2`) || !strings.Contains(rec.Body.String(), "no-none-profile") {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Error("what is wrong now must not be cached by the browser")
+	}
+	call(rg, "GET", "/api/issues?fresh=1", "")
+	if rg.issues.freshCalls != 1 {
+		t.Errorf("fresh=1 must run the checks again, fresh calls = %d", rg.issues.freshCalls)
+	}
+	for _, q := range []string{"?fresh=0", "?fresh=true", "?fresh="} {
+		before := rg.issues.freshCalls
+		call(rg, "GET", "/api/issues"+q, "")
+		if rg.issues.freshCalls != before {
+			t.Errorf("%q should not force a fresh run", q)
+		}
+	}
+}
+
+func TestNoIssuesIsAnEmptyListNotNull(t *testing.T) {
+	rec := call(newRig(adminAuth()), "GET", "/api/issues", "")
+	if !strings.Contains(rec.Body.String(), `"issues":[]`) || !strings.Contains(rec.Body.String(), `"count":0`) {
+		t.Errorf("%s", rec.Body)
+	}
+}
+
+func TestIssuesAreNeverShownToANonAdmin(t *testing.T) {
+	for _, role := range []auth.Role{auth.User, auth.Approver, auth.None} {
+		rg := newRig(as(role))
+		rg.issues.list = []issues.Issue{{ID: "x", Severity: issues.Error, Title: "secret detail about the setup"}}
+		rec := call(rg, "GET", "/api/issues", "")
+		if rec.Code != 403 || strings.Contains(rec.Body.String(), "secret detail") {
+			t.Errorf("%v: %d %s", role, rec.Code, rec.Body)
+		}
 	}
 }

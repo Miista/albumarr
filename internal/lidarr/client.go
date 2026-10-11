@@ -224,8 +224,10 @@ func (c *Client) MetadataProfileByName(ctx context.Context, name string) (int, e
 }
 
 // CheckSettings verifies that the root folder and the quality profile exist in
-// Lidarr, and that it has the metadata profile requests need, so a typo in
-// albumreq's settings is found at startup, not at the first request.
+// Lidarr, so a typo in albumreq's settings is found at startup, not at the first
+// request. Whether Lidarr has the metadata profile requests need is a separate
+// question (MetadataProfileByName): it is not something a typo in a setting causes,
+// and it is reported on the Issues page, not by refusing to save.
 func (c *Client) CheckSettings(ctx context.Context, rootFolder string, qualityProfileID int) error {
 	var roots []struct {
 		Path string `json:"path"`
@@ -251,8 +253,7 @@ func (c *Client) CheckSettings(ctx context.Context, rootFolder string, qualityPr
 	if !ok {
 		return fmt.Errorf("%w: quality profile %d does not exist in Lidarr", ErrBadSettings, qualityProfileID)
 	}
-	_, err := c.MetadataProfileByName(ctx, RequiredMetadataProfile)
-	return err
+	return nil
 }
 
 // Version asks Lidarr who it is and returns its version, which proves the URL

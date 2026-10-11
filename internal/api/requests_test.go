@@ -145,7 +145,7 @@ func TestAScopeTheRoleMayNotReadIs403(t *testing.T) {
 func searchRig(albums []catalog.Album, pending map[string]requests.Record, role auth.Role) (*http.ServeMux, *fakeRequests) {
 	rq := &fakeRequests{pending: pending}
 	mux := http.NewServeMux()
-	New(&fakeCatalog{res: catalog.SearchResult{Albums: albums, LibraryOK: true}}, &fakeCovers{}, &fakeSettings{}, as(role), &fakeUsers{}, rq, zerolog.Nop()).Routes(mux)
+	New(&fakeCatalog{res: catalog.SearchResult{Albums: albums, LibraryOK: true}}, &fakeCovers{}, &fakeSettings{}, as(role), &fakeUsers{}, rq, &fakeIssues{}, zerolog.Nop()).Routes(mux)
 	return mux, rq
 }
 
@@ -191,7 +191,7 @@ func TestAFailedPendingLookupOnlyCostsTheChip(t *testing.T) {
 func detailRig(d catalog.Detail, pending map[string]requests.Record, role auth.Role) *http.ServeMux {
 	rq := &fakeRequests{pending: pending}
 	mux := http.NewServeMux()
-	New(&fakeCatalog{detail: d}, &fakeCovers{}, &fakeSettings{}, as(role), &fakeUsers{}, rq, zerolog.Nop()).Routes(mux)
+	New(&fakeCatalog{detail: d}, &fakeCovers{}, &fakeSettings{}, as(role), &fakeUsers{}, rq, &fakeIssues{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 
@@ -229,7 +229,7 @@ func TestTheSheetLeavesAnAlbumLidarrKnowsAlone(t *testing.T) {
 func TestTheSheetWorksWhenTheRecordsCannotBeRead(t *testing.T) {
 	rq := &fakeRequests{pendingErr: errors.New("boom")}
 	mux := http.NewServeMux()
-	New(&fakeCatalog{detail: catalog.Detail{Album: catalog.Album{ID: id1}, CanRequest: true}}, &fakeCovers{}, &fakeSettings{}, adminAuth(), &fakeUsers{}, rq, zerolog.Nop()).Routes(mux)
+	New(&fakeCatalog{detail: catalog.Detail{Album: catalog.Album{ID: id1}, CanRequest: true}}, &fakeCovers{}, &fakeSettings{}, adminAuth(), &fakeUsers{}, rq, &fakeIssues{}, zerolog.Nop()).Routes(mux)
 	rec := get(mux, "/api/album/"+id1)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"canRequest":true`) {
 		t.Errorf("%d %s", rec.Code, rec.Body)

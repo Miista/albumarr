@@ -60,7 +60,7 @@ func (f *fakeCovers) Front(_ context.Context, id string, size int) ([]byte, stri
 
 func newMux(c Catalog, cv CoverFetcher) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(c, cv, &fakeSettings{}, adminAuth(), &fakeUsers{}, &fakeRequests{}, zerolog.Nop()).Routes(mux)
+	New(c, cv, &fakeSettings{}, adminAuth(), &fakeUsers{}, &fakeRequests{}, &fakeIssues{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 
@@ -289,7 +289,7 @@ var sameOrigin = map[string]string{"X-Albumreq": "1"}
 // muxWith serves the API over a fake approval flow, as the given person.
 func muxWith(rq *fakeRequests, a Authenticator) *http.ServeMux {
 	mux := http.NewServeMux()
-	New(&fakeCatalog{}, &fakeCovers{}, &fakeSettings{}, a, &fakeUsers{}, rq, zerolog.Nop()).Routes(mux)
+	New(&fakeCatalog{}, &fakeCovers{}, &fakeSettings{}, a, &fakeUsers{}, rq, &fakeIssues{}, zerolog.Nop()).Routes(mux)
 	return mux
 }
 
@@ -359,6 +359,7 @@ func TestRequestErrorMapping(t *testing.T) {
 		{"not in metadata", catalog.ErrNotInMetadata, http.StatusUnprocessableEntity},
 		{"unavailable", fmt.Errorf("%w: dial tcp 192.0.2.10:8686: refused", catalog.ErrUnavailable), http.StatusServiceUnavailable},
 		{"rejected by Lidarr", rejected, http.StatusBadGateway},
+		{"Lidarr lacks the None profile", fmt.Errorf("%w: Lidarr has no metadata profile named %q", lidarr.ErrBadSettings, "None"), http.StatusBadGateway},
 		{"something else", errors.New("lidarr /api/v1/album returned 401 Unauthorized"), http.StatusBadGateway},
 		{"a database error", errors.New("database is locked: /app/data/albumreq.db"), http.StatusBadGateway},
 	}

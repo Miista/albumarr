@@ -23,8 +23,8 @@ function api(url, opts) {
 }
 
 // The pages other than search have their own hash; search keeps the query string.
-const HASHES = { requests: '#/requests', approvals: '#/approvals', settings: '#/settings' };
-const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/settings': 'settings', '#/settings/users': 'settings' };
+const HASHES = { requests: '#/requests', approvals: '#/approvals', issues: '#/issues', settings: '#/settings' };
+const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings' };
 
 function App() {
   // Kept out of the reactive scope: timers and the in-flight counters have no
@@ -76,6 +76,13 @@ function App() {
     declining: null, // the request id whose decline form is open
     declineReason: '',
 
+    // Issues (admins)
+    issues: [],
+    issuesLoaded: false,
+    issuesError: '',
+    issuesChecking: false,
+    issueCount: 0,
+
     // Settings -> Users (admins)
     users: [],
     usersLoaded: false,
@@ -111,7 +118,7 @@ function App() {
     mayView(page) {
       if (!this.me || this.me.role === 'none') return false;
       if (page === 'approvals') return this.canApprove();
-      if (page === 'settings') return this.me.role === 'admin';
+      if (page === 'settings' || page === 'issues') return this.me.role === 'admin';
       return true;
     },
 
@@ -132,6 +139,8 @@ function App() {
         this.tab = 'waiting';
         this.queueLoaded = false;
         this.loadQueue();
+      } else if (page === 'issues') {
+        this.loadIssues(false);
       }
     },
 
@@ -309,6 +318,7 @@ function App() {
         this.testResult = null;
         this.options = null;
         if (this.cfg.configured) this.runTest(false);
+        this.loadIssues(true, true);
       } catch (e) {
         this.saveError = e.message;
         this.saveState = 'failed';
@@ -323,6 +333,7 @@ function App() {
         this.me = m;
         this.enter();
         if (this.canApprove()) this.refreshPendingCount();
+        if (this.me.role === 'admin') this.loadIssues(false, true);
       }).catch(() => {});
       const q = new URLSearchParams(location.search).get('q');
       if (q) {
@@ -720,6 +731,33 @@ function App() {
 
     reqStateLabel(r) {
       return { pending: 'Waiting for approval', approved: 'Approved', declined: 'Declined' }[r.state] || r.state;
+    },
+
+    // --- issues ---
+
+    // loadIssues asks the server what is wrong. fresh runs the checks again now
+    // (they talk to Lidarr), otherwise a recent answer will do. quiet only updates
+    // the count in the nav, for the page load and after a save.
+    async loadIssues(fresh, quiet) {
+      if (this.issuesChecking) return;
+      if (!quiet) {
+        this.issuesChecking = true;
+        this.issuesError = '';
+      }
+      try {
+        const res = await api('/api/issues' + (fresh ? '?fresh=1' : ''), { cache: 'no-store' });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        const data = await res.json();
+        this.issueCount = data.count;
+        if (!quiet) {
+          this.issues = data.issues;
+          this.issuesLoaded = true;
+        }
+      } catch (e) {
+        if (!quiet) this.issuesError = e.message;
+      } finally {
+        if (!quiet) this.issuesChecking = false;
+      }
     },
 
     // --- settings: users ---

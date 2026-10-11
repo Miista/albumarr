@@ -386,8 +386,7 @@ func TestCheckSettings(t *testing.T) {
 		{"missing root folder", "/nope", 5, metadata, `root folder "/nope"`},
 		{"root folder is matched exactly, not by prefix", "/mus", 5, metadata, `root folder "/mus"`},
 		{"missing quality profile", "/music", 99, metadata, "quality profile 99"},
-		{"no profile named None", "/music", 5, `[{"id":1,"name":"Standard"}]`, `metadata profile named "None"`},
-		{"no metadata profiles at all", "/music", 5, `[]`, `metadata profile named "None"`},
+		{"a Lidarr without a None profile is not a settings typo", "/music", 5, `[]`, ""},
 	}
 	for _, c := range cases {
 		srv := settingsServer(roots, quality, c.metadata)

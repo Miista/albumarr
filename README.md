@@ -63,6 +63,7 @@ marked automatic: they could approve it themselves a second later.
 |---|---|
 | `POST /api/album/{id}/request` | any user: pending for a user, approved at once for an approver or admin |
 | `GET /api/requests?scope=mine` | any user: their own |
+| `GET /api/issues` (`?fresh=1` to check again) | admins |
 | `GET /api/requests?scope=pending` | approvers: the queue, oldest first |
 | `GET /api/requests?scope=all` | admins: everything, with history |
 | `POST /api/requests/{id}/approve`, `/decline` (`{"reason": "…"}`) | approvers |
@@ -114,9 +115,9 @@ data, never against a real library):
   other albums and a request adds only the album asked for. (For comparison, the
   restrictive Standard profile imported 4 albums for one artist, and an all-types
   profile 575 for another.) albumreq looks the profile up by name, ignoring case,
-  when it adds an album. If Lidarr has none by that name, saving the settings is
-  refused, requesting stays off, and an add already under way writes nothing:
-  create a profile named None that allows no album types.
+  when it adds an album. If Lidarr has none by that name, a request is refused
+  before anything is written, and the **Issues** page says what to create: a
+  profile named None that allows no album types.
 - The requested album is added even when the profile would normally exclude its
   type (a live album, a soundtrack): Lidarr keeps manually added albums.
 - Requesting is idempotent. An album Lidarr is already looking for (monitored),
@@ -144,6 +145,30 @@ release-group ID.
 | **Lidarr's image CDN** (`images.lidarr.audio`) | Covers, a cache in front of the Cover Art Archive | More dependable than archive.org's storage nodes. Covers are re-served by albumreq and cached in memory, so the browser never talks to anyone else. |
 | **Your Lidarr** | Library status, download queue, the tracks of albums you own | It is where your library lives. If it is unreachable the page still works, just without chips. |
 
+## Issues
+
+An admin-only **Issues** page (a count shows in the nav) lists what is wrong with
+albumreq's own setup, each with what it means and what to do. The checks ask Lidarr
+live, so **Check again** shows the result of a fix at once; the nav count is
+remembered for 30 seconds. It checks:
+
+| Issue | Severity |
+|---|---|
+| Lidarr is not set up | error |
+| Lidarr's address cannot be used | error |
+| Lidarr rejected the API key | error |
+| Lidarr cannot be reached | error |
+| A requesting setting (root folder, quality profile) does not match Lidarr | error |
+| Lidarr has no metadata profile named **None** | error |
+| A setting from the environment cannot be used (a bad number, say) | error |
+| Requesting is off (no root folder or quality profile chosen) | warning |
+| The login is off, or no admin group is set | warning |
+| A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` | warning |
+
+When Lidarr cannot be reached or rejects the key, the later questions are not asked.
+An issue never contains the API key or a bad value from the environment. Warnings
+and errors count in the nav; notes do not.
+
 ## Settings
 
 Lidarr is configured on the **Settings** page, not in the environment: its URL,
@@ -153,9 +178,10 @@ saving:
 
 - A key Lidarr rejects is refused. An unreachable Lidarr saves with a warning,
   since it may just be starting.
-- A root folder or quality profile Lidarr does not have is refused, and so is a
-  Lidarr with no metadata profile named **None** (see Requesting); requesting
-  stays off until all of it is right. **Test connection** lists Lidarr's own root
+- A root folder or quality profile Lidarr does not have is refused, and
+  requesting stays off until they are right. A Lidarr with no metadata profile
+  named **None** (see Requesting) is not refused: the settings are saved with a
+  warning, and the **Issues** page explains. **Test connection** lists Lidarr's own root
   folders and quality profiles, so you pick instead of typing IDs. An empty root
   folder is pre-filled, for you to confirm with Save, when Lidarr has only one.
   The quality profile is always your choice.
@@ -288,6 +314,7 @@ Layout:
 - `internal/store` — the Lidarr settings, in the database
 - `internal/users` — who has signed in, and who is an approver
 - `internal/auth` — groups and the approver flag to a role
+- `internal/issues` — what is wrong, for the Issues page
 - `internal/requests` — the request records and the approval flow
 - `internal/settings` — env-over-store resolution, locks, validation, the service behind the page
 - `internal/catalog` — combines them, and degrades when one is missing

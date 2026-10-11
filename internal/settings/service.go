@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,13 +14,17 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/catalog"
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/store"
 )
 
 const (
 	probeTimeout = 8 * time.Second
-	maxField     = 300
+
+	// staleMetadataProfileEnv was the variable for a setting that no longer exists.
+	staleMetadataProfileEnv = "ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID"
+	maxField                = 300
 )
 
 // ErrReadOnly is returned for any change while the whole page is locked.
@@ -94,6 +99,11 @@ func (s *Service) Reload(ctx context.Context) {
 		return
 	case err != nil:
 		s.log.Warn().Msg(fmt.Sprintf("could not check the requesting settings against Lidarr (%v); requests will fail until Lidarr answers", err))
+	}
+	if _, err := client.MetadataProfileByName(cctx, lidarr.RequiredMetadataProfile); errors.Is(err, lidarr.ErrBadSettings) {
+		// Not a reason to switch requesting off: a request that needs the profile
+		// writes nothing and says why. It is reported on the Issues page.
+		s.log.Warn().Msg("Lidarr has no metadata profile named " + fmt.Sprintf("%q", lidarr.RequiredMetadataProfile) + ": requests will be refused until it exists")
 	}
 	s.cat.SetRequests(&catalog.RequestSettings{RootFolder: r.Lidarr.RootFolder, QualityProfileID: r.Lidarr.QualityProfileID, MetadataProfile: lidarr.RequiredMetadataProfile})
 	s.log.Info().Msg(fmt.Sprintf("requesting is ON: albums are added under %s with quality profile %d and the %q metadata profile, then monitored and searched for", r.Lidarr.RootFolder, r.Lidarr.QualityProfileID, lidarr.RequiredMetadataProfile))
@@ -261,8 +271,87 @@ func (s *Service) verify(ctx context.Context, r Resolved) (warning string, err e
 		if err := c.CheckSettings(cctx, r.Lidarr.RootFolder, r.Lidarr.QualityProfileID); errors.Is(err, lidarr.ErrBadSettings) {
 			return "", invalid("%s", strings.TrimPrefix(err.Error(), lidarr.ErrBadSettings.Error()+": "))
 		}
+		if _, err := c.MetadataProfileByName(cctx, lidarr.RequiredMetadataProfile); errors.Is(err, lidarr.ErrBadSettings) {
+			return fmt.Sprintf("Saved. Lidarr has no metadata profile named %q, so requests will be refused until it exists. See Issues.", lidarr.RequiredMetadataProfile), nil
+		}
 	}
 	return "", nil
+}
+
+// Issues checks what an admin should know about: the environment, the connection
+// to Lidarr, and what requesting needs from it. It asks Lidarr live, with a
+// timeout, and stops at the first thing that makes the rest meaningless (no
+// connection means no point asking about profiles).
+func (s *Service) Issues(ctx context.Context) []issues.Issue {
+	r := s.Resolved()
+	var out []issues.Issue
+	for _, p := range r.Problems {
+		out = append(out, issues.Issue{
+			ID: "env-invalid", Severity: issues.Error, Title: "A setting from the environment cannot be used",
+			Detail: p + ". It is ignored until it is corrected.", Fix: "Correct the variable and restart albumreq.",
+		})
+	}
+	if _, set := os.LookupEnv(staleMetadataProfileEnv); set {
+		out = append(out, issues.Issue{
+			ID: "env-metadata-profile-ignored", Severity: issues.Warning, Title: staleMetadataProfileEnv + " is set but no longer used",
+			Detail: "Requested artists always get the metadata profile named " + fmt.Sprintf("%q", lidarr.RequiredMetadataProfile) + ", so this variable does nothing.",
+			Fix:    "Remove it from the container's environment.",
+		})
+	}
+
+	if !r.Configured() {
+		return append(out, issues.Issue{
+			ID: "lidarr-not-configured", Severity: issues.Error, Title: "Lidarr is not set up",
+			Detail: "Without Lidarr albumreq cannot show what you already have or add albums.",
+			Fix:    "Enter Lidarr's URL and API key on the Settings page.", Link: "#/settings",
+		})
+	}
+	if _, err := ValidateURL(r.Lidarr.URL); err != nil {
+		return append(out, issues.Issue{
+			ID: "lidarr-url-unusable", Severity: issues.Error, Title: "Lidarr's address cannot be used",
+			Detail: err.Error(), Fix: "Correct the URL on the Settings page, or the variable that sets it.", Link: "#/settings",
+		})
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	c := lidarr.New(r.Lidarr.URL, r.Lidarr.APIKey)
+	if _, err := c.Version(cctx); err != nil {
+		if errors.Is(err, lidarr.ErrUnauthorized) {
+			return append(out, issues.Issue{
+				ID: "lidarr-key-rejected", Severity: issues.Error, Title: "Lidarr rejected the API key",
+				Detail: "albumreq reached " + r.Lidarr.URL + ", but it did not accept the key.",
+				Fix:    "Copy the key from Lidarr (Settings, General) into albumreq's settings.", Link: "#/settings",
+			})
+		}
+		return append(out, issues.Issue{
+			ID: "lidarr-unreachable", Severity: issues.Error, Title: "Lidarr cannot be reached",
+			Detail: "albumreq could not connect to " + r.Lidarr.URL + ". Lidarr may be down or restarting, the address may be wrong, or the network may be blocking it.",
+			Fix:    "Check that Lidarr is running and that the address is right, then check again.", Link: "#/settings",
+		})
+	}
+
+	if !r.RequestsEnabled() {
+		out = append(out, issues.Issue{
+			ID: "requesting-off", Severity: issues.Warning, Title: "Requesting is off",
+			Detail: "It needs a root folder and a quality profile.", Fix: "Choose them on the Settings page.", Link: "#/settings",
+		})
+	} else if err := c.CheckSettings(cctx, r.Lidarr.RootFolder, r.Lidarr.QualityProfileID); errors.Is(err, lidarr.ErrBadSettings) {
+		out = append(out, issues.Issue{
+			ID: "requesting-settings-mismatch", Severity: issues.Error, Title: "A requesting setting does not match Lidarr",
+			Detail: strings.TrimPrefix(err.Error(), lidarr.ErrBadSettings.Error()+": ") + ".",
+			Fix:    "Choose the root folder and quality profile again on the Settings page.", Link: "#/settings",
+		})
+	}
+
+	if _, err := c.MetadataProfileByName(cctx, lidarr.RequiredMetadataProfile); errors.Is(err, lidarr.ErrBadSettings) {
+		out = append(out, issues.Issue{
+			ID: "no-none-profile", Severity: issues.Error, Title: "Lidarr has no metadata profile named " + fmt.Sprintf("“%s”", lidarr.RequiredMetadataProfile),
+			Detail: "Every requested artist is given this profile so that a request adds only the album asked for, not the artist's other albums. Without it, requests are refused and nothing is added.",
+			Fix:    "In Lidarr, under Settings, Profiles, Metadata, add a profile named " + fmt.Sprintf("“%s”", lidarr.RequiredMetadataProfile) + " with every album type unticked.",
+		})
+	}
+	return out
 }
 
 // TestResult is the outcome of trying a connection.

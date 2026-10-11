@@ -12,6 +12,7 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/Miista/oidcgate"
 	"github.com/rs/zerolog"
 
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/users"
 )
 
@@ -120,6 +122,27 @@ func (a *Auth) Principal(r *http.Request) (Principal, bool) {
 		p.Role = Approver
 	}
 	return p, true
+}
+
+// Issues reports login configuration an admin should know about. It is the same
+// whenever it is asked: what it checks is fixed at start.
+func (a *Auth) Issues(context.Context) []issues.Issue {
+	var out []issues.Issue
+	switch {
+	case !a.cfg.GateOn:
+		out = append(out, issues.Issue{
+			ID: "login-off", Severity: issues.Warning, Title: "The login is off",
+			Detail: "Everyone who can reach albumreq is an admin: they can change the settings and request albums. That is fine on a machine only you can reach.",
+			Fix:    "Remove ALBUMREQ_AUTH_DISABLED to turn the login on.",
+		})
+	case a.cfg.AdminGroup == "":
+		out = append(out, issues.Issue{
+			ID: "no-admin-group", Severity: issues.Warning, Title: "No admin group is set",
+			Detail: "Nobody who signs in through single sign-on is an admin: only the local account can open Settings, and only an admin can choose approvers.",
+			Fix:    "Set ALBUMREQ_ROLE_ADMIN_GROUP to the identity provider group whose members should be admins.",
+		})
+	}
+	return out
 }
 
 // roleFor is the role the identity provider's data gives, before approver status.

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"github.com/Miista/oidcgate"
 	"github.com/rs/zerolog"
 
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/users"
 )
 
@@ -132,6 +134,29 @@ func TestRoleOrderAndNames(t *testing.T) {
 	for r, s := range map[Role]string{None: "none", User: "user", Approver: "approver", Admin: "admin"} {
 		if r.String() != s {
 			t.Errorf("%d = %q", r, r.String())
+		}
+	}
+}
+
+func TestLoginIssues(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		cfg  Config
+		want string // the issue ID, or "" for none
+	}{
+		{"the login is off", Config{GateOn: false}, "login-off"},
+		{"the login is off even with a group named", Config{GateOn: false, AdminGroup: "admins"}, "login-off"},
+		{"the login is on but no admin group", Config{GateOn: true}, "no-admin-group"},
+		{"the login is on with an admin group", Config{GateOn: true, AdminGroup: "admins"}, ""},
+	}
+	for _, c := range cases {
+		got := New(c.cfg, &fakeDir{}, zerolog.Nop()).Issues(ctx)
+		switch {
+		case c.want == "" && len(got) != 0:
+			t.Errorf("%s: %+v, want none", c.name, got)
+		case c.want != "" && (len(got) != 1 || got[0].ID != c.want || got[0].Severity != issues.Warning || got[0].Fix == ""):
+			t.Errorf("%s: %+v, want one warning %q with a fix", c.name, got, c.want)
 		}
 	}
 }

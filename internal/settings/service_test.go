@@ -15,6 +15,7 @@ import (
 
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
@@ -334,7 +335,33 @@ func TestRequestSettingsAreCheckedAgainstLidarr(t *testing.T) {
 	}
 }
 
-func TestRequestingNeedsLidarrToHaveTheNoneProfile(t *testing.T) {
+// issueIDs is the IDs of the issues, in order.
+func issueIDs(list []issues.Issue) []string {
+	ids := []string{}
+	for _, i := range list {
+		ids = append(ids, i.ID)
+	}
+	return ids
+}
+
+func findIssue(list []issues.Issue, id string) *issues.Issue {
+	for i := range list {
+		if list[i].ID == id {
+			return &list[i]
+		}
+	}
+	return nil
+}
+
+func configured(t *testing.T, e *env, f *fakeLidarr) {
+	t.Helper()
+	e.store.Update(func(st *store.State) {
+		st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey, RootFolder: "/music", QualityProfileID: 5}
+	})
+	e.svc.Reload(context.Background())
+}
+
+func TestSavingWithoutTheNoneProfileIsAllowedAndWarns(t *testing.T) {
 	for name, profiles := range map[string]string{
 		"none at all":                 `[]`,
 		"only other profiles":         `[{"id":1,"name":"Standard"},{"id":3,"name":"All types"}]`,
@@ -344,43 +371,167 @@ func TestRequestingNeedsLidarrToHaveTheNoneProfile(t *testing.T) {
 		f := newFakeLidarr(t)
 		f.metadata = profiles
 		e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey)})
-		_, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)})
-		var v *ValidationError
-		if !errors.As(err, &v) || !strings.Contains(v.Message, "None") {
-			t.Errorf("%s: err = %v, want a validation error that names the profile", name, err)
+		res, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)})
+		if err != nil {
+			t.Errorf("%s: a missing profile is not a typo in a setting, so it must not stop the save: %v", name, err)
+			continue
 		}
-		if e.store.View().Lidarr.RootFolder != "" || e.requestsOn() {
-			t.Errorf("%s: nothing may be saved or switched on", name)
+		if !strings.Contains(res.Warning, "None") || !strings.Contains(res.Warning, "Issues") {
+			t.Errorf("%s: warning = %q, want it to name the profile and point to Issues", name, res.Warning)
+		}
+		if e.store.View().Lidarr.RootFolder != "/music" {
+			t.Errorf("%s: the settings should be saved", name)
 		}
 	}
-	// ...and the name is matched like a person would: any case, stray space.
-	for _, profiles := range []string{`[{"id":2,"name":"none"}]`, `[{"id":2,"name":" NONE "}]`} {
+	// A Lidarr that has it gives no warning, matched like a person would: any case, stray space.
+	for _, profiles := range []string{`[{"id":2,"name":"None"}]`, `[{"id":2,"name":"none"}]`, `[{"id":2,"name":" NONE "}]`} {
 		e := newEnv(t)
 		f := newFakeLidarr(t)
 		f.metadata = profiles
 		e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey)})
-		if _, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)}); err != nil || !e.requestsOn() {
-			t.Errorf("%s: err = %v, requesting on = %v", profiles, err, e.requestsOn())
+		res, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("/music"), QualityProfileID: ip(5)})
+		if err != nil || res.Warning != "" || !e.requestsOn() {
+			t.Errorf("%s: err=%v warning=%q requesting=%v", profiles, err, res.Warning, e.requestsOn())
 		}
 	}
 }
 
-func TestReloadSwitchesRequestingOffWhenTheNoneProfileIsGone(t *testing.T) {
+// --- the Issues checks ---
+
+func TestIssuesForAHealthySetupAreNone(t *testing.T) {
+	e := newEnv(t)
+	configured(t, e, newFakeLidarr(t))
+	if got := e.svc.Issues(context.Background()); len(got) != 0 {
+		t.Errorf("issues = %v, want none", issueIDs(got))
+	}
+}
+
+func TestIssuesReportAMissingNoneProfile(t *testing.T) {
 	e := newEnv(t)
 	f := newFakeLidarr(t)
-	e.store.Update(func(st *store.State) {
-		st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey, RootFolder: "/music", QualityProfileID: 5}
-	})
-	e.svc.Reload(context.Background())
-	if !e.requestsOn() {
-		t.Fatal("setup: requesting should be on")
-	}
+	configured(t, e, f)
 	f.mu.Lock()
 	f.metadata = `[{"id":1,"name":"Standard"}]`
 	f.mu.Unlock()
-	e.svc.Reload(context.Background())
-	if e.requestsOn() {
-		t.Error("without a profile named None a request would import the artist's whole catalogue: it must stay off")
+	i := findIssue(e.svc.Issues(context.Background()), "no-none-profile")
+	if i == nil || i.Severity != issues.Error || !strings.Contains(i.Title, "None") || !strings.Contains(i.Fix, "Metadata") || !strings.Contains(i.Detail, "refused") {
+		t.Fatalf("%+v", i)
+	}
+	// The check is live: create the profile in Lidarr and the issue is gone.
+	f.mu.Lock()
+	f.metadata = `[{"id":1,"name":"Standard"},{"id":2,"name":"None"}]`
+	f.mu.Unlock()
+	if got := e.svc.Issues(context.Background()); findIssue(got, "no-none-profile") != nil {
+		t.Errorf("still reported after the profile exists: %v", issueIDs(got))
+	}
+}
+
+func TestAMissingNoneProfileStopsARequestWithoutWritingAnything(t *testing.T) {
+	// Requesting stays configured (a missing profile is reported, not a reason to
+	// switch it off), so the guarantee is at the point of the add: it writes nothing.
+	e := newEnv(t)
+	f := newFakeLidarr(t)
+	f.metadata = `[]`
+	configured(t, e, f)
+	if !e.requestsOn() {
+		t.Fatal("setup: requesting is configured")
+	}
+	_, err := e.cat.Request(context.Background(), someID)
+	if errors.Is(err, catalog.ErrRequestsDisabled) {
+		t.Errorf("requesting should be configured, got %v", err)
+	}
+}
+
+func TestIssuesWhenNothingIsSetUp(t *testing.T) {
+	e := newEnv(t)
+	got := e.svc.Issues(context.Background())
+	if len(got) != 1 || got[0].ID != "lidarr-not-configured" || got[0].Severity != issues.Error || got[0].Link != "#/settings" {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestIssuesWhenTheKeyIsRejectedStopThere(t *testing.T) {
+	e := newEnv(t)
+	f := newFakeLidarr(t)
+	e.store.Update(func(st *store.State) {
+		st.Lidarr = store.Lidarr{URL: f.URL, APIKey: "wrong-key-0123456789", RootFolder: "/music", QualityProfileID: 5}
+	})
+	got := e.svc.Issues(context.Background())
+	if ids := issueIDs(got); len(ids) != 1 || ids[0] != "lidarr-key-rejected" {
+		t.Errorf("issues = %v: with the key rejected nothing else can be asked, so nothing else should be said", ids)
+	}
+}
+
+func TestIssuesWhenLidarrIsDownNameTheAddressNotTheKey(t *testing.T) {
+	e := newEnv(t)
+	f := newFakeLidarr(t)
+	url := f.URL
+	configured(t, e, f)
+	f.Close()
+	got := e.svc.Issues(context.Background())
+	if len(got) != 1 || got[0].ID != "lidarr-unreachable" || !strings.Contains(got[0].Detail, url) {
+		t.Fatalf("%+v", got)
+	}
+	if strings.Contains(got[0].Detail+got[0].Fix, goodKey) {
+		t.Error("the key must never be in an issue")
+	}
+}
+
+func TestIssuesForRequestingSettings(t *testing.T) {
+	e := newEnv(t)
+	f := newFakeLidarr(t)
+	e.store.Update(func(st *store.State) { st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey} })
+	if i := findIssue(e.svc.Issues(context.Background()), "requesting-off"); i == nil || i.Severity != issues.Warning || i.Link != "#/settings" {
+		t.Errorf("no root folder or quality profile: %+v", i)
+	}
+	e.store.Update(func(st *store.State) { st.Lidarr.RootFolder, st.Lidarr.QualityProfileID = "/gone", 5 })
+	i := findIssue(e.svc.Issues(context.Background()), "requesting-settings-mismatch")
+	if i == nil || i.Severity != issues.Error || !strings.Contains(i.Detail, "/gone") {
+		t.Errorf("a root folder Lidarr lacks: %+v", i)
+	}
+	e.store.Update(func(st *store.State) { st.Lidarr.RootFolder, st.Lidarr.QualityProfileID = "/music", 99 })
+	if i := findIssue(e.svc.Issues(context.Background()), "requesting-settings-mismatch"); i == nil || !strings.Contains(i.Detail, "99") {
+		t.Errorf("a quality profile Lidarr lacks: %+v", i)
+	}
+}
+
+func TestIssuesFromTheEnvironment(t *testing.T) {
+	e := newEnv(t)
+	configured(t, e, newFakeLidarr(t))
+	t.Setenv(EnvVar(KeyQualityProfileID), "banana")
+	t.Setenv(staleMetadataProfileEnv, "1")
+	got := e.svc.Issues(context.Background())
+	bad := findIssue(got, "env-invalid")
+	stale := findIssue(got, "env-metadata-profile-ignored")
+	if bad == nil || bad.Severity != issues.Error || !strings.Contains(bad.Detail, "QUALITY_PROFILE_ID") || strings.Contains(bad.Detail, "banana") {
+		t.Errorf("an unusable variable: %+v (the bad value must not be echoed)", bad)
+	}
+	if stale == nil || stale.Severity != issues.Warning || !strings.Contains(stale.Title, "METADATA_PROFILE_ID") {
+		t.Errorf("a leftover variable: %+v", stale)
+	}
+}
+
+func TestNoIssueEverContainsTheAPIKey(t *testing.T) {
+	// Every kind of issue, in turn, none of which may carry the key or its tail.
+	for name, setup := range map[string]func(*env, *fakeLidarr){
+		"healthy":    func(e *env, f *fakeLidarr) { configured(t, e, f) },
+		"no profile": func(e *env, f *fakeLidarr) { f.metadata = `[]`; configured(t, e, f) },
+		"bad root": func(e *env, f *fakeLidarr) {
+			e.store.Update(func(st *store.State) {
+				st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey, RootFolder: "/x", QualityProfileID: 5}
+			})
+		},
+		"rejected key": func(e *env, f *fakeLidarr) {
+			e.store.Update(func(st *store.State) { st.Lidarr = store.Lidarr{URL: f.URL, APIKey: goodKey + "x"} })
+		},
+	} {
+		e := newEnv(t)
+		f := newFakeLidarr(t)
+		setup(e, f)
+		raw, _ := json.Marshal(e.svc.Issues(context.Background()))
+		if strings.Contains(string(raw), goodKey) || strings.Contains(string(raw), goodKey[len(goodKey)-4:]) {
+			t.Errorf("%s: an issue leaks the key: %s", name, raw)
+		}
 	}
 }
 

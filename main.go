@@ -37,6 +37,7 @@ import (
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
@@ -151,7 +152,10 @@ func main() {
 	}()
 	mux := http.NewServeMux()
 	flow := requests.NewService(requests.NewStore(database), cat)
-	api.New(cat, coverart.New(coverURL), service, auth.New(roles, known, logger), known, flow, logger).Routes(mux)
+	authn := auth.New(roles, known, logger)
+	// Live checks against Lidarr, remembered briefly: the nav asks on every page load.
+	problems := issues.Combine(30*time.Second, service, authn)
+	api.New(cat, coverart.New(coverURL), service, authn, known, flow, problems, logger).Routes(mux)
 
 	static, err := fs.Sub(staticFiles, "web/static")
 	if err != nil {

@@ -360,3 +360,21 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .save-bar .msg { min-width: 0; font-size: 13px; }
   .save-bar .btn { padding: 9px 14px; }
 }
+
+/* Issues */
+.topnav a .count.warn { background: oklch(0.62 0.17 55); }
+.issues-bar { display: flex; justify-content: flex-end; margin-top: -12px; }
+.issue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.issue { border: 1px solid var(--border); border-left-width: 3px; border-radius: 12px; padding: 14px 16px; background: oklch(0.17 0.012 270 / .6); display: flex; flex-direction: column; gap: 8px; }
+.issue.error { border-left-color: var(--red-text); }
+.issue.warning { border-left-color: var(--amber); }
+.issue.info { border-left-color: var(--cyan); }
+.issue-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.issue-head h2 { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.issue p { margin: 0; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.issue .issue-fix { color: var(--text); }
+.issue-link { align-self: flex-start; font-size: 13px; color: oklch(0.8 0.12 290); }
+.sev-pill { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid; }
+.sev-pill.error { color: var(--red-text); border-color: oklch(0.5 0.14 25 / .6); background: oklch(0.24 0.06 25 / .6); }
+.sev-pill.warning { color: var(--amber); border-color: oklch(0.5 0.12 80 / .6); background: oklch(0.24 0.05 80 / .5); }
+.sev-pill.info { color: var(--cyan); border-color: oklch(0.5 0.12 200 / .6); background: oklch(0.22 0.05 200 / .5); }

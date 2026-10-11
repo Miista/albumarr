@@ -25,6 +25,7 @@
       <a href="#" :class="{ active: page === 'search' }" @click.prevent="go('search')">Search</a>
       <a href="#/requests" :class="{ active: page === 'requests' }" @click.prevent="go('requests')">My requests</a>
       <a href="#/approvals" v-if="canApprove()" :class="{ active: page === 'approvals' }" @click.prevent="go('approvals')">Approvals<span class="count" v-if="pendingCount" :aria-label="pendingCount + ' waiting'">{{ pendingCount }}</span></a>
+      <a href="#/issues" v-if="me.role === 'admin'" :class="{ active: page === 'issues' }" @click.prevent="go('issues')">Issues<span class="count warn" v-if="issueCount" :aria-label="issueCount + ' issues'">{{ issueCount }}</span></a>
       <a href="#/settings" v-if="me.role === 'admin'" :class="{ active: page === 'settings' }" @click.prevent="go('settings')">Settings</a>
     </nav>
     <div class="whoami" v-if="me">
@@ -114,9 +115,6 @@
     <div class="searching" v-if="!cfg && !cfgError"><span class="spinner"></span>Loading…</div>
 
     <p class="banner" v-if="cfg && settingsTab === 'lidarr' && cfg.read_only">Settings are read-only (<code>ALBUMREQ_SETTINGS_READONLY</code>). Nothing here can be changed from the page.</p>
-    <div class="banner warn" v-if="cfg && settingsTab === 'lidarr' && cfg.problems && cfg.problems.length">
-      <p v-for="p in cfg.problems">{{ p }}</p>
-    </div>
 
     <form class="cards with-bar" v-if="cfg && settingsTab === 'lidarr'" @submit.prevent="save" autocomplete="off">
       <section class="card">
@@ -169,7 +167,6 @@
             <input id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-else type="number" min="0" v-model.number="form.quality_profile_id" :disabled="!!lock('lidarr.quality_profile_id')">
           </div>
         </div>
-        <p class="note-text" v-if="cfg.configured || options">Every requested artist gets Lidarr's metadata profile <strong>None</strong>, so only the album you ask for is added, not the artist's other albums. Lidarr needs a profile with that name.</p>
       </section>
 
       <p class="banner warn" v-if="warning">{{ warning }}</p>
@@ -201,6 +198,34 @@
         </li>
       </ul>
     </section>
+  </main>
+
+  <!-- Issues -->
+  <main class="issues" v-if="page === 'issues' && me && me.role === 'admin'">
+    <div class="title-block">
+      <h1>Issues</h1>
+      <p class="lede">What albumreq found wrong with its own setup, and what to do about it.</p>
+    </div>
+    <div class="issues-bar">
+      <button type="button" class="btn" @click="loadIssues(true)" :disabled="issuesChecking"><span class="spinner" v-if="issuesChecking"></span>{{ issuesChecking ? 'Checking…' : 'Check again' }}</button>
+    </div>
+    <p class="error-text" v-if="issuesError" role="alert">{{ issuesError }}</p>
+    <div class="searching" v-if="!issuesLoaded && !issuesError"><span class="spinner"></span>Checking…</div>
+    <div class="empty" v-if="issuesLoaded && !issues.length">
+      <span class="title">No issues</span>
+      <span class="sub">Lidarr answers, the profiles requests need are there, and the settings match. Everything albumreq checks looks fine.</span>
+    </div>
+    <ul class="issue-list" v-if="issues.length">
+      <li class="issue" v-for="i in issues" :key="i.id + i.title" :class="i.severity">
+        <div class="issue-head">
+          <span class="sev-pill" :class="i.severity">{{ i.severity }}</span>
+          <h2>{{ i.title }}</h2>
+        </div>
+        <p class="issue-detail">{{ i.detail }}</p>
+        <p class="issue-fix" v-if="i.fix"><strong>What to do:</strong> {{ i.fix }}</p>
+        <a class="issue-link" v-if="i.link" :href="i.link" @click.prevent="go(i.link === '#/settings' ? 'settings' : 'issues')">Open settings</a>
+      </li>
+    </ul>
   </main>
 
   <!-- My requests -->

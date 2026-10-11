@@ -20,6 +20,7 @@ import (
 	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/settings"
@@ -69,6 +70,13 @@ type Users interface {
 	SetApprover(sub string, approver bool) error
 }
 
+// Issues is what is wrong, as the Issues page shows it. Fresh runs the checks
+// again; Issues may answer from a recent run.
+type Issues interface {
+	Issues(ctx context.Context) []issues.Issue
+	Fresh(ctx context.Context) []issues.Issue
+}
+
 // Server holds the handlers' dependencies.
 type Server struct {
 	catalog  Catalog
@@ -77,12 +85,13 @@ type Server struct {
 	auth     Authenticator
 	users    Users
 	requests Requests
+	issues   Issues
 	log      zerolog.Logger
 }
 
 // New returns a Server.
-func New(c Catalog, covers CoverFetcher, st Settings, a Authenticator, u Users, rq Requests, log zerolog.Logger) *Server {
-	return &Server{catalog: c, covers: covers, settings: st, auth: a, users: u, requests: rq, log: log}
+func New(c Catalog, covers CoverFetcher, st Settings, a Authenticator, u Users, rq Requests, is Issues, log zerolog.Logger) *Server {
+	return &Server{catalog: c, covers: covers, settings: st, auth: a, users: u, requests: rq, issues: is, log: log}
 }
 
 type principalKey struct{}
@@ -131,6 +140,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings", s.guard(auth.Admin, s.handleSettings))
 	mux.HandleFunc("POST /api/settings", s.guard(auth.Admin, s.handleSaveSettings))
 	mux.HandleFunc("POST /api/settings/test", s.guard(auth.Admin, s.handleTestSettings))
+	mux.HandleFunc("GET /api/issues", s.guard(auth.Admin, s.handleIssues))
 	mux.HandleFunc("GET /api/users", s.guard(auth.Admin, s.handleUsers))
 	mux.HandleFunc("POST /api/users/approver", s.guard(auth.Admin, s.handleSetApprover))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -317,9 +327,10 @@ func (s *Server) requestFailed(w http.ResponseWriter, r *http.Request, err error
 		http.Error(w, "Lidarr or its metadata service is unavailable, try again later", http.StatusServiceUnavailable)
 	case errors.Is(err, lidarr.ErrBadSettings):
 		// Lidarr lacks something albumreq needs (the "None" metadata profile). The
-		// words name no secret, and an admin needs them, but a visitor does not.
+		// details are on the Issues page, for an admin; a visitor is only told it is
+		// not their doing.
 		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, err))
-		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
+		http.Error(w, "Lidarr is missing something albumreq needs, so nothing was added. An admin can see what under Issues.", http.StatusBadGateway)
 	case errors.As(err, &rejected):
 		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, rejected))
 		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
@@ -488,6 +499,22 @@ func (s *Server) handleTestSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, res)
+}
+
+// handleIssues lists what is wrong. ?fresh=1 runs the checks again now, which is
+// what the page's "Check again" does; otherwise a recent answer will do.
+func (s *Server) handleIssues(w http.ResponseWriter, r *http.Request) {
+	var list []issues.Issue
+	if r.URL.Query().Get("fresh") == "1" {
+		list = s.issues.Fresh(r.Context())
+	} else {
+		list = s.issues.Issues(r.Context())
+	}
+	if list == nil {
+		list = []issues.Issue{}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]any{"issues": list, "count": issues.Count(list)})
 }
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
