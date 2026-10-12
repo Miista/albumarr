@@ -22,6 +22,7 @@ import (
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
+	"github.com/Miista/albumreq/internal/notify"
 	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/settings"
 	"github.com/Miista/albumreq/internal/users"
@@ -77,6 +78,21 @@ type Issues interface {
 	Fresh(ctx context.Context) []issues.Issue
 }
 
+// NotifyAdmin is the admin's side of notifications: the ntfy server and which events
+// the shared channel is sent.
+type NotifyAdmin interface {
+	View() notify.View
+	Patch(ctx context.Context, p notify.Patch) (notify.View, error)
+	Test(ctx context.Context, in notify.TestInput) (notify.TestResult, error)
+}
+
+// NotifyUser is each person's side: their own topic and which events go to it.
+type NotifyUser interface {
+	View(sub string) (notify.UserView, error)
+	Save(sub, topic string, types []string) (notify.UserView, error)
+	Test(ctx context.Context, sub string) (notify.TestResult, error)
+}
+
 // Server holds the handlers' dependencies.
 type Server struct {
 	catalog  Catalog
@@ -86,7 +102,16 @@ type Server struct {
 	users    Users
 	requests Requests
 	issues   Issues
+	notifyA  NotifyAdmin
+	notifyU  NotifyUser
 	log      zerolog.Logger
+}
+
+// Notifications gives the server the notification settings. Without them the
+// notification routes answer 404, as if they were not there.
+func (s *Server) Notifications(a NotifyAdmin, u NotifyUser) *Server {
+	s.notifyA, s.notifyU = a, u
+	return s
 }
 
 // New returns a Server.
@@ -141,6 +166,12 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/settings", s.guard(auth.Admin, s.handleSaveSettings))
 	mux.HandleFunc("POST /api/settings/test", s.guard(auth.Admin, s.handleTestSettings))
 	mux.HandleFunc("GET /api/issues", s.guard(auth.Admin, s.handleIssues))
+	mux.HandleFunc("GET /api/notifications", s.guard(auth.Admin, s.handleNotifications))
+	mux.HandleFunc("POST /api/notifications", s.guard(auth.Admin, s.handleSaveNotifications))
+	mux.HandleFunc("POST /api/notifications/test", s.guard(auth.Admin, s.handleTestNotifications))
+	mux.HandleFunc("GET /api/me/notifications", s.guard(auth.User, s.handleMyNotifications))
+	mux.HandleFunc("POST /api/me/notifications", s.guard(auth.User, s.handleSaveMyNotifications))
+	mux.HandleFunc("POST /api/me/notifications/test", s.guard(auth.User, s.handleTestMyNotifications))
 	mux.HandleFunc("GET /api/users", s.guard(auth.Admin, s.handleUsers))
 	mux.HandleFunc("POST /api/users/approver", s.guard(auth.Admin, s.handleSetApprover))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -528,6 +559,149 @@ func (s *Server) handleIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, map[string]any{"issues": list, "count": issues.Count(list)})
+}
+
+// ---- notifications ----
+
+func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifyA == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, s.notifyA.View())
+}
+
+func (s *Server) handleSaveNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifyA == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !writeGuard(w, r) {
+		return
+	}
+	var body struct {
+		Ntfy struct {
+			Enabled     *bool     `json:"enabled"`
+			URL         *string   `json:"url"`
+			Topic       *string   `json:"topic"`
+			Tags        *string   `json:"tags"`
+			Auth        *string   `json:"auth"`
+			Username    *string   `json:"username"`
+			Password    *string   `json:"password"`
+			Token       *string   `json:"token"`
+			Priority    *int      `json:"priority"`
+			EmbedPoster *bool     `json:"embed_poster"`
+			Types       *[]string `json:"types"`
+			AppURL      *string   `json:"app_url"`
+		} `json:"ntfy"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	n := body.Ntfy
+	s.log.Info().Str("by", who(r).Sub).Msg(who(r).Name + " is changing the notification settings")
+	v, err := s.notifyA.Patch(r.Context(), notify.Patch{
+		Enabled: n.Enabled, URL: n.URL, Topic: n.Topic, Tags: n.Tags, Auth: n.Auth, Username: n.Username, Password: n.Password,
+		Token: n.Token, Priority: n.Priority, EmbedPoster: n.EmbedPoster, Types: n.Types, AppURL: n.AppURL,
+	})
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]any{"settings": v})
+}
+
+func (s *Server) handleTestNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifyA == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !writeGuard(w, r) {
+		return
+	}
+	var body struct {
+		URL      string `json:"url"`
+		Topic    string `json:"topic"`
+		Auth     string `json:"auth"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Token    string `json:"token"`
+		Priority int    `json:"priority"`
+		Tags     string `json:"tags"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	res, err := s.notifyA.Test(r.Context(), notify.TestInput{
+		URL: body.URL, Topic: body.Topic, Auth: body.Auth, Username: body.Username, Password: body.Password, Token: body.Token, Priority: body.Priority, Tags: body.Tags,
+	})
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, res)
+}
+
+func (s *Server) handleMyNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifyU == nil {
+		http.NotFound(w, r)
+		return
+	}
+	v, err := s.notifyU.View(who(r).Sub)
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, v)
+}
+
+func (s *Server) handleSaveMyNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifyU == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !writeGuard(w, r) {
+		return
+	}
+	var body struct {
+		Topic string    `json:"topic"`
+		Types *[]string `json:"types"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	var types []string
+	if body.Types != nil {
+		types = append([]string{}, *body.Types...)
+	}
+	v, err := s.notifyU.Save(who(r).Sub, body.Topic, types)
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, v)
+}
+
+func (s *Server) handleTestMyNotifications(w http.ResponseWriter, r *http.Request) {
+	if s.notifyU == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !writeGuard(w, r) {
+		return
+	}
+	res, err := s.notifyU.Test(r.Context(), who(r).Sub)
+	if err != nil {
+		s.settingsFailure(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, res)
 }
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {

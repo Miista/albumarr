@@ -41,6 +41,7 @@ import (
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumreq/internal/notify"
 	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/settings"
 	"github.com/Miista/albumreq/internal/store"
@@ -153,9 +154,25 @@ func main() {
 	mux := http.NewServeMux()
 	flow := requests.NewService(requests.NewStore(database), cat)
 	authn := auth.New(roles, known, logger)
+
+	// Notifications through ntfy. Sending happens in a worker, never in a request;
+	// the poller tells requesters when an approved album has arrived.
+	ntfyStore, err := notify.NewStore(database)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("cannot read the notification settings from the database")
+	}
+	ntfy := notify.NewClient()
+	notifySettings := notify.NewSettings(ntfyStore, ntfy, logger)
+	dispatcher := notify.NewDispatcher(notifySettings, ntfyStore, ntfy, logger)
+	flow.SetObserver(dispatcher)
+	go dispatcher.Run(ctx)
+	go notify.NewPoller(flow.Store(), cat, notifySettings, dispatcher, logger).Run(ctx)
+
 	// Live checks against Lidarr, remembered briefly: the nav asks on every page load.
-	problems := issues.Combine(30*time.Second, service, authn)
-	api.New(cat, coverart.New(coverURL), service, authn, known, flow, problems, logger).Routes(mux)
+	problems := issues.Combine(30*time.Second, service, authn, notifySettings)
+	api.New(cat, coverart.New(coverURL), service, authn, known, flow, problems, logger).
+		Notifications(notifySettings, notify.NewUserSettings(ntfyStore, notifySettings, ntfy, logger)).
+		Routes(mux)
 
 	static, err := fs.Sub(staticFiles, "web/static")
 	if err != nil {

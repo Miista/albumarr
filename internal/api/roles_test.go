@@ -12,6 +12,7 @@ import (
 
 	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/issues"
+	"github.com/Miista/albumreq/internal/notify"
 	"github.com/Miista/albumreq/internal/requests"
 	"github.com/Miista/albumreq/internal/users"
 )
@@ -112,6 +113,51 @@ func (f *fakeIssues) Fresh(context.Context) []issues.Issue  { f.freshCalls++; re
 // requestBody is what a card sends with a request.
 const requestBody = `{"artistId":"a74b1b7f-71a5-4011-9441-d0b5e4122711","title":"OK Computer","artist":"Radiohead"}`
 
+// fakeNotifyAdmin and fakeNotifyUser stand in for the notification settings.
+type fakeNotifyAdmin struct {
+	patches []notify.Patch
+	tests   []notify.TestInput
+	reads   int
+	err     error
+	testErr error
+}
+
+func (f *fakeNotifyAdmin) View() notify.View { f.reads++; return notify.View{Problems: []string{}} }
+func (f *fakeNotifyAdmin) Patch(_ context.Context, p notify.Patch) (notify.View, error) {
+	f.patches = append(f.patches, p)
+	return notify.View{Problems: []string{}}, f.err
+}
+func (f *fakeNotifyAdmin) Test(_ context.Context, in notify.TestInput) (notify.TestResult, error) {
+	f.tests = append(f.tests, in)
+	return notify.TestResult{OK: true, Message: "Sent."}, f.testErr
+}
+
+type fakeNotifyUser struct {
+	views []string
+	saves []userSave
+	tests []string
+	err   error
+}
+
+type userSave struct {
+	sub, topic string
+	types      []string
+	typesNil   bool
+}
+
+func (f *fakeNotifyUser) View(sub string) (notify.UserView, error) {
+	f.views = append(f.views, sub)
+	return notify.UserView{Available: true, Topic: "my-topic"}, f.err
+}
+func (f *fakeNotifyUser) Save(sub, topic string, types []string) (notify.UserView, error) {
+	f.saves = append(f.saves, userSave{sub, topic, types, types == nil})
+	return notify.UserView{Available: true, Topic: topic}, f.err
+}
+func (f *fakeNotifyUser) Test(_ context.Context, sub string) (notify.TestResult, error) {
+	f.tests = append(f.tests, sub)
+	return notify.TestResult{OK: true, Message: "Sent."}, f.err
+}
+
 // routes is every endpoint and the lowest role that may use it.
 var routes = []struct {
 	method, path, body string
@@ -127,6 +173,12 @@ var routes = []struct {
 	{"GET", "/api/settings", "", auth.Admin},
 	{"POST", "/api/settings", `{"lidarr":{"url":"http://x:1"}}`, auth.Admin},
 	{"POST", "/api/settings/test", `{"url":"http://x:1","api_key":"k"}`, auth.Admin},
+	{"GET", "/api/notifications", "", auth.Admin},
+	{"POST", "/api/notifications", `{"ntfy":{"topic":"approvers"}}`, auth.Admin},
+	{"POST", "/api/notifications/test", `{"url":"https://n.example","topic":"t"}`, auth.Admin},
+	{"GET", "/api/me/notifications", "", auth.User},
+	{"POST", "/api/me/notifications", `{"topic":"my-topic"}`, auth.User},
+	{"POST", "/api/me/notifications/test", `{}`, auth.User},
 	{"GET", "/api/issues", "", auth.Admin},
 	{"GET", "/api/issues?fresh=1", "", auth.Admin},
 	{"GET", "/api/users", "", auth.Admin},
@@ -141,20 +193,23 @@ type rig struct {
 	users    *fakeUsers
 	requests *fakeRequests
 	issues   *fakeIssues
+	notifyA  *fakeNotifyAdmin
+	notifyU  *fakeNotifyUser
 }
 
 func newRig(a Authenticator) *rig {
 	r := &rig{cat: &fakeCatalog{}, covers: &fakeCovers{data: []byte("img"), ct: "image/png"}, settings: &fakeSettings{}, users: &fakeUsers{},
-		requests: &fakeRequests{out: requests.Outcome{Result: "added"}}, issues: &fakeIssues{}}
+		requests: &fakeRequests{out: requests.Outcome{Result: "added"}}, issues: &fakeIssues{},
+		notifyA: &fakeNotifyAdmin{}, notifyU: &fakeNotifyUser{}}
 	r.mux = http.NewServeMux()
-	New(r.cat, r.covers, r.settings, a, r.users, r.requests, r.issues, zerolog.Nop()).Routes(r.mux)
+	New(r.cat, r.covers, r.settings, a, r.users, r.requests, r.issues, zerolog.Nop()).Notifications(r.notifyA, r.notifyU).Routes(r.mux)
 	return r
 }
 
 // touched reports whether anything behind the handlers was reached.
 func (r *rig) touched() bool {
 	return r.cat.searchCalls+r.cat.detailCalls != 0 || r.requests.calls+r.requests.listCalls != 0 || r.covers.lastID != "" ||
-		len(r.settings.patches)+len(r.settings.testCalls)+r.settings.reads != 0 || r.users.calls+r.users.reads != 0 || r.issues.issueCalls+r.issues.freshCalls != 0
+		len(r.settings.patches)+len(r.settings.testCalls)+r.settings.reads != 0 || r.users.calls+r.users.reads != 0 || r.issues.issueCalls+r.issues.freshCalls != 0 || len(r.notifyA.patches)+len(r.notifyA.tests)+r.notifyA.reads != 0 || len(r.notifyU.views)+len(r.notifyU.saves)+len(r.notifyU.tests) != 0
 }
 
 func call(r *rig, method, path, body string) *httptest.ResponseRecorder {

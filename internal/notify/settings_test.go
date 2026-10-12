@@ -8,9 +8,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/settings"
 )
 
@@ -396,5 +398,81 @@ func TestTheLastFailedSendShowsInTheViewUntilASuccessReplacesIt(t *testing.T) {
 	s.Record(Delivery{OK: true})
 	if s.View().LastError != nil {
 		t.Error("a later success clears the failure")
+	}
+}
+
+// ---- Issues ----
+
+func issueIDs(list []issues.Issue) []string {
+	var out []string
+	for _, i := range list {
+		out = append(out, i.ID)
+	}
+	return out
+}
+
+func TestNoIssuesWhileNotificationsAreOff(t *testing.T) {
+	s, _, _ := newSettings(t)
+	if got := s.Issues(context.Background()); len(got) != 0 {
+		t.Errorf("%v: an agent nobody switched on is not a problem", issueIDs(got))
+	}
+}
+
+func TestIssuesForAnEnabledAgent(t *testing.T) {
+	ctx := context.Background()
+	s, st, _ := newSettings(t)
+	st.Update(func(c *Config) { c.Enabled, c.URL, c.Topic = true, "https://n.example", "t" })
+	got := s.Issues(ctx)
+	if ids := issueIDs(got); len(ids) != 1 || ids[0] != "notifications-no-app-url" || got[0].Severity != issues.Info {
+		t.Errorf("a working agent with no links is only a note: %v", ids)
+	}
+	st.Update(func(c *Config) { c.AppURL = "http://a"; c.Auth = AuthToken })
+	if ids := issueIDs(s.Issues(ctx)); len(ids) != 1 || ids[0] != "notifications-no-credentials" {
+		t.Errorf("a token method with no token: %v", ids)
+	}
+	st.Update(func(c *Config) { c.Auth = AuthBasic; c.Username = "u" })
+	if ids := issueIDs(s.Issues(ctx)); len(ids) != 1 || ids[0] != "notifications-no-credentials" {
+		t.Errorf("basic with only a username: %v", ids)
+	}
+	st.Update(func(c *Config) { c.Auth = AuthNone })
+	if got := s.Issues(ctx); len(got) != 0 {
+		t.Errorf("%v", issueIDs(got))
+	}
+	st.Update(func(c *Config) { c.URL = "" })
+	if ids := issueIDs(s.Issues(ctx)); len(ids) != 1 || ids[0] != "notifications-no-server" {
+		t.Errorf("%v", ids)
+	}
+}
+
+func TestADeliveryFailureIsAWarningUntilItIsStaleOrReplaced(t *testing.T) {
+	ctx := context.Background()
+	s, st, _ := newSettings(t)
+	st.Update(func(c *Config) { c.Enabled, c.URL, c.AppURL = true, "https://n.example", "http://a" })
+	s.Record(Delivery{OK: false, Message: "the connection was refused", At: time.Now()})
+	got := s.Issues(ctx)
+	if len(got) != 1 || got[0].ID != "notifications-failing" || got[0].Severity != issues.Warning || !strings.Contains(got[0].Detail, "connection was refused") || got[0].Link != "#/settings/notifications" {
+		t.Fatalf("%+v", got)
+	}
+	for _, secret := range []string{"n.example"} {
+		if strings.Contains(got[0].Detail+got[0].Fix, secret) {
+			t.Errorf("the issue leaks %q", secret)
+		}
+	}
+	s.Record(Delivery{OK: true, At: time.Now()})
+	if got := s.Issues(ctx); len(got) != 0 {
+		t.Errorf("a send that worked clears it: %v", issueIDs(got))
+	}
+	s.Record(Delivery{OK: false, Message: "old news", At: time.Now().Add(-2 * time.Hour)})
+	if got := s.Issues(ctx); len(got) != 0 {
+		t.Errorf("a failure from two hours ago with nothing since is not a current problem: %v", issueIDs(got))
+	}
+}
+
+func TestEnvironmentProblemsAreErrorsAndNeverEchoTheValue(t *testing.T) {
+	s, _, _ := newSettings(t)
+	t.Setenv(settings.EnvVar(KeyPriority), "loud")
+	got := s.Issues(context.Background())
+	if len(got) != 1 || got[0].ID != "notifications-env-invalid" || got[0].Severity != issues.Error || strings.Contains(got[0].Detail, "loud") {
+		t.Errorf("%+v", got)
 	}
 }
