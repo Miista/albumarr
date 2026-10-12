@@ -332,6 +332,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .subtabs a { display: flex; align-items: center; gap: 8px; padding: 10px 2px; margin-bottom: -1px; font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
 .subtabs a:hover { color: var(--text); }
 .subtabs a.active { color: var(--text); font-weight: 600; border-bottom-color: oklch(0.6 0.2 290); }
+.settings-switch { display: none; margin-top: -4px; }
 
 /* Sticky save bar: always the last thing in its container, which reserves room for it. */
 .save-bar {
@@ -373,8 +374,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .sev-pill.info { color: var(--cyan); border-color: oklch(0.5 0.12 200 / .6); background: oklch(0.22 0.05 200 / .5); }
 
 /* Mobile: the page tabs become a bottom tab bar, as in reaparr: an icon over a small
-   label, a count on the icon's corner, the settings sub-tabs floating just above it
-   and the save bar above both. */
+   label, a count on the icon's corner, and the save bar above it. */
 .tab-icon { display: none; }
 @media (max-width: 640px) {
   /* A backdrop-filter makes its element the containing block of fixed descendants,
@@ -382,7 +382,6 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
      blur shows nothing here anyway. */
   .topbar { padding: 14px 16px; backdrop-filter: none; }
   main { padding: 28px 16px calc(96px + env(safe-area-inset-bottom)); }
-  main:has(.subtabs) { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
   h1 { font-size: 26px; }
 
   .topnav {
@@ -400,21 +399,12 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .tab-icon { display: flex; }
   .topnav a .count { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 10px; padding: 0 5px; min-width: 16px; }
 
-  /* Settings sub-tabs: a segmented control floating just above the tab bar. */
-  .subtabs {
-    position: fixed; z-index: 39; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom));
-    display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0; padding: 4px;
-    border: 1px solid var(--border); border-radius: 12px;
-    background: rgba(18,19,26,.92); backdrop-filter: blur(14px); box-shadow: 0 10px 30px -10px rgba(0,0,0,.7);
-  }
-  .subtabs a { justify-content: center; padding: 9px 8px; margin: 0; border: none; border-radius: 8px; }
-  .subtabs a.active {
-    color: #fff; background: oklch(0.55 0.2 290);
-    box-shadow: 0 4px 16px oklch(0.55 0.2 290 / .45), inset 0 1px 0 rgba(255,255,255,.18);
-  }
+  /* Settings sections: a select, as in Seerr, not a bar of tabs. */
+  .subtabs { display: none; }
+  .settings-switch { display: block; }
 
-  /* Sticky save bars sit above both bottom bars where there are two, else above the tab bar. */
-  .save-bar { bottom: calc(128px + env(safe-area-inset-bottom)); }
+  /* Sticky save bars sit just above the tab bar. */
+  .save-bar { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 
 /* Locked by the environment: the same affordance as reaparr. A note under the page
@@ -450,7 +440,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .account .hint code { word-break: break-all; }
 a.who-name { text-decoration: none; }
 a.who-name:hover { text-decoration: underline; }
-main.account { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .acct-icon { display: none; color: var(--muted); padding: 6px; }
 @media (max-width: 640px) { .acct-icon { display: inline-flex; } }
 

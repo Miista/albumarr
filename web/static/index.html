@@ -111,6 +111,12 @@
       </p>
     </div>
 
+    <select class="input plain settings-switch" aria-label="Settings section" :value="settingsTab" @change="goSettingsTab($event.target.value)">
+      <option value="lidarr">Lidarr</option>
+      <option value="notifications">Notifications</option>
+      <option value="users">Users</option>
+    </select>
+
     <nav class="subtabs" aria-label="Settings sections">
       <a href="#/settings" :class="{ active: settingsTab === 'lidarr' }" @click.prevent="goSettingsTab('lidarr')">Lidarr</a>
       <a href="#/settings/notifications" :class="{ active: settingsTab === 'notifications' }" @click.prevent="goSettingsTab('notifications')">Notifications</a>
