@@ -25,13 +25,13 @@ func TestEveryEventReadsRightForEachAudience(t *testing.T) {
 	}{
 		{"pending", Event{Type: Pending, Request: rec(), Actor: rec().Requester}, Shared, "New request: OK Computer", []string{"Radiohead", "Asked by alice", "Waiting for approval"}},
 		{"auto-approved", Event{Type: AutoApproved, Request: rec(), Actor: rec().Requester}, Shared, "Approved automatically: OK Computer", []string{"alice", "approve their own"}},
-		{"approved to the requester", Event{Type: Approved, Request: rec(), Actor: anna}, Requester, "Approved: OK Computer", []string{"anna approved it", "searching"}},
+		{"approved to the requester", Event{Type: Approved, Request: rec(), Actor: anna}, Requester, "Approved: OK Computer", []string{"anna approved it"}},
 		{"approved on the shared channel", Event{Type: Approved, Request: rec(), Actor: anna}, Shared, "Approved: OK Computer", []string{"anna approved alice's request"}},
 		{"declined to the requester", Event{Type: Declined, Request: withReason("Already own it"), Actor: anna}, Requester, "Declined: OK Computer", []string{"anna declined it", "Reason: Already own it"}},
 		{"declined on the shared channel", Event{Type: Declined, Request: withReason(""), Actor: anna}, Shared, "Declined: OK Computer", []string{"anna declined alice's request"}},
 		{"available to the requester", Event{Type: Available, Request: rec()}, Requester, "Available: OK Computer", []string{"Every track is in your library"}},
 		{"available on the shared channel", Event{Type: Available, Request: rec()}, Shared, "Available: OK Computer", []string{"Requested by alice"}},
-		{"failed", Event{Type: Failed, Request: rec()}, Requester, "Approved, but the search did not start: OK Computer", []string{"could not start the search"}},
+		{"failed", Event{Type: Failed, Request: rec()}, Requester, "Approved, but it could not be started: OK Computer", []string{"starting it failed"}},
 	} {
 		m := Compose(tc.e, tc.who, "http://albumreq.example:8768", false)
 		if m.Title != tc.title {

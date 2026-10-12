@@ -54,10 +54,10 @@
     </div>
     <div class="title-block" v-else>
       <h1>Find an album</h1>
-      <p class="lede">Search MusicBrainz and see what you already have in Lidarr.</p>
+      <p class="lede">Search for an album or an artist, and see what is already in the library.</p>
     </div>
 
-    <p class="banner" v-if="me && !me.lidarr_configured">Lidarr is not set up yet, so library status is not shown. <span v-if="me.role === 'admin'"><a href="#/settings" @click.prevent="go('settings')">Open settings</a></span><span v-else>An admin needs to set it up.</span></p>
+    <p class="banner" v-if="me && !me.lidarr_configured"><span v-if="me.role === 'admin'">Lidarr is not set up yet, so library status is not shown. <a href="#/settings" @click.prevent="go('settings')">Open settings</a></span><span v-else>Library status is not available yet. An admin needs to set things up.</span></p>
     <p class="note-text" v-else-if="me && me.role === 'admin' && !me.requests_enabled">Requesting is off. Choose a root folder and profiles in <a href="#/settings" @click.prevent="go('settings')">settings</a> to turn it on.</p>
 
     <form class="search-box" @submit.prevent="search" role="search" v-if="!artist">
@@ -82,7 +82,7 @@
       <div class="tabs group-tabs" role="tablist" v-if="artistGroups().length > 1">
         <button type="button" role="tab" v-for="g in artistGroups()" :key="g.id" :aria-selected="artistGroup === g.id" :class="{ active: artistGroup === g.id }" @click="artistGroup = g.id">{{ g.label }}<span class="count">{{ g.n }}</span></button>
       </div>
-      <p class="note-text" v-if="artist?.albums.length && !artist?.libraryOk">Lidarr could not be reached, so library status is not shown.</p>
+      <p class="note-text" v-if="artist?.albums.length && !artist?.libraryOk">The library could not be checked, so availability is not shown.</p>
       <div class="empty" v-if="!artistLoading && !artistError && !artist?.albums.length">
         <span class="title">No albums</span>
         <span class="sub">The metadata service lists no albums for this artist.</span>
@@ -90,7 +90,7 @@
     </div>
     <div class="contents" v-else>
       <p class="error-text" v-if="error" role="alert">{{ error }}</p>
-      <p class="note-text" v-if="albums.length && !libraryOk">Lidarr could not be reached, so library status is not shown.</p>
+      <p class="note-text" v-if="albums.length && !libraryOk">The library could not be checked, so availability is not shown.</p>
       <div class="searching" v-if="loading"><span class="spinner"></span>Searching…</div>
     </div>
 
@@ -421,7 +421,7 @@
     <div class="title-block title-row">
       <div>
         <h1>Requests</h1>
-        <p class="lede" v-if="canApprove()">Approving makes Lidarr add the album, monitor it and search for it. Declining sends nothing to Lidarr.</p>
+        <p class="lede" v-if="canApprove()">Approve a request to get the album, or decline it to turn it down.</p>
         <p class="lede" v-else>What you have asked for, and what happened to it. An approver decides before anything is downloaded.</p>
       </div>
       <div class="menu-wrap">
@@ -460,7 +460,7 @@
           <div class="req-who" v-if="canApprove()">{{ r.requester.name }}</div>
           <div class="req-meta">Asked {{ ago(r.createdAt) }}<span v-if="r.decidedBy"> · {{ r.state === 'declined' ? 'declined' : 'approved' }}{{ r.autoApproved ? ' automatically' : ' by ' + r.decidedBy.name }} {{ ago(r.decidedAt) }}</span></div>
           <div class="req-reason" v-if="r.state === 'declined' && r.declineReason">“{{ r.declineReason }}”</div>
-          <div class="req-reason" v-if="r.lidarrResult === 'added_unsearched'">Added to Lidarr, but the search could not be started.</div>
+          <div class="req-reason" v-if="r.lidarrResult === 'added_unsearched'">Approved, but it could not be started.</div>
           <p class="error-text" v-if="rowError[r.id]" role="alert">{{ rowError[r.id] }}</p>
           <form class="decline-form" v-if="declining === r.id" @submit.prevent="decline(r)">
             <input class="input plain" v-model="declineReason" maxlength="500" placeholder="Reason (optional, shown to the requester)" aria-label="Reason for declining" autocomplete="off">
@@ -513,13 +513,13 @@
               <div v-if="detail.released"><dt>Released</dt><dd>{{ detail.released }}</dd></div>
               <div v-if="detail.rating"><dt>Rating</dt><dd>{{ detail.rating.value.toFixed(1) }} / 10 <span class="faint">({{ detail.rating.votes }} votes)</span></dd></div>
               <div v-if="detail.library"><dt>In library</dt><dd v-if="detail.library.tracksTotal">{{ detail.library.tracksHave }} of {{ detail.library.tracksTotal }} tracks<span v-if="detail.library.sizeOnDisk" class="faint"> · {{ fmtSize(detail.library.sizeOnDisk) }}</span></dd>
-                <dd v-else>Just added <span class="faint">· Lidarr is still fetching its details</span></dd></div>
+                <dd v-else>Just added <span class="faint">· details are still being fetched</span></dd></div>
             </dl>
             <div class="genres" v-if="detail.genres.length"><span class="tag" v-for="g in detail.genres">{{ g }}</span></div>
             <p class="overview" v-if="detail.overview">{{ detail.overview }}</p>
             <p class="overview" v-if="detail.disambiguation">{{ detail.disambiguation }}</p>
             <p class="note-text" v-if="!detail.metadataOk">Details are not available for this album right now: the metadata service has none, or did not answer.</p>
-            <p class="note-text" v-if="!detail.libraryOk">Lidarr could not be reached, so library status is not shown.</p>
+            <p class="note-text" v-if="!detail.libraryOk">The library could not be checked, so availability is not shown.</p>
             <div class="request" v-if="detail.pendingRequest && canApprove()">
               <p class="note-text">Requested by {{ detail.pendingRequest?.requester?.name }} {{ ago(detail.pendingRequest?.createdAt) }}. It is waiting for an approver.</p>
               <p class="ok-text" v-if="notice" role="status">{{ notice }}</p>
@@ -539,8 +539,8 @@
               <button type="button" class="btn primary" v-if="detail.canRequest && mayRequest()" @click="request" :disabled="requesting">
                 <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : (detail.earlierApproval ? 'Request again' : 'Request') }}
               </button>
-              <p class="note-text" v-if="detail.earlierApproval && detail.canRequest && mayRequest() && !requestNote">{{ detail.earlierApproval.byYou ? 'You requested this and it was approved' : 'This was requested and approved' }} {{ ago(detail.earlierApproval.at) }}, but Lidarr is not monitoring it any more. {{ canApprove() ? 'Requesting it again makes Lidarr monitor it and search for it again.' : 'Requesting it again sends it to an approver.' }}</p>
-              <p class="note-text" v-else-if="detail.canRequest && mayRequest() && !requestNote">{{ canApprove() ? 'Lidarr will search for this album and download it if it finds a release that fits your quality profile.' : 'An approver will review your request before anything is downloaded.' }}</p>
+              <p class="note-text" v-if="detail.earlierApproval && detail.canRequest && mayRequest() && !requestNote">{{ detail.earlierApproval.byYou ? 'You requested this and it was approved' : 'This was requested and approved' }} {{ ago(detail.earlierApproval.at) }}, but it is not being fetched any more. {{ canApprove() ? 'Requesting it again starts it again.' : 'Requesting it again sends it to an approver.' }}</p>
+              <p class="note-text" v-else-if="detail.canRequest && mayRequest() && !requestNote && !canApprove()">An approver will review your request first.</p>
               <p class="ok-text" v-if="requestNote">{{ requestNote }}</p>
               <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>
             </div>

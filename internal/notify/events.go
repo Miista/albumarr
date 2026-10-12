@@ -49,7 +49,7 @@ func (t Type) Label() string {
 	case Available:
 		return "An approved album is available"
 	case Failed:
-		return "An approved album could not be searched for"
+		return "An approved album could not be started"
 	}
 	return string(t)
 }

@@ -829,10 +829,10 @@ function App() {
         const data = await res.json();
         if (!this.selected || this.selected.id !== id) return;
         this.requestNote = {
-          added: 'Requested. Lidarr is searching for it now.',
-          pending: 'Requested. An approver will look at it before anything is downloaded.',
-          added_unsearched: 'Added to Lidarr, but the search could not be started, so Lidarr will not look for it by itself. Try again in a moment, or search for it in Lidarr.',
-        }[data.result] || 'Lidarr already has this album and is looking for it.';
+          added: 'Requested.',
+          pending: 'Requested. An approver will look at it first.',
+          added_unsearched: 'Requested, but it could not be started right now. Try again in a moment.',
+        }[data.result] || 'This album is already on its way.';
         await this.loadDetail(id);
       } catch (e) {
         if (this.selected && this.selected.id === id) this.requestError = e.message;
@@ -1149,8 +1149,8 @@ function App() {
       try {
         const out = await this.send('/api/requests/' + r.id + '/approve');
         this.notice = out.result === 'added_unsearched'
-          ? 'Approved ' + r.title + '. It is in Lidarr, but the search could not be started.'
-          : 'Approved ' + r.title + '. Lidarr is searching for it now.';
+          ? 'Approved ' + r.title + ', but it could not be started.'
+          : 'Approved ' + r.title + '.';
         await this.afterDecision(r, fromSheet);
       } catch (e) {
         this.rowError[r.id] = e.status === 409 ? 'Someone else has already decided this.' : e.message;

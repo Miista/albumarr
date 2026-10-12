@@ -465,19 +465,19 @@ func (s *Server) requestFailed(w http.ResponseWriter, r *http.Request, err error
 	case errors.Is(err, catalog.ErrRequestsDisabled):
 		http.Error(w, "Requests are not enabled", http.StatusForbidden)
 	case errors.Is(err, catalog.ErrNotInMetadata):
-		http.Error(w, "Lidarr's metadata does not have this album yet", http.StatusUnprocessableEntity)
+		http.Error(w, "This album cannot be requested yet: its details are not available. Try again later.", http.StatusUnprocessableEntity)
 	case errors.Is(err, catalog.ErrUnavailable):
 		s.log.Warn().Err(err).Msg(what + " failed: a service is unavailable")
-		http.Error(w, "Lidarr or its metadata service is unavailable, try again later", http.StatusServiceUnavailable)
+		http.Error(w, "The library service is unavailable, try again later", http.StatusServiceUnavailable)
 	case errors.Is(err, lidarr.ErrBadSettings):
 		// Lidarr lacks something albumreq needs (the "None" metadata profile). The
 		// details are on the Issues page, for an admin; a visitor is only told it is
 		// not their doing.
 		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, err))
-		http.Error(w, "Lidarr is missing something albumreq needs, so nothing was added. An admin can see what under Issues.", http.StatusBadGateway)
+		http.Error(w, "Requests are not fully set up, so nothing was added. An admin can see what under Issues.", http.StatusBadGateway)
 	case errors.As(err, &rejected):
 		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, rejected))
-		http.Error(w, "Lidarr rejected the request; check albumreq's Lidarr settings", http.StatusBadGateway)
+		http.Error(w, "The request was rejected. An admin should check the settings.", http.StatusBadGateway)
 	default:
 		if r.Context().Err() == nil {
 			s.log.Error().Err(err).Msg(what + " failed")

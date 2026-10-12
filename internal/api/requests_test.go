@@ -284,7 +284,7 @@ func TestMissingOrBadValuesAreRefusedByTheFlowAndShownAs400(t *testing.T) {
 
 func TestAnAlbumLidarrDoesNotKnowIsA422(t *testing.T) {
 	rec := postBody(muxWith(&fakeRequests{err: catalog.ErrNotInMetadata}, adminAuth()), "/api/album/"+id1+"/request", requestBody, sameOrigin)
-	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "does not have this album") {
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "cannot be requested yet") {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }

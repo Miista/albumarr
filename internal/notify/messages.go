@@ -43,9 +43,9 @@ func Compose(e Event, who Audience, appURL string, poster bool) Message {
 		m.Click = albumLink(appURL, r)
 	case Approved:
 		m.Title = "Approved: " + r.Title
-		m.Body = artist + "\n" + e.Actor.Name + " approved it. Lidarr is searching for it now."
+		m.Body = artist + "\n" + e.Actor.Name + " approved it."
 		if who == Shared {
-			m.Body = artist + "\n" + e.Actor.Name + " approved " + r.Requester.Name + "'s request. Lidarr is searching for it now."
+			m.Body = artist + "\n" + e.Actor.Name + " approved " + r.Requester.Name + "'s request."
 		}
 		m.Click = albumLink(appURL, r)
 	case Declined:
@@ -67,8 +67,8 @@ func Compose(e Event, who Audience, appURL string, poster bool) Message {
 		m.Click = albumLink(appURL, r)
 	case Failed:
 		// It stands for the approval as well, so it says that first.
-		m.Title = "Approved, but the search did not start: " + r.Title
-		m.Body = artist + "\nIt is in Lidarr, but Lidarr could not start the search, so it will not look for it by itself."
+		m.Title = "Approved, but it could not be started: " + r.Title
+		m.Body = artist + "\nIt was approved, but starting it failed, so it will not begin by itself."
 		m.Click = albumLink(appURL, r)
 	}
 	if poster && r.AlbumID != "" {
