@@ -117,6 +117,28 @@ func (s *Service) Pending(albumIDs []string) (map[string]Record, error) {
 	return s.store.Pending(albumIDs)
 }
 
+// Delete removes a request record, and only the record: whatever Lidarr did for it
+// stays. An admin may delete any request; anyone else only their own that is still
+// pending, which is how a person takes back a request nobody has looked at.
+func (s *Service) Delete(_ context.Context, by auth.Principal, id int64) (Record, error) {
+	if by.Role == auth.None || !by.Role.AtLeast(auth.User) {
+		return Record{}, ErrForbidden
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, err := s.store.Get(id)
+	if err != nil {
+		return Record{}, err
+	}
+	if by.Role != auth.Admin && !(rec.State == Pending && rec.Requester.Sub == by.Sub) {
+		return Record{}, ErrForbidden
+	}
+	if err := s.store.Delete(id); err != nil {
+		return Record{}, err
+	}
+	return rec, nil
+}
+
 // LastApproved is the album's most recently approved request, if any. Approved
 // records do not block a new request, so this is how the sheet can say that the
 // album was approved before and Lidarr no longer wants it.

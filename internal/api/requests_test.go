@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -322,5 +323,40 @@ func TestTheSheetSaysNothingAboutEarlierApprovalsWhenThereIsNoneOrNoRequestButto
 	d.CanRequest = true
 	if rec := get(earlierRig(d, &fakeRequests{lastApprovedErr: errors.New("boom")}, auth.User), "/api/album/"+id1); rec.Code != 200 || strings.Contains(rec.Body.String(), "earlierApproval") {
 		t.Errorf("unreadable records must not break the sheet: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestDeletingARequestNeedsTheHeaderAndMapsTheServicesAnswers(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"deleted", nil, http.StatusNoContent},
+		{"not allowed", requests.ErrForbidden, http.StatusForbidden},
+		{"no such request", requests.ErrNotFound, http.StatusNotFound},
+	} {
+		rq := &fakeRequests{err: c.err}
+		mux := muxWith(rq, as(auth.User))
+		req := httptest.NewRequest("DELETE", "/api/requests/7", nil)
+		req.Header.Set("X-Albumreq", "1")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != c.want || rq.deleted != 7 {
+			t.Errorf("%s: %d (deleted %d), want %d", c.name, rec.Code, rq.deleted, c.want)
+		}
+	}
+	rq := &fakeRequests{}
+	rec := httptest.NewRecorder()
+	muxWith(rq, as(auth.Admin)).ServeHTTP(rec, httptest.NewRequest("DELETE", "/api/requests/7", nil)) // no X-Albumreq
+	if rec.Code != http.StatusForbidden || rq.deleted != 0 {
+		t.Errorf("without the header: %d, deleted %d", rec.Code, rq.deleted)
+	}
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest("DELETE", "/api/requests/abc", nil)
+	req.Header.Set("X-Albumreq", "1")
+	muxWith(rq, as(auth.Admin)).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("a bad id: %d", rec.Code)
 	}
 }

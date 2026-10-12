@@ -438,6 +438,13 @@
           <button type="button" class="btn" v-if="declining !== r.id" @click="startDecline(r)" :disabled="busy[r.id]">Decline</button>
         </div>
         <span class="status-pill" v-else :class="reqStateClass(r)"><span class="dot"></span>{{ reqStateLabel(r) }}</span>
+        <div class="req-delete" v-if="canDelete(r)">
+          <button type="button" class="btn quiet danger" v-if="deleting !== r.id" @click="remove(r)" :disabled="busy[r.id]" :aria-label="(r.state === 'pending' && r.requester.sub === me.sub ? 'Cancel the request for ' : 'Delete the request for ') + r.title">{{ r.state === 'pending' && r.requester.sub === me.sub ? 'Cancel' : 'Delete' }}</button>
+          <template v-else>
+            <button type="button" class="btn danger" @click="remove(r)" :disabled="busy[r.id]"><span class="spinner" v-if="busy[r.id]"></span>{{ busy[r.id] ? 'Deleting…' : 'Yes, delete' }}</button>
+            <button type="button" class="btn quiet" @click="deleting = null">Keep</button>
+          </template>
+        </div>
       </li>
     </ul>
   </main>

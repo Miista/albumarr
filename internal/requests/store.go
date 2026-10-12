@@ -109,6 +109,20 @@ func (s *Store) PendingFor(albumID string) (Record, bool, error) {
 	return r, true, nil
 }
 
+// Delete removes a request record. Nothing else changes: Lidarr is not touched.
+func (s *Store) Delete(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM requests WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // LastApproved returns the album's most recently approved request, if it has one.
 func (s *Store) LastApproved(albumID string) (Record, bool, error) {
 	r, err := scan(s.db.QueryRow(`SELECT `+columns+` FROM requests WHERE album_id = ? AND state = 'approved' ORDER BY decided_at DESC, id DESC LIMIT 1`, albumID))

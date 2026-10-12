@@ -458,3 +458,7 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
   .title-row { flex-direction: column; gap: 12px; }
   .menu { left: 0; right: auto; }
 }
+.req-delete { flex: none; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.btn.danger { color: var(--red-text); }
+.btn.primary.danger { color: #fff; }
+@media (max-width: 640px) { .req-delete { flex-direction: row; width: 100%; } .req-delete .btn { flex: 1; } }

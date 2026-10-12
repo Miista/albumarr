@@ -75,6 +75,7 @@ function App() {
     busy: {}, // request id -> an approve/decline is in flight
     rowError: {}, // request id -> why the last one failed
     declining: null, // the request id whose decline form is open
+    deleting: null, // the request id waiting for the second press of Delete
     declineReason: '',
 
     // Issues (admins)
@@ -131,6 +132,7 @@ function App() {
       this.page = page;
       this.notice = '';
       this.declining = null;
+      this.deleting = null;
       if (this.me) this.enter();
     },
 
@@ -939,6 +941,37 @@ function App() {
     // openRequest opens the album's sheet over the current page.
     openRequest(r) {
       this.open({ id: r.albumId, title: r.title, artist: r.artist, secondaryTypes: [], cover: '/api/cover/' + r.albumId });
+    },
+
+    // canDelete mirrors the server: an admin may delete any request, anyone else only
+    // their own that is still waiting. The server decides; this only hides the button.
+    canDelete(r) {
+      if (!this.me) return false;
+      return this.me.role === 'admin' || (r.state === 'pending' && r.requester.sub === this.me.sub);
+    },
+
+    // remove asks twice, since a record cannot be brought back: the first press
+    // turns the button into the question. Only the record goes; Lidarr is untouched.
+    async remove(r) {
+      if (this.busy[r.id]) return;
+      if (this.deleting !== r.id) {
+        this.deleting = r.id;
+        return;
+      }
+      this.busy[r.id] = true;
+      this.rowError[r.id] = '';
+      this.notice = '';
+      try {
+        const res = await api('/api/requests/' + r.id, { method: 'DELETE', headers: { 'X-Albumreq': '1' } });
+        if (!res.ok && res.status !== 404) throw new Error((await res.text()).trim() || res.statusText);
+        this.notice = 'Deleted the request for ' + r.title + '.';
+        this.deleting = null;
+        await this.loadRequests();
+      } catch (e) {
+        this.rowError[r.id] = e.message;
+      } finally {
+        this.busy[r.id] = false;
+      }
     },
 
     startDecline(r) {

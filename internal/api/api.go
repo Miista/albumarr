@@ -46,6 +46,7 @@ type Requests interface {
 	Approve(ctx context.Context, by auth.Principal, id int64) (requests.Outcome, error)
 	Decline(ctx context.Context, by auth.Principal, id int64, reason string) (requests.Outcome, error)
 	List(p auth.Principal, scope requests.Scope) ([]requests.Record, error)
+	Delete(ctx context.Context, by auth.Principal, id int64) (requests.Record, error)
 	Pending(albumIDs []string) (map[string]requests.Record, error)
 	LastApproved(albumID string) (requests.Record, bool, error)
 }
@@ -176,6 +177,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/requests", s.guard(auth.User, s.handleListRequests))
 	mux.HandleFunc("POST /api/requests/{id}/approve", s.guard(auth.Approver, s.handleApprove))
 	mux.HandleFunc("POST /api/requests/{id}/decline", s.guard(auth.Approver, s.handleDecline))
+	mux.HandleFunc("DELETE /api/requests/{id}", s.guard(auth.User, s.handleDeleteRequest))
 	mux.HandleFunc("GET /api/cover/{id}", s.guard(auth.User, s.handleCover))
 	mux.HandleFunc("GET /api/settings", s.guard(auth.Admin, s.handleSettings))
 	mux.HandleFunc("POST /api/settings", s.guard(auth.Admin, s.handleSaveSettings))
@@ -205,7 +207,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 		return
 	}
-	me := map[string]any{"name": p.Name, "email": p.Email, "role": p.Role.String(), "local": p.Local}
+	me := map[string]any{"sub": p.Sub, "name": p.Name, "email": p.Email, "role": p.Role.String(), "local": p.Local}
 	if p.Role.AtLeast(auth.User) {
 		v := s.settings.View()
 		me["lidarr_configured"] = v.Configured
@@ -481,6 +483,24 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s approved request %d (%s): %s", p.Name, id, out.Record.AlbumID, out.Result))
 	writeOutcome(w, http.StatusOK, out)
+}
+
+func (s *Server) handleDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	if !writeGuard(w, r) {
+		return
+	}
+	id, ok := requestID(w, r)
+	if !ok {
+		return
+	}
+	p := who(r)
+	rec, err := s.requests.Delete(r.Context(), p, id)
+	if err != nil {
+		s.requestFailed(w, r, err, fmt.Sprintf("deleting request %d", id))
+		return
+	}
+	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s deleted request %d (%s, %s, asked by %s)", p.Name, id, rec.AlbumID, rec.State, rec.Requester.Name))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDecline(w http.ResponseWriter, r *http.Request) {

@@ -70,6 +70,7 @@ type fakeRequests struct {
 	listScope requests.Scope
 	listCalls int
 
+	deleted         int64
 	lastApproved    requests.Record
 	lastApprovedErr error
 	pending         map[string]requests.Record
@@ -96,6 +97,11 @@ func (f *fakeRequests) List(p auth.Principal, scope requests.Scope) ([]requests.
 	f.listCalls++
 	f.by, f.listScope = p, scope
 	return f.list, f.listErr
+}
+func (f *fakeRequests) Delete(_ context.Context, p auth.Principal, id int64) (requests.Record, error) {
+	f.calls++
+	f.by, f.deleted = p, id
+	return f.out.Record, f.err
 }
 func (f *fakeRequests) LastApproved(string) (requests.Record, bool, error) {
 	return f.lastApproved, f.lastApproved.ID != 0, f.lastApprovedErr
@@ -175,6 +181,7 @@ var routes = []struct {
 	{"GET", "/api/requests", "", auth.User},
 	{"POST", "/api/requests/1/approve", "", auth.Approver},
 	{"POST", "/api/requests/1/decline", `{"reason":"no"}`, auth.Approver},
+	{"DELETE", "/api/requests/1", "", auth.User},
 	{"GET", "/api/settings", "", auth.Admin},
 	{"POST", "/api/settings", `{"lidarr":{"url":"http://x:1"}}`, auth.Admin},
 	{"POST", "/api/settings/test", `{"url":"http://x:1","api_key":"k"}`, auth.Admin},
@@ -290,7 +297,7 @@ func TestMeTellsEveryoneWhoTheyAreAndLeaksNothingToAnOutsider(t *testing.T) {
 	rg := newRig(as(auth.Approver))
 	rg.settings.view.Configured, rg.settings.view.RequestsEnabled = true, true
 	rec := call(rg, "GET", "/api/me", "")
-	for _, want := range []string{`"role":"approver"`, `"requests_enabled":true`, `"lidarr_configured":true`} {
+	for _, want := range []string{`"role":"approver"`, `"sub":"sub-approver"`, `"requests_enabled":true`, `"lidarr_configured":true`} {
 		if rec.Code != 200 || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("%d %s lacks %s", rec.Code, rec.Body, want)
 		}

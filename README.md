@@ -67,6 +67,7 @@ marked automatic: they could approve it themselves a second later.
 | `GET /api/requests?scope=pending` | approvers: the queue, oldest first |
 | `GET /api/requests?scope=all` | admins: everything, with history |
 | `POST /api/requests/{id}/approve`, `/decline` (`{"reason": "…"}`) | approvers |
+| `DELETE /api/requests/{id}` | admins: any request. Anyone else: their own request while it is still pending (shown as **Cancel**). Only the record goes; Lidarr is not touched. Every deletion is logged with who and what. |
 
 Each list returns at most 200 records. Every decision is logged with who made it.
 
@@ -88,6 +89,8 @@ A page a role may not use is not in its nav, and opening its address sends the
 person to search; the server refuses the calls regardless. On a phone the nav is a
 bottom tab bar (icon over label, a count on the icon), as in Reaparr, with the
 Settings sub-tabs floating just above it.
+
+**Deleting.** Admins can delete any request from its row (a second press confirms); anyone else can cancel their own request while it is still pending. Deleting removes the record only, never anything in Lidarr, and frees the album to be asked for again.
 
 **Asking again.** Lidarr's own state decides whether an album can be requested, not the
 records: an approved request does not block a new one. If an album that was approved is

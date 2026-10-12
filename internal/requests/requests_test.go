@@ -17,6 +17,7 @@ import (
 const (
 	album1 = "b1392450-e666-3926-a536-22c65f834433"
 	album2 = "48140466-cff6-3222-bd55-63c27e43190d"
+	album3 = "59f47b29-50dd-4335-a81b-02297c790208"
 )
 
 // artist1 is the artist ID the cards in these tests carry.
@@ -785,5 +786,61 @@ func TestLastApprovedIsTheNewestApprovalOfThatAlbumOnly(t *testing.T) {
 	}
 	if rec, ok, _ := s.LastApproved(album2); !ok || rec.ID != first.ID {
 		t.Errorf("album2: %+v (ok %v), want %d", rec, ok, first.ID)
+	}
+}
+
+func TestAnAdminMayDeleteAnyRequestAndLidarrIsNotTouched(t *testing.T) {
+	s, f, d := rig(t)
+	pending := submit(t, s, alice, album1).Record
+	approved := submit(t, s, anna, album2).Record
+	before := f.calls()
+	for _, id := range []int64{pending.ID, approved.ID} {
+		if _, err := s.Delete(context.Background(), root, id); err != nil {
+			t.Fatalf("delete %d: %v", id, err)
+		}
+	}
+	if n := count(t, d, "1=1"); n != 0 {
+		t.Errorf("%d records left", n)
+	}
+	if f.calls() != before {
+		t.Error("deleting a record must not reach Lidarr")
+	}
+	if _, err := s.Delete(context.Background(), root, pending.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("deleting twice: %v", err)
+	}
+}
+
+func TestAPersonMayOnlyTakeBackTheirOwnPendingRequest(t *testing.T) {
+	s, _, d := rig(t)
+	mine := submit(t, s, alice, album1).Record
+	theirs := submit(t, s, bob, album2).Record
+	if _, err := s.Delete(context.Background(), alice, theirs.ID); !errors.Is(err, ErrForbidden) {
+		t.Errorf("someone else's pending request: %v", err)
+	}
+	if _, err := s.Delete(context.Background(), anna, theirs.ID); !errors.Is(err, ErrForbidden) {
+		t.Errorf("an approver is not an admin: %v", err)
+	}
+	if n := count(t, d, "1=1"); n != 2 {
+		t.Fatalf("refused deletes removed things: %d left", n)
+	}
+	if _, err := s.Delete(context.Background(), alice, mine.ID); err != nil {
+		t.Fatalf("their own pending request: %v", err)
+	}
+	// It can be asked for again at once: the pending slot is free.
+	if o := submit(t, s, alice, album1); o.Result != "pending" {
+		t.Errorf("asking again after taking it back: %+v", o)
+	}
+	// Once decided it is history: the person can no longer remove it.
+	decided := submit(t, s, anna, album3).Record
+	if _, err := s.Delete(context.Background(), anna, decided.ID); !errors.Is(err, ErrForbidden) {
+		t.Errorf("an approved request is history for non-admins: %v", err)
+	}
+}
+
+func TestNobodyWithoutARoleMayDelete(t *testing.T) {
+	s, _, _ := rig(t)
+	rec := submit(t, s, alice, album1).Record
+	if _, err := s.Delete(context.Background(), auth.Principal{Sub: "sub-alice", Name: "alice", Role: auth.None}, rec.ID); !errors.Is(err, ErrForbidden) {
+		t.Errorf("no role: %v", err)
 	}
 }
