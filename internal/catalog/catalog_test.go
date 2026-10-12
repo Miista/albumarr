@@ -837,13 +837,13 @@ func TestProgressSaysWhereEachAlbumStands(t *testing.T) {
 			// idD: unknown to Lidarr
 		},
 		queued:    map[int]bool{2: true},
-		downloads: map[int]lidarr.Download{2: {Stage: lidarr.StageDownloading, Percent: 40, ETASeconds: 90}},
+		downloads: map[int]lidarr.Download{2: {Stage: lidarr.StageDownloading}},
 	}
 	got := New(&fakeSearch{}, &fakeMeta{}, lib).Progress(context.Background(), []string{idA, idB, idC, idD, "not-an-id"})
 	if got[idA].Status != StatusAvailable || got[idA].Stage != "" {
 		t.Errorf("complete: %+v", got[idA])
 	}
-	if p := got[idB]; p.Status != StatusProcessing || p.Stage != lidarr.StageDownloading || p.Percent != 40 || p.ETASeconds != 90 {
+	if p := got[idB]; p.Status != StatusProcessing || p.Stage != lidarr.StageDownloading {
 		t.Errorf("downloading: %+v", p)
 	}
 	if p := got[idC]; p.Status != StatusRequested || p.Stage != "" {

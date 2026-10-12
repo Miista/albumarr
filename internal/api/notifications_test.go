@@ -195,7 +195,7 @@ func (f *fakeProgress) Progress(_ context.Context, ids []string) map[string]cata
 	f.asked = ids
 	out := map[string]catalog.Progress{}
 	for _, id := range ids {
-		out[id] = catalog.Progress{Status: catalog.StatusProcessing, Stage: "downloading", Percent: 40}
+		out[id] = catalog.Progress{Status: catalog.StatusProcessing, Stage: "downloading"}
 	}
 	return out
 }
@@ -220,7 +220,7 @@ func TestRequestsListCarriesProgressForApprovedRequestsOnly(t *testing.T) {
 	if len(fp.asked) != 1 || fp.asked[0] != id1 {
 		t.Errorf("only the approved one is asked about: %v", fp.asked)
 	}
-	if p := body.Progress[id1]; p.Percent != 40 || p.Stage != "downloading" {
+	if p := body.Progress[id1]; p.Stage != "downloading" {
 		t.Errorf("progress: %+v", body.Progress)
 	}
 }

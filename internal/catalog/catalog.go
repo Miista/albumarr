@@ -556,12 +556,10 @@ func year(date string) int {
 }
 
 // Progress is where an album stands in Lidarr, for the requests list: the same
-// chip the search shows, plus how the download is going when there is one.
+// chip the search shows, plus which stage the download is at when there is one.
 type Progress struct {
-	Status     Status       `json:"status"`
-	Stage      lidarr.Stage `json:"stage,omitempty"`
-	Percent    int          `json:"percent,omitempty"`
-	ETASeconds int          `json:"etaSeconds,omitempty"`
+	Status Status       `json:"status"`
+	Stage  lidarr.Stage `json:"stage,omitempty"`
 }
 
 const (
@@ -617,7 +615,7 @@ func (c *Catalog) Progress(ctx context.Context, ids []string) map[string]Progres
 		d, queued := queue[st.ID]
 		p := Progress{Status: DeriveStatus(*st, queued)}
 		if queued {
-			p.Stage, p.Percent, p.ETASeconds = d.Stage, d.Percent, d.ETASeconds
+			p.Stage = d.Stage
 		}
 		out[id] = p
 	}

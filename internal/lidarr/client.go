@@ -79,25 +79,19 @@ const (
 )
 
 // Download is an album's place in Lidarr's download queue. An album can have more
-// than one item (a retry, a second release), so these are the items added up, and
-// Stage is the one furthest from done.
+// than one item (a retry, a second release); Stage is the one furthest from done.
 type Download struct {
-	Stage      Stage
-	Percent    int // 0-100 of the bytes; meaningful while downloading
-	ETASeconds int // 0 when Lidarr gave none
-	Items      int
+	Stage Stage
+	Items int
 }
 
 // queueItem is what one item of Lidarr's queue says. Names are Lidarr's (Servarr
 // QueueResource); the values were not seen live, only read from its source.
 type queueItem struct {
-	AlbumID               int     `json:"albumId"`
-	Size                  float64 `json:"size"`
-	SizeLeft              float64 `json:"sizeleft"`
-	TimeLeft              string  `json:"timeleft"`
-	Status                string  `json:"status"`
-	TrackedDownloadStatus string  `json:"trackedDownloadStatus"`
-	TrackedDownloadState  string  `json:"trackedDownloadState"`
+	AlbumID               int    `json:"albumId"`
+	Status                string `json:"status"`
+	TrackedDownloadStatus string `json:"trackedDownloadStatus"`
+	TrackedDownloadState  string `json:"trackedDownloadState"`
 }
 
 // stageOf says where one item is. The tracked state wins over the client's own
@@ -128,31 +122,6 @@ func stageOf(q queueItem) Stage {
 // rank orders stages by how much a person should care: the worst one describes the album.
 var rank = map[Stage]int{StageStalled: 5, StagePaused: 4, StageQueued: 3, StageDownloading: 2, StageImporting: 1}
 
-// parseTimeLeft reads Lidarr's "[d.]hh:mm:ss"; zero when it is absent or odd.
-func parseTimeLeft(s string) int {
-	days := 0
-	if d, rest, ok := strings.Cut(s, "."); ok && !strings.Contains(d, ":") {
-		n, err := strconv.Atoi(d)
-		if err != nil {
-			return 0
-		}
-		days, s = n, rest
-	}
-	parts := strings.Split(s, ":")
-	if len(parts) != 3 {
-		return 0
-	}
-	total := days * 86400
-	for i, mult := range []int{3600, 60, 1} {
-		n, err := strconv.Atoi(strings.SplitN(parts[i], ".", 2)[0])
-		if err != nil || n < 0 {
-			return 0
-		}
-		total += n * mult
-	}
-	return total
-}
-
 // Queue returns the download of every album with an item in Lidarr's queue.
 func (c *Client) Queue(ctx context.Context) (map[int]Download, error) {
 	items := map[int][]queueItem{}
@@ -177,19 +146,10 @@ func (c *Client) Queue(ctx context.Context) (map[int]Download, error) {
 	out := make(map[int]Download, len(items))
 	for id, list := range items {
 		d := Download{Items: len(list), Stage: StageImporting}
-		var size, left float64
 		for _, q := range list {
 			if st := stageOf(q); rank[st] > rank[d.Stage] {
 				d.Stage = st
 			}
-			size += q.Size
-			left += q.SizeLeft
-			if t := parseTimeLeft(q.TimeLeft); t > d.ETASeconds {
-				d.ETASeconds = t
-			}
-		}
-		if size > 0 {
-			d.Percent = min(100, max(0, int((size-left)/size*100)))
 		}
 		out[id] = d
 	}

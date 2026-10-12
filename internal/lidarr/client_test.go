@@ -591,13 +591,13 @@ func queueServer(t *testing.T, records string) *Client {
 	return New(srv.URL, testKey)
 }
 
-func TestQueueSaysHowFarADownloadHasGot(t *testing.T) {
-	c := queueServer(t, `{"albumId":4,"size":1000,"sizeleft":250,"timeleft":"00:12:30","status":"downloading","trackedDownloadState":"downloading"}`)
+func TestQueueSaysWhereADownloadIs(t *testing.T) {
+	c := queueServer(t, `{"albumId":4,"size":1000,"sizeleft":250,"status":"downloading","trackedDownloadState":"downloading"}`)
 	got, err := c.Queue(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := got[4]; d.Stage != StageDownloading || d.Percent != 75 || d.ETASeconds != 750 || d.Items != 1 {
+	if d := got[4]; d.Stage != StageDownloading || d.Items != 1 {
 		t.Errorf("got %+v", d)
 	}
 }
@@ -633,29 +633,21 @@ func TestQueueStages(t *testing.T) {
 
 func TestQueueRollsSeveralItemsUpAndTheWorstWins(t *testing.T) {
 	c := queueServer(t, `{"albumId":2,"size":100,"sizeleft":0,"status":"completed","trackedDownloadState":"importing"},
-		{"albumId":2,"size":300,"sizeleft":300,"status":"downloading","timeleft":"1.01:00:00"},
+		{"albumId":2,"size":300,"sizeleft":300,"status":"downloading"},
 		{"albumId":2,"size":0,"sizeleft":0,"status":"warning"}`)
 	got, _ := c.Queue(context.Background())
-	if d := got[2]; d.Items != 3 || d.Stage != StageStalled || d.Percent != 25 || d.ETASeconds != 90000 {
+	if d := got[2]; d.Items != 3 || d.Stage != StageStalled {
 		t.Errorf("got %+v", d)
 	}
 }
 
-func TestQueueToleratesAnythingOdd(t *testing.T) {
-	c := queueServer(t, `{"albumId":3,"size":0,"sizeleft":0,"timeleft":"soon","status":"downloading"},
-		{"albumId":0,"size":5,"sizeleft":1,"status":"downloading"},
-		{"albumId":5,"size":10,"sizeleft":50,"timeleft":"-1:00:00"}`)
+func TestQueueIgnoresItemsWithNoAlbum(t *testing.T) {
+	c := queueServer(t, `{"albumId":3,"status":"downloading"},{"albumId":0,"status":"downloading"}`)
 	got, err := c.Queue(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := got[3]; d.Percent != 0 || d.ETASeconds != 0 {
-		t.Errorf("no size, bad time: %+v", d)
-	}
-	if _, ok := got[0]; ok || len(got) != 2 {
+	if _, ok := got[0]; ok || len(got) != 1 || got[3].Stage != StageDownloading {
 		t.Errorf("an item with no album must not appear: %v", got)
-	}
-	if d := got[5]; d.Percent != 0 || d.ETASeconds != 0 {
-		t.Errorf("more left than the size, negative time: %+v", d)
 	}
 }
