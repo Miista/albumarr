@@ -147,6 +147,7 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
 }
 .kind-pill.ep { background: oklch(0.55 0.2 300 / .92); }
 .kind-pill.single { background: oklch(0.5 0.12 190 / .92); }
+.kind-pill.artist { background: oklch(0.62 0.17 40 / .95); }
 .kind-pill.broadcast, .kind-pill.other { background: oklch(0.4 0.02 270 / .92); }
 
 /* Status pill, styled like reaparr's run-pill: tinted, bordered, with a dot. */
@@ -477,3 +478,5 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .group-tabs { overflow-x: auto; }
 .group-tabs button { white-space: nowrap; }
 .contents { display: contents; } /* a wrapper for v-if: petite-vue cannot put v-if on a template's direct children */
+.artist-chip .kind-pill { position: static; flex: none; margin-left: 4px; }
+.head-pill { position: static; vertical-align: middle; margin-left: 6px; }

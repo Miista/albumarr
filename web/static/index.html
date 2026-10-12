@@ -49,7 +49,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
         Search
       </button>
-      <h1>{{ artist?.name || 'Artist' }}</h1>
+      <h1>{{ artist?.name || 'Artist' }} <span class="kind-pill artist head-pill">Artist</span></h1>
       <p class="lede" v-if="artist?.disambiguation || artist?.type">{{ [artist?.type, artist?.disambiguation].filter(Boolean).join(' · ') }}</p>
     </div>
     <div class="title-block" v-else>
@@ -72,6 +72,7 @@
       <button type="button" class="artist-chip" v-for="h in artistHits" :key="h.id" @click="openArtist(h)" :aria-label="'Show albums by ' + h.name">
         <span class="avatar" :style="{ '--hue': hueFor(h.name) }" aria-hidden="true">{{ h.name.trim().charAt(0).toUpperCase() }}</span>
         <span class="artist-chip-text"><span class="name">{{ h.name }}</span><span class="sub" v-if="h.disambiguation || h.type">{{ h.disambiguation || h.type }}</span></span>
+        <span class="kind-pill artist">Artist</span>
       </button>
     </div>
 
