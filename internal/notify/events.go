@@ -23,8 +23,9 @@ const (
 	Declined Type = "declined"
 	// Available: Lidarr has every track of an approved album.
 	Available Type = "available"
-	// Failed: the album was added to Lidarr but its search could not be started, so
-	// Lidarr will not look for it by itself.
+	// Failed: the album was approved and added to Lidarr but its search could not be
+	// started, so Lidarr will not look for it by itself. It stands for the approval,
+	// so someone who asked to hear about approvals hears about this too.
 	Failed Type = "failed"
 )
 
@@ -109,4 +110,10 @@ func decodeTypes(s string) []Type {
 		}
 	}
 	return out
+}
+
+// Wants reports whether a list of chosen events includes t. A failed search stands
+// for the approval that led to it, so it also reaches someone who chose approvals.
+func Wants(chosen []Type, t Type) bool {
+	return contains(chosen, t) || (t == Failed && contains(chosen, Approved))
 }

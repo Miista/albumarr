@@ -234,6 +234,33 @@ func (s *Store) List(f Filter) ([]Record, error) {
 	return out, rows.Err()
 }
 
+// AwaitingAvailability returns approved requests nobody has been told are available
+// yet, decided since the given time, oldest first. It is what the availability
+// check works through.
+func (s *Store) AwaitingAvailability(decidedSince int64, limit int) ([]Record, error) {
+	rows, err := s.db.Query(`SELECT `+columns+` FROM requests WHERE state = 'approved' AND available_notified = 0 AND decided_at >= ? ORDER BY decided_at ASC, id ASC LIMIT ?`, decidedSince, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		r, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// MarkAvailableNotified records that the requester has been told the album is
+// available, so it is told once.
+func (s *Store) MarkAvailableNotified(id int64) error {
+	_, err := s.db.Exec(`UPDATE requests SET available_notified = 1 WHERE id = ?`, id)
+	return err
+}
+
 const (
 	maxText   = 300 // a title, an artist or a name
 	maxReason = 500

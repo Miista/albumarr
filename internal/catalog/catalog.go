@@ -218,7 +218,7 @@ func (c *Catalog) annotate(ctx context.Context, albums []Album) bool {
 // state.
 func DeriveStatus(st lidarr.AlbumState, queued bool) Status {
 	switch {
-	case st.Statistics.TrackFileCount > 0 && st.Statistics.PercentOfTracks >= 100:
+	case complete(st):
 		return StatusAvailable
 	case queued:
 		return StatusProcessing
@@ -393,6 +393,20 @@ func (c *Catalog) Wanted(ctx context.Context, id string) (bool, error) {
 	return st == nil || wanted(*st), nil
 }
 
+// Available reports whether Lidarr has every track of the album on disk. Lidarr
+// being unable to answer is ErrUnavailable; an album it does not have is simply
+// not available.
+func (c *Catalog) Available(ctx context.Context, id string) (bool, error) {
+	if !musicbrainz.ValidID(id) {
+		return false, ErrInvalidID
+	}
+	st, err := c.lib.AlbumByForeignID(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: asking Lidarr: %v", ErrUnavailable, err)
+	}
+	return st != nil && complete(*st), nil
+}
+
 // Request adds an album to Lidarr, monitored, with its artist if need be
 // (unmonitored), and starts a search for it, so Lidarr looks for and downloads
 // it. Two calls, not one flag: Lidarr only searches on add when it also adds the
@@ -471,9 +485,11 @@ func (c *Catalog) startSearch(ctx context.Context, id string) RequestResult {
 // already has: it is not monitored and not already complete on disk. An album
 // that is monitored is already being looked for, and one that is complete has
 // nothing to look for.
-func wanted(st lidarr.AlbumState) bool {
-	complete := st.Statistics.TrackFileCount > 0 && st.Statistics.PercentOfTracks >= 100
-	return !st.Monitored && !complete
+func wanted(st lidarr.AlbumState) bool { return !st.Monitored && !complete(st) }
+
+// complete reports whether every track of the album has a file.
+func complete(st lidarr.AlbumState) bool {
+	return st.Statistics.TrackFileCount > 0 && st.Statistics.PercentOfTracks >= 100
 }
 
 // monitorAndSearch makes Lidarr want an album that is in Lidarr, and look for it.

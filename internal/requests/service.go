@@ -33,6 +33,37 @@ type Ask struct {
 	Artist   string
 }
 
+// EventKind is something that happened to a request, for whoever wants to tell
+// people about it.
+type EventKind string
+
+const (
+	// EventPending: a request was recorded and is waiting for an approver.
+	EventPending EventKind = "pending"
+	// EventAutoApproved: an approver's or admin's own request went straight through.
+	EventAutoApproved EventKind = "auto_approved"
+	// EventApproved: an approver approved it and Lidarr is searching for it.
+	EventApproved EventKind = "approved"
+	// EventDeclined: an approver declined it.
+	EventDeclined EventKind = "declined"
+	// EventFailed: it was approved and is in Lidarr, but the search could not be
+	// started, so Lidarr will not look for it by itself. It stands for the approval too.
+	EventFailed EventKind = "failed"
+)
+
+// Event is what happened, to which request, and who did it (for EventPending, the
+// person who asked).
+type Event struct {
+	Kind   EventKind
+	Record Record
+	Actor  Person
+	Result string // for approvals: what Lidarr did ("added", "added_unsearched")
+}
+
+// Observer is told what happens to requests. Observe is called with the flow's lock
+// held, so it must return at once: queue the work, do not do it.
+type Observer interface{ Observe(Event) }
+
 // ErrForbidden means the person's role may not do that.
 var ErrForbidden = errors.New("requests: not allowed")
 
@@ -62,6 +93,17 @@ type Service struct {
 	// alternative, two approvers both calling Lidarr for one request, is worse than
 	// a short wait. The database still enforces the rules; this keeps them tidy.
 	mu sync.Mutex
+
+	observer Observer
+}
+
+// SetObserver makes o hear about what happens to requests. Nil stops it.
+func (s *Service) SetObserver(o Observer) { s.observer = o }
+
+func (s *Service) emit(kind EventKind, rec Record, actor Person, result string) {
+	if s.observer != nil {
+		s.observer.Observe(Event{Kind: kind, Record: rec, Actor: actor, Result: result})
+	}
 }
 
 // NewService returns the flow over a store and the catalog.
@@ -131,6 +173,7 @@ func (s *Service) Submit(ctx context.Context, p auth.Principal, a Ask) (Outcome,
 	if p.Role.AtLeast(auth.Approver) {
 		return s.approveLocked(ctx, rec, p)
 	}
+	s.emit(EventPending, rec, rec.Requester, "")
 	return Outcome{Result: string(ResultPending), Record: rec}, nil
 }
 
@@ -165,6 +208,14 @@ func (s *Service) approveLocked(ctx context.Context, rec Record, by auth.Princip
 	if err != nil {
 		return Outcome{}, err
 	}
+	switch {
+	case res == catalog.RequestAddedUnsearched:
+		s.emit(EventFailed, done, person(by), string(res)) // it stands for the approval too
+	case done.AutoApproved:
+		s.emit(EventAutoApproved, done, person(by), string(res))
+	default:
+		s.emit(EventApproved, done, person(by), string(res))
+	}
 	return Outcome{Result: string(res), Record: done}, nil
 }
 
@@ -180,6 +231,7 @@ func (s *Service) Decline(_ context.Context, by auth.Principal, id int64, reason
 	if err != nil {
 		return Outcome{}, err
 	}
+	s.emit(EventDeclined, rec, person(by), "")
 	return Outcome{Result: string(Declined), Record: rec}, nil
 }
 

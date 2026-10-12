@@ -31,7 +31,7 @@ func TestEveryEventReadsRightForEachAudience(t *testing.T) {
 		{"declined on the shared channel", Event{Type: Declined, Request: withReason(""), Actor: anna}, Shared, "Declined: OK Computer", []string{"anna declined alice's request"}},
 		{"available to the requester", Event{Type: Available, Request: rec()}, Requester, "Available: OK Computer", []string{"Every track is in your library"}},
 		{"available on the shared channel", Event{Type: Available, Request: rec()}, Shared, "Available: OK Computer", []string{"Requested by alice"}},
-		{"failed", Event{Type: Failed, Request: rec()}, Requester, "Search did not start: OK Computer", []string{"could not start the search"}},
+		{"failed", Event{Type: Failed, Request: rec()}, Requester, "Approved, but the search did not start: OK Computer", []string{"could not start the search"}},
 	} {
 		m := Compose(tc.e, tc.who, "http://albumreq.example:8768", false)
 		if m.Title != tc.title {

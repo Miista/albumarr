@@ -579,3 +579,192 @@ func TestTheDatabaseRefusesAnInvalidState(t *testing.T) {
 		t.Error("a decided request must have a decision time")
 	}
 }
+
+// --- what the flow announces ---
+
+type recorder struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func (r *recorder) Observe(e Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, e)
+}
+
+func (r *recorder) kinds() []EventKind {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []EventKind
+	for _, e := range r.events {
+		out = append(out, e.Kind)
+	}
+	return out
+}
+
+func observed(t *testing.T) (*Service, *fakeCatalog, *recorder) {
+	t.Helper()
+	s, f, _ := rig(t)
+	rec := &recorder{}
+	s.SetObserver(rec)
+	return s, f, rec
+}
+
+func kindsAre(got []EventKind, want ...EventKind) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestAPlainUsersRequestIsAnnouncedAsPendingByTheRequester(t *testing.T) {
+	s, _, rec := observed(t)
+	submit(t, s, alice, album1)
+	if !kindsAre(rec.kinds(), EventPending) || rec.events[0].Actor.Sub != "sub-alice" || rec.events[0].Record.Title != "OK Computer" {
+		t.Errorf("%+v", rec.events)
+	}
+	// A second click by anyone is not a new event: nothing new happened.
+	submit(t, s, bob, album1)
+	if len(rec.kinds()) != 1 {
+		t.Errorf("%v", rec.kinds())
+	}
+}
+
+func TestAnApproversOwnRequestIsAnnouncedAsAutomaticNotPendingThenApproved(t *testing.T) {
+	s, _, rec := observed(t)
+	submit(t, s, anna, album1)
+	if !kindsAre(rec.kinds(), EventAutoApproved) || rec.events[0].Actor.Sub != "sub-anna" {
+		t.Errorf("%v: it never waited, so it was never pending", rec.kinds())
+	}
+}
+
+func TestApprovingSomeoneElsesRequestIsAnnouncedAsApprovedByTheApprover(t *testing.T) {
+	s, _, rec := observed(t)
+	r := submit(t, s, alice, album1).Record
+	s.Approve(context.Background(), anna, r.ID)
+	if !kindsAre(rec.kinds(), EventPending, EventApproved) || rec.events[1].Actor.Sub != "sub-anna" || rec.events[1].Record.Requester.Sub != "sub-alice" || rec.events[1].Result != "added" {
+		t.Errorf("%+v", rec.events)
+	}
+	// An approver clicking Request on a pending album approves it the same way.
+	submit(t, s, alice, album2)
+	submit(t, s, root, album2)
+	if got := rec.kinds(); !kindsAre(got, EventPending, EventApproved, EventPending, EventApproved) || rec.events[3].Actor.Sub != "sub-root" {
+		t.Errorf("%v", got)
+	}
+}
+
+func TestADeclineIsAnnouncedWithTheReasonAndTheDecider(t *testing.T) {
+	s, _, rec := observed(t)
+	r := submit(t, s, alice, album1).Record
+	s.Decline(context.Background(), anna, r.ID, "Already own it")
+	last := rec.events[len(rec.events)-1]
+	if last.Kind != EventDeclined || last.Actor.Sub != "sub-anna" || last.Record.DeclineReason != "Already own it" {
+		t.Errorf("%+v", last)
+	}
+}
+
+func TestAnApprovalWhoseSearchCouldNotStartIsAnnouncedAsFailedInsteadOfApproved(t *testing.T) {
+	s, f, rec := observed(t)
+	f.result = catalog.RequestAddedUnsearched
+	r := submit(t, s, alice, album1).Record
+	s.Approve(context.Background(), anna, r.ID)
+	if got := rec.kinds(); !kindsAre(got, EventPending, EventFailed) || rec.events[1].Result != "added_unsearched" {
+		t.Errorf("%v: one announcement, not two: it stands for the approval", got)
+	}
+	// An approver's own request that cannot be searched is also announced as failed.
+	submit(t, s, anna, album2)
+	if got := rec.kinds(); got[len(got)-1] != EventFailed {
+		t.Errorf("%v", got)
+	}
+}
+
+func TestNothingIsAnnouncedForWhatDidNotHappen(t *testing.T) {
+	s, f, rec := observed(t)
+	f.wanted = false
+	submit(t, s, alice, album1) // Lidarr already wants it: nothing recorded
+	if len(rec.kinds()) != 0 {
+		t.Errorf("%v", rec.kinds())
+	}
+	f.wanted = true
+	f.reqErr = catalog.ErrUnavailable
+	s.Submit(context.Background(), anna, askFor(album1)) // Lidarr refuses an approver's request
+	if len(rec.kinds()) != 0 {
+		t.Errorf("a failed approval is not an approval: %v", rec.kinds())
+	}
+	f.reqErr = nil
+	r := submit(t, s, alice, album2).Record
+	s.Approve(context.Background(), anna, r.ID)
+	n := len(rec.kinds())
+	s.Approve(context.Background(), root, r.ID)                         // already decided
+	s.Decline(context.Background(), root, r.ID, "")                     // already decided
+	s.Approve(context.Background(), alice, r.ID)                        // not allowed
+	s.Submit(context.Background(), p(auth.None, "eve"), askFor(album2)) // not allowed
+	if len(rec.kinds()) != n {
+		t.Errorf("refused actions must announce nothing: %v", rec.kinds()[n:])
+	}
+}
+
+func TestTheFlowWorksWithNoObserver(t *testing.T) {
+	s, _, _ := rig(t)
+	r := submit(t, s, alice, album1).Record
+	if _, err := s.Approve(context.Background(), anna, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.SetObserver(nil)
+	submit(t, s, anna, album2)
+}
+
+// --- the availability check's query ---
+
+func TestAwaitingAvailabilityIsApprovedUnannouncedAndRecentOldestFirst(t *testing.T) {
+	s, _, d := rig(t)
+	st := s.Store()
+	clock := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+	st.now = func() time.Time { return clock }
+	mk := func(album string, decide func(Record)) Record {
+		r, _, _ := st.CreatePending(album, artist1, "t", "a", Person{Sub: "s", Name: "n"})
+		decide(r)
+		return r
+	}
+	old := mk("11111111-1111-4111-8111-111111111111", func(r Record) { st.Approve(r.ID, Person{Sub: "a"}, "added", false) })
+	clock = clock.Add(2 * time.Hour)
+	recent := mk("22222222-2222-4222-8222-222222222222", func(r Record) { st.Approve(r.ID, Person{Sub: "a"}, "added", false) })
+	mk("33333333-3333-4333-8333-333333333333", func(r Record) { st.Decline(r.ID, Person{Sub: "a"}, "no") })
+	mk("44444444-4444-4444-8444-444444444444", func(r Record) {}) // pending
+	announced := mk("55555555-5555-4555-8555-555555555555", func(r Record) { st.Approve(r.ID, Person{Sub: "a"}, "added", false) })
+	st.MarkAvailableNotified(announced.ID)
+
+	got, err := st.AwaitingAvailability(0, 10)
+	if err != nil || len(got) != 2 || got[0].ID != old.ID || got[1].ID != recent.ID {
+		t.Fatalf("%v %v: approved, not yet announced, oldest first", ids(got), err)
+	}
+	since := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC).Unix()
+	if got, _ := st.AwaitingAvailability(since, 10); len(got) != 1 || got[0].ID != recent.ID {
+		t.Errorf("only the request decided at 11:00 is after a 10:00 cutoff, not the one decided at 09:00: %v", ids(got))
+	}
+	if got, _ := st.AwaitingAvailability(clock.Unix()+1, 10); len(got) != 0 {
+		t.Errorf("nothing was decided after the last decision: %v", ids(got))
+	}
+	if got, _ := st.AwaitingAvailability(0, 1); len(got) != 1 {
+		t.Errorf("the limit is honoured: %v", ids(got))
+	}
+	st.MarkAvailableNotified(old.ID)
+	if got, _ := st.AwaitingAvailability(0, 10); len(got) != 1 || got[0].ID != recent.ID {
+		t.Errorf("an announced request is not offered again: %v", ids(got))
+	}
+	d.Close()
+}
+
+func ids(l []Record) []int64 {
+	var out []int64
+	for _, r := range l {
+		out = append(out, r.ID)
+	}
+	return out
+}

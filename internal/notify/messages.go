@@ -66,7 +66,8 @@ func Compose(e Event, who Audience, appURL string, poster bool) Message {
 		}
 		m.Click = albumLink(appURL, r)
 	case Failed:
-		m.Title = "Search did not start: " + r.Title
+		// It stands for the approval as well, so it says that first.
+		m.Title = "Approved, but the search did not start: " + r.Title
 		m.Body = artist + "\nIt is in Lidarr, but Lidarr could not start the search, so it will not look for it by itself."
 		m.Click = albumLink(appURL, r)
 	}
