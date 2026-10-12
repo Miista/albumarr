@@ -23,8 +23,8 @@ function api(url, opts) {
 }
 
 // The pages other than search have their own hash; search keeps the query string.
-const HASHES = { requests: '#/requests', approvals: '#/approvals', issues: '#/issues', settings: '#/settings', account: '#/account' };
-const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings', '#/settings/notifications': 'settings', '#/account': 'account' };
+const HASHES = { requests: '#/requests', issues: '#/issues', settings: '#/settings', account: '#/account' };
+const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'requests', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings', '#/settings/notifications': 'settings', '#/account': 'account' };
 const TAB_OF_HASH = { '#/settings/users': 'users', '#/settings/notifications': 'notifications' };
 const HASH_OF_TAB = { users: '#/settings/users', notifications: '#/settings/notifications', lidarr: '#/settings' };
 
@@ -62,16 +62,14 @@ function App() {
     settingsTab: 'lidarr', // lidarr | notifications | users
     me: null, // GET /api/me: who is signed in and what they may do
 
-    // requests: mine, the approval queue (and its history, for admins), and who acts
-    mine: [],
+    // requests: a person's own, or everyone's for approvers and admins
+    reqs: [],
     prog: {}, // album id -> where Lidarr has it: { status, stage }
-    mineLoaded: false,
-    mineError: '',
-    queue: [],
-    history: [],
-    queueLoaded: false,
-    queueError: '',
-    tab: 'waiting',
+    reqsLoaded: false,
+    reqsError: '',
+    sort: 'recent', // recent | modified
+    filter: 'all', // all | pending | approved | processing | failed | declined | available
+    menuOpen: false,
     pendingCount: 0,
     notice: '',
     busy: {}, // request id -> an approve/decline is in flight
@@ -140,7 +138,6 @@ function App() {
     // this only keeps someone from landing on a page they cannot use.
     mayView(page) {
       if (!this.me || this.me.role === 'none') return false;
-      if (page === 'approvals') return this.canApprove();
       if (page === 'settings' || page === 'issues') return this.me.role === 'admin';
       return true;
     },
@@ -160,11 +157,7 @@ function App() {
       } else if (page === 'account') {
         this.loadAccount();
       } else if (page === 'requests') {
-        this.loadMine();
-      } else if (page === 'approvals') {
-        this.tab = 'waiting';
-        this.queueLoaded = false;
-        this.loadQueue();
+        this.loadRequests();
       } else if (page === 'issues') {
         this.loadIssues(false);
       }
@@ -573,9 +566,10 @@ function App() {
       // while they are in view.
       setInterval(() => {
         if (document.hidden || !this.me) return;
-        if (this.page === 'requests') this.loadMine();
-        else if (this.page === 'approvals' && this.tab === 'history') this.loadQueue();
+        if (this.page === 'requests') this.loadRequests();
       }, 15000);
+      window.addEventListener('click', (e) => { if (this.menuOpen && !e.target.closest('.menu-wrap')) this.menuOpen = false; });
+      window.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.menuOpen = false; });
       api('/api/me', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((m) => {
         if (!m) return;
         this.me = m;
@@ -772,6 +766,11 @@ function App() {
     },
 
     syncFromHash() {
+      // Links in old notifications point at the approvals page: that is Requests, pending.
+      if (location.hash === '#/approvals') {
+        this.filter = 'pending';
+        history.replaceState(null, '', location.pathname + '#/requests');
+      }
       const page = PAGE_OF_HASH[location.hash];
       if (page === 'settings') this.settingsTab = TAB_OF_HASH[location.hash] || 'lidarr';
       if (page) {
@@ -880,27 +879,23 @@ function App() {
       return body.requests;
     },
 
-    async loadMine() {
-      this.mineError = '';
+    // loadRequests fetches what this person may see: their own; with approving
+    // rights also what waits on them; an admin sees everyone's.
+    async loadRequests() {
+      this.reqsError = '';
       try {
-        this.mine = await this.fetchRequests('mine');
-        this.mineLoaded = true;
+        let list;
+        if (this.me.role === 'admin') list = await this.fetchRequests('all');
+        else if (this.canApprove()) {
+          const [mine, waiting] = await Promise.all([this.fetchRequests('mine'), this.fetchRequests('pending')]);
+          const seen = new Set(mine.map((r) => r.id));
+          list = mine.concat(waiting.filter((r) => !seen.has(r.id)));
+        } else list = await this.fetchRequests('mine');
+        this.reqs = list;
+        if (this.canApprove()) this.pendingCount = list.filter((r) => r.state === 'pending').length;
+        this.reqsLoaded = true;
       } catch (e) {
-        this.mineError = e.message;
-      }
-    },
-
-    async loadQueue() {
-      this.queueError = '';
-      try {
-        if (this.tab === 'history') this.history = await this.fetchRequests('all');
-        else {
-          this.queue = await this.fetchRequests('pending');
-          this.pendingCount = this.queue.length;
-        }
-        this.queueLoaded = true;
-      } catch (e) {
-        this.queueError = e.message;
+        this.reqsError = e.message;
       }
     },
 
@@ -912,17 +907,33 @@ function App() {
       }
     },
 
-    setTab(tab) {
-      if (this.tab === tab) return;
-      this.tab = tab;
-      this.queueLoaded = false;
-      this.notice = '';
-      this.declining = null;
-      this.loadQueue();
+    // kind puts a request in one of the filters, each in exactly one: approved means
+    // approved and not yet on its way; processing is in the download queue.
+    kind(r) {
+      if (r.state !== 'approved') return r.state;
+      const p = this.prog[r.albumId];
+      if (r.lidarrResult === 'added_unsearched' || (p && p.stage === 'stalled')) return 'failed';
+      if (p && p.status === 'available') return 'available';
+      if (p && p.stage) return 'processing';
+      return 'approved';
     },
 
-    queueShown() {
-      return this.tab === 'history' ? this.history : this.queue;
+    // shown is the list as filtered and sorted. Last modified is when it was last
+    // decided, or asked if it has not been.
+    shown() {
+      const when = (r) => Date.parse(this.sort === 'modified' && r.decidedAt ? r.decidedAt : r.createdAt) || 0;
+      return this.reqs
+        .filter((r) => this.filter === 'all' || this.kind(r) === this.filter)
+        .sort((a, b) => when(b) - when(a) || b.id - a.id);
+    },
+
+    pick(group, value) {
+      this[group] = value;
+      this.menuOpen = false;
+    },
+
+    filterLabel() {
+      return { all: 'All', pending: 'Pending', approved: 'Approved', processing: 'Processing', failed: 'Failed', declined: 'Declined', available: 'Available' }[this.filter];
     },
 
     // openRequest opens the album's sheet over the current page.
@@ -984,8 +995,7 @@ function App() {
     // and always the page behind it, which would otherwise keep showing the request.
     async afterDecision(r, fromSheet) {
       if (fromSheet && this.selected && this.selected.id === r.albumId) await this.loadDetail(r.albumId);
-      if (this.page === 'approvals') await this.loadQueue();
-      else if (this.page === 'requests') await this.loadMine();
+      if (this.page === 'requests') await this.loadRequests();
       else this.refreshPendingCount();
     },
 

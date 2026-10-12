@@ -23,8 +23,7 @@
     </div>
     <nav class="topnav" aria-label="Pages" v-if="me && me.role !== 'none'">
       <a href="#" :class="{ active: page === 'search' }" @click.prevent="go('search')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg></span><span class="tab-label">Search</span></a>
-      <a href="#/requests" :class="{ active: page === 'requests' }" @click.prevent="go('requests')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span><span class="tab-label">My requests</span></a>
-      <a href="#/approvals" v-if="canApprove()" :class="{ active: page === 'approvals' }" @click.prevent="go('approvals')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 12.5l3 3 5-6"></path></svg></span><span class="tab-label">Approvals</span><span class="count" v-if="pendingCount" :aria-label="pendingCount + ' waiting'">{{ pendingCount }}</span></a>
+      <a href="#/requests" :class="{ active: page === 'requests' }" @click.prevent="go('requests')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg></span><span class="tab-label">Requests</span><span class="count" v-if="canApprove() && pendingCount" :aria-label="pendingCount + ' waiting'">{{ pendingCount }}</span></a>
       <a href="#/issues" v-if="me.role === 'admin'" :class="{ active: page === 'issues' }" @click.prevent="go('issues')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5L2.5 20h19L12 3.5z"></path><path d="M12 10v4M12 17h.01"></path></svg></span><span class="tab-label">Issues</span><span class="count warn" v-if="issueCount" :aria-label="issueCount + ' issues'">{{ issueCount }}</span></a>
       <a href="#/settings" v-if="me.role === 'admin'" :class="{ active: page === 'settings' }" @click.prevent="go('settings')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span class="tab-label">Settings</span></a>
     </nav>
@@ -383,60 +382,44 @@
 
   <!-- My requests -->
   <main class="requests" v-if="page === 'requests' && me && me.role !== 'none'">
-    <div class="title-block">
-      <h1>My requests</h1>
-      <p class="lede">What you have asked for, and what happened to it. An approver decides before anything is downloaded.</p>
-    </div>
-    <p class="error-text" v-if="mineError" role="alert">{{ mineError }}</p>
-    <div class="searching" v-if="!mineLoaded && !mineError"><span class="spinner"></span>Loading…</div>
-    <div class="empty" v-if="mineLoaded && !mine.length">
-      <span class="title">Nothing requested yet</span>
-      <span class="sub">Search for an album and press Request.</span>
-    </div>
-    <ul class="req-list" v-if="mine.length">
-      <li class="req-row" v-for="r in mine" :key="r.id">
-        <button type="button" class="req-open" @click="openRequest(r)" :aria-label="'Open ' + r.title">
-          <span class="req-cover cover" :style="{ '--hue': hueFor(r.title) }"><span class="cover-fallback">{{ r.title }}</span><img :src="'/api/cover/' + r.albumId" alt="" loading="lazy" @error="$event.target.remove()"></span>
+    <div class="title-block title-row">
+      <div>
+        <h1>Requests</h1>
+        <p class="lede" v-if="canApprove()">Approving makes Lidarr add the album, monitor it and search for it. Declining sends nothing to Lidarr.</p>
+        <p class="lede" v-else>What you have asked for, and what happened to it. An approver decides before anything is downloaded.</p>
+      </div>
+      <div class="menu-wrap">
+        <button type="button" class="btn menu-btn" @click="menuOpen = !menuOpen" :aria-expanded="menuOpen" aria-haspopup="menu">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"></path></svg>
+          {{ filterLabel() }}
         </button>
-        <div class="req-text">
-          <div class="title">{{ r.title }}</div>
-          <div class="artist">{{ r.artist }}</div>
-          <div class="req-meta">Asked {{ ago(r.createdAt) }}<span v-if="r.decidedBy"> · {{ r.state === 'declined' ? 'declined' : 'approved' }} by {{ r.decidedBy.name }} {{ ago(r.decidedAt) }}</span></div>
-          <div class="req-reason" v-if="r.state === 'declined' && r.declineReason">“{{ r.declineReason }}”</div>
-          <div class="req-reason" v-if="r.lidarrResult === 'added_unsearched'">Added to Lidarr, but the search could not be started.</div>
+        <div class="menu" v-if="menuOpen" role="menu">
+          <button type="button" role="menuitemradio" :aria-checked="sort === 'recent'" @click="pick('sort', 'recent')"><span class="check">{{ sort === 'recent' ? '✓' : '' }}</span>Most recent</button>
+          <button type="button" role="menuitemradio" :aria-checked="sort === 'modified'" @click="pick('sort', 'modified')"><span class="check">{{ sort === 'modified' ? '✓' : '' }}</span>Last modified</button>
+          <hr>
+          <button type="button" role="menuitemradio" v-for="f in ['all', 'pending', 'approved', 'processing', 'failed', 'declined', 'available']" :key="f" :aria-checked="filter === f" @click="pick('filter', f)"><span class="check">{{ filter === f ? '✓' : '' }}</span>{{ f[0].toUpperCase() + f.slice(1) }}</button>
         </div>
-        <span class="status-pill" :class="reqStateClass(r)"><span class="dot"></span>{{ reqStateLabel(r) }}</span>
-      </li>
-    </ul>
-  </main>
-
-  <!-- Approvals -->
-  <main class="approvals" v-if="page === 'approvals' && canApprove()">
-    <div class="title-block">
-      <h1>Approvals</h1>
-      <p class="lede">Approving makes Lidarr add the album, monitor it and search for it. Declining sends nothing to Lidarr.</p>
-    </div>
-    <div class="tabs" role="tablist" v-if="me.role === 'admin'">
-      <button type="button" role="tab" :aria-selected="tab === 'waiting'" :class="{ active: tab === 'waiting' }" @click="setTab('waiting')">Waiting<span class="count" v-if="pendingCount">{{ pendingCount }}</span></button>
-      <button type="button" role="tab" :aria-selected="tab === 'history'" :class="{ active: tab === 'history' }" @click="setTab('history')">History</button>
+      </div>
     </div>
     <p class="ok-text" v-if="notice" role="status">{{ notice }}</p>
-    <p class="error-text" v-if="queueError" role="alert">{{ queueError }}</p>
-    <div class="searching" v-if="!queueLoaded && !queueError"><span class="spinner"></span>Loading…</div>
-    <div class="empty" v-if="queueLoaded && !queueShown().length">
-      <span class="title">{{ tab === 'waiting' ? 'Nothing is waiting' : 'No requests yet' }}</span>
-      <span class="sub">{{ tab === 'waiting' ? 'New requests from users will show up here.' : 'Requests and their decisions are kept here.' }}</span>
+    <p class="error-text" v-if="reqsError" role="alert">{{ reqsError }}</p>
+    <div class="searching" v-if="!reqsLoaded && !reqsError"><span class="spinner"></span>Loading…</div>
+    <div class="empty" v-if="reqsLoaded && !shown().length">
+      <span class="title">{{ reqs.length ? 'Nothing matches' : 'Nothing requested yet' }}</span>
+      <span class="sub">{{ reqs.length ? 'No request is ' + filterLabel().toLowerCase() + '. Choose another filter.' : 'Search for an album and press Request.' }}</span>
     </div>
-    <ul class="req-list" v-if="queueShown().length">
-      <li class="req-row" v-for="r in queueShown()" :key="r.id">
+    <ul class="req-list" v-if="shown().length">
+      <li class="req-row" v-for="r in shown()" :key="r.id">
         <button type="button" class="req-open" @click="openRequest(r)" :aria-label="'Open ' + r.title">
           <span class="req-cover cover" :style="{ '--hue': hueFor(r.title) }"><span class="cover-fallback">{{ r.title }}</span><img :src="'/api/cover/' + r.albumId" alt="" loading="lazy" @error="$event.target.remove()"></span>
         </button>
         <div class="req-text">
           <div class="title">{{ r.title }}</div>
           <div class="artist">{{ r.artist }}</div>
-          <div class="req-meta">Asked by {{ r.requester.name }} {{ ago(r.createdAt) }}<span v-if="r.decidedBy"> · {{ r.state === 'declined' ? 'declined' : 'approved' }}{{ r.autoApproved ? ' automatically' : ' by ' + r.decidedBy.name }} {{ ago(r.decidedAt) }}</span></div>
+          <div class="req-who" v-if="canApprove()">{{ r.requester.name }}</div>
+          <div class="req-meta">Asked {{ ago(r.createdAt) }}<span v-if="r.decidedBy"> · {{ r.state === 'declined' ? 'declined' : 'approved' }}{{ r.autoApproved ? ' automatically' : ' by ' + r.decidedBy.name }} {{ ago(r.decidedAt) }}</span></div>
           <div class="req-reason" v-if="r.state === 'declined' && r.declineReason">“{{ r.declineReason }}”</div>
+          <div class="req-reason" v-if="r.lidarrResult === 'added_unsearched'">Added to Lidarr, but the search could not be started.</div>
           <p class="error-text" v-if="rowError[r.id]" role="alert">{{ rowError[r.id] }}</p>
           <form class="decline-form" v-if="declining === r.id" @submit.prevent="decline(r)">
             <input class="input plain" v-model="declineReason" maxlength="500" placeholder="Reason (optional, shown to the requester)" aria-label="Reason for declining" autocomplete="off">
@@ -444,7 +427,7 @@
             <button type="button" class="btn quiet" @click="cancelDecline">Cancel</button>
           </form>
         </div>
-        <div class="req-actions" v-if="r.state === 'pending'">
+        <div class="req-actions" v-if="r.state === 'pending' && canApprove()">
           <button type="button" class="btn primary" @click="approve(r)" :disabled="busy[r.id]"><span class="spinner" v-if="busy[r.id]"></span>{{ busy[r.id] ? 'Working…' : 'Approve' }}</button>
           <button type="button" class="btn" v-if="declining !== r.id" @click="startDecline(r)" :disabled="busy[r.id]">Decline</button>
         </div>

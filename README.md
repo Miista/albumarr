@@ -72,11 +72,15 @@ Each list returns at most 200 records. Every decision is logged with who made it
 
 The pages for it:
 
-- **My requests** (everyone): what you asked for and what happened, with the decline
-  reason and who decided. Open an album to see its sheet.
-- **Approvals** (approvers and admins): the queue, oldest first, with a count in the
-  nav. Approve, or decline with an optional reason. You can also decide from an
-  album's sheet. Admins get a **History** tab with every request.
+- **Requests** (everyone): one page. A user sees their own; an approver also sees what
+  waits on them; an admin sees everyone's. Each request shows who asked (to approvers
+  and admins), what happened, the decline reason and who decided. Approve, or decline
+  with an optional reason, from the row or from the album's sheet. The menu at the top
+  sorts (*Most recent*, *Last modified*) and filters: *All*, *Pending*, *Approved*
+  (approved, Lidarr still searching), *Processing* (in the download queue), *Failed*
+  (a stalled download or import, or the search could not start), *Declined*,
+  *Available*. A count of what is pending shows in the nav. Old notification links to
+  `#/approvals` open this page on *Pending*.
 - **Settings → Users** (admins): the second tab of Settings (the first is Lidarr).
   Everyone who has signed in, with an Approver checkbox that saves at once.
 
@@ -87,7 +91,7 @@ Settings sub-tabs floating just above it.
 
 ### Progress on the requests
 
-An approved request on **My requests** (and the Approvals history) follows Lidarr, refreshed
+An approved request on **Requests** follows Lidarr, refreshed
 every 15 seconds while the page is open: *Searching*, *Not found yet*, *Downloading*, *Queued*, *Paused*, *Importing*, *Needs attention* (a failed download
 or an import Lidarr is blocked on, which an admin should look at in Lidarr), and *Available*.
 It is read from Lidarr's download queue and the album's file count; the queue's field names
@@ -406,6 +410,6 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 2. **Done:** request an album: add it, monitor it and search for it.
 3. **Done:** login (oidcgate, OIDC), roles from groups, approvers.
 4. **Done:** request records and the approval flow (backend, API and the Pending chip).
-5. **Done:** the pages: My requests, Approvals, and Settings → Users.
+5. **Done:** the pages: Requests (with sort and filters) and Settings → Users.
 6. **Done:** notifications (ntfy: shared channel, per-person topics, availability).
 7. Deployment.
