@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Miista/oidcgate"
+	"github.com/miista/authy"
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/issues"
@@ -26,19 +26,19 @@ func (f *fakeDir) Touch(sub, name, email string, local bool) (users.User, error)
 }
 func (f *fakeDir) IsApprover(sub string) bool { return f.approvers[sub] }
 
-func resolve(cfg Config, dir *fakeDir, u *oidcgate.User) (Principal, bool) {
+func resolve(cfg Config, dir *fakeDir, u *authy.User) (Principal, bool) {
 	a := New(cfg, dir, zerolog.Nop())
-	a.from = func(*http.Request) (oidcgate.User, bool) {
+	a.from = func(*http.Request) (authy.User, bool) {
 		if u == nil {
-			return oidcgate.User{}, false
+			return authy.User{}, false
 		}
 		return *u, true
 	}
 	return a.Principal(httptest.NewRequest(http.MethodGet, "/", nil))
 }
 
-func idp(sub string, groups ...string) *oidcgate.User {
-	return &oidcgate.User{Subject: sub, Name: sub, Groups: groups}
+func idp(sub string, groups ...string) *authy.User {
+	return &authy.User{Subject: sub, Name: sub, Groups: groups}
 }
 
 func TestRolesFromGroups(t *testing.T) {
@@ -48,7 +48,7 @@ func TestRolesFromGroups(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		cfg  Config
-		u    *oidcgate.User
+		u    *authy.User
 		want Role
 	}{
 		{"admin group", both, idp("a", "admins"), Admin},
@@ -61,8 +61,10 @@ func TestRolesFromGroups(t *testing.T) {
 		{"the admin group is case sensitive", both, idp("x", "Admins"), None},
 		{"no user group set: any signed-in person is a user", adminOnly, idp("x", "whatever"), User},
 		{"no groups configured: everyone is a user, nobody an admin", open, idp("x", "admins"), User},
-		{"the local account is the admin", both, &oidcgate.User{Subject: "local:me", Name: "me", Local: true}, Admin},
-		{"a local account is admin even with no groups configured", open, &oidcgate.User{Subject: "local:me", Local: true}, Admin},
+		{"the local account is the admin", both, &authy.User{Subject: "local:me", Name: "me"}, Admin},
+		{"a subject that merely starts with local is not the local account", both, idp("localadmin", "users"), User},
+		{"a subject that merely starts with local is not the local account, even with no groups", both, idp("local", "x"), None},
+		{"a local account is admin even with no groups configured", open, &authy.User{Subject: "local:me"}, Admin},
 	} {
 		if p, ok := resolve(c.cfg, &fakeDir{}, c.u); !ok || p.Role != c.want {
 			t.Errorf("%s: role = %v (ok %v), want %v", c.name, p.Role, ok, c.want)
@@ -92,7 +94,7 @@ func TestNobodyIsNotAnyone(t *testing.T) {
 		if p, ok := resolve(cfg, &fakeDir{}, nil); ok || p.Role != None {
 			t.Errorf("no identity with the login on must be nobody: %+v %v", p, ok)
 		}
-		if _, ok := resolve(cfg, &fakeDir{}, &oidcgate.User{}); ok {
+		if _, ok := resolve(cfg, &fakeDir{}, &authy.User{}); ok {
 			t.Error("an identity with no subject must be nobody")
 		}
 	}

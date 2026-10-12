@@ -11,7 +11,7 @@
 //
 // Lidarr is configured on the settings page; any setting can instead be pinned
 // by an environment variable, which locks it on the page (see the README). There is
-// login (oidcgate): a local account, plus optional OIDC, with roles from groups.
+// login (authy): a local account, or OIDC, with roles from groups.
 // With the login switched off the server binds to loopback only by default.
 package main
 
@@ -29,7 +29,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Miista/oidcgate"
+	"github.com/miista/authy"
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/api"
@@ -121,16 +121,18 @@ func main() {
 	}
 	go backupLoop(ctx, logger, database, dataDir)
 
-	// Login. oidcgate is on unless ALBUMREQ_AUTH_DISABLED=true: the first visitor
-	// creates a local account (the admin), and ALBUMREQ_OIDC_* add single sign-on.
+	// Login. authy is on unless ALBUMREQ_AUTH_DISABLED=true: with no ALBUMREQ_OIDC_*
+	// the first visitor creates a local account (the admin); with them the identity
+	// provider signs people in, and ALBUMREQ_LOCAL_ENABLED=true keeps the local
+	// account next to it as a way in when the provider is down.
 	// albumreq asks the provider for groups, which is how admin and user are told
-	// apart. Sessions are shorter than oidcgate's week because a person's groups
+	// apart. Sessions are shorter than authy's week because a person's groups
 	// are only read when they sign in: a change at the provider reaches albumreq
 	// at the next sign-in, so this is also how long a demotion can take.
-	gate, err := oidcgate.FromEnv(ctx, "albumreq",
-		oidcgate.WithScopes("openid", "profile", "email", "groups"),
-		oidcgate.WithSessionTTL(sessionTTL),
-		oidcgate.WithDataDir(filepath.Join(dataDir, "auth")))
+	gate, err := authy.FromEnv(ctx, "albumreq",
+		authy.WithScopes("openid", "profile", "email", "groups"),
+		authy.WithSessionTTL(sessionTTL),
+		authy.WithDataDir(filepath.Join(dataDir, "auth")))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("login is misconfigured")
 	}
@@ -140,7 +142,7 @@ func main() {
 	case gate == nil:
 		logger.Warn().Msg("login is OFF (ALBUMREQ_AUTH_DISABLED): everyone who can reach this port is an admin")
 	case roles.AdminGroup == "":
-		logger.Warn().Msg("ALBUMREQ_ROLE_ADMIN_GROUP is not set: no one signing in through OIDC is an admin, only the local account")
+		logger.Warn().Msg("ALBUMREQ_ROLE_ADMIN_GROUP is not set: no one signing in through OIDC is an admin, only the local account (if enabled)")
 	}
 
 	library := &lidarr.Live{}
@@ -189,7 +191,7 @@ func main() {
 	}
 	mux.Handle("/", noCache(http.FileServer(http.FS(static))))
 	if gate == nil {
-		// The page loads oidcgate's /auth/client.js to learn whether a login is in
+		// The page loads authy's /auth/client.js to learn whether a login is in
 		// place (it sets an attribute that shows the Sign out link). With no gate
 		// there is no such route, and a missing script is a console error. An empty
 		// script says the same thing, quietly: the attribute is never set.

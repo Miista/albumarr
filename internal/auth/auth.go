@@ -1,5 +1,5 @@
 // Package auth decides what a signed-in person may do. The login itself (the
-// session, the identity provider, the local account) is oidcgate's; this turns
+// session, the identity provider, the local account) is authy's; this turns
 // who it says is signed in into one of four roles:
 //
 //	none      signed in, but not let in: sees a "no access" page and nothing else
@@ -17,7 +17,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Miista/oidcgate"
+	"github.com/miista/authy"
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/issues"
@@ -91,12 +91,12 @@ type Auth struct {
 	cfg  Config
 	dir  Directory
 	log  zerolog.Logger
-	from func(*http.Request) (oidcgate.User, bool) // oidcgate.UserFrom; replaced in tests
+	from func(*http.Request) (authy.User, bool) // authy.UserFrom; replaced in tests
 }
 
 // New returns an Auth.
 func New(cfg Config, dir Directory, log zerolog.Logger) *Auth {
-	return &Auth{cfg: cfg, dir: dir, log: log, from: oidcgate.UserFrom}
+	return &Auth{cfg: cfg, dir: dir, log: log, from: authy.UserFrom}
 }
 
 // Principal reports who the request is from. It is false when nobody is signed
@@ -110,11 +110,11 @@ func (a *Auth) Principal(r *http.Request) (Principal, bool) {
 	if !ok || u.Subject == "" {
 		return Principal{}, false
 	}
-	p := Principal{Sub: u.Subject, Name: u.Name, Email: u.Email, Local: u.Local, Role: a.roleFor(u)}
+	p := Principal{Sub: u.Subject, Name: u.Name, Email: u.Email, Local: isLocal(u), Role: a.roleFor(u)}
 	if p.Role == None {
 		return p, true // known, not let in: never added to the directory
 	}
-	if _, err := a.dir.Touch(u.Subject, u.Name, u.Email, u.Local); err != nil {
+	if _, err := a.dir.Touch(u.Subject, u.Name, u.Email, p.Local); err != nil {
 		// Not being able to note that someone was seen must not lock them out.
 		a.log.Warn().Err(err).Msg("could not record a sign-in in the users list")
 	}
@@ -138,17 +138,22 @@ func (a *Auth) Issues(context.Context) []issues.Issue {
 	case a.cfg.AdminGroup == "":
 		out = append(out, issues.Issue{
 			ID: "no-admin-group", Severity: issues.Warning, Title: "No admin group is set",
-			Detail: "Nobody who signs in through single sign-on is an admin: only the local account can open Settings, and only an admin can choose approvers.",
+			Detail: "Nobody who signs in through single sign-on is an admin: only the local account, if it is enabled, can open Settings, and only an admin can choose approvers.",
 			Fix:    "Set ALBUMREQ_ROLE_ADMIN_GROUP to the identity provider group whose members should be admins.",
 		})
 	}
 	return out
 }
 
+// isLocal reports whether the person signed in with the local account. authy
+// reserves the "local:" subject namespace for it, so no identity provider's subject
+// can be mistaken for it.
+func isLocal(u authy.User) bool { return strings.HasPrefix(u.Subject, "local:") }
+
 // roleFor is the role the identity provider's data gives, before approver status.
-func (a *Auth) roleFor(u oidcgate.User) Role {
+func (a *Auth) roleFor(u authy.User) Role {
 	switch {
-	case u.Local:
+	case isLocal(u):
 		return Admin // the account made on first launch is the owner
 	case a.cfg.AdminGroup != "" && u.InGroup(a.cfg.AdminGroup):
 		return Admin

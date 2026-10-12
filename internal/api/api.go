@@ -1,6 +1,6 @@
 // Package api implements albumreq's HTTP handlers: album search, one album's
 // detail, requesting, settings, users, the cover-art proxy, and a health probe.
-// Signing in is oidcgate's, wrapped around the whole server in main.go; what a
+// Signing in is authy's, wrapped around the whole server in main.go; what a
 // signed-in person may do is decided here, per route, from their role (see
 // internal/auth).
 package api

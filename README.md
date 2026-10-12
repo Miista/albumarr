@@ -312,20 +312,24 @@ error, never overwritten.
 **Back up `backup/albumreq.db`, not `albumreq.db`.** Copying a live SQLite file can
 capture the database and its write-ahead log from two different moments. albumreq
 writes a consistent copy (`VACUUM INTO`, renamed into place) at start and every
-six hours. The login's own state, `auth/`, is separate and is oidcgate's.
+six hours. The login's own state, `auth/`, is separate and is authy's (`auth.json` signs the sessions, `local.json` holds the local account).
 
 ## Login and roles
 
-The login is [oidcgate](https://github.com/Miista/oidcgate), the same as Reaparr:
-on by default, a local account made on first launch (the owner, an admin), and
-optional single sign-on through any OIDC provider. `/healthz` is open; everything
+The login is [authy](https://github.com/Miista/authy) (formerly oidcgate), the same as
+Reaparr: on by default. With no `ALBUMREQ_OIDC_*` set, the first visitor creates a local
+account (the owner, an admin). With them set, the identity provider signs people in and
+**setup stays closed**, so nobody can claim albumreq by getting there first;
+`ALBUMREQ_LOCAL_ENABLED=true` keeps the local account next to it as a way in when the
+provider is down or turns someone away. `/healthz` is open; everything
 else, including the API, needs a sign-in (a page load is redirected, an API call
 gets `401`). Sessions last 12 hours.
 
 | Variable | Meaning |
 |---|---|
 | `ALBUMREQ_AUTH_DISABLED` | `true`: no login at all, and **everyone who can reach the port is an admin**. For loopback or a proxy that authenticates for it. |
-| `ALBUMREQ_OIDC_ENABLED`, `_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_BASE_URL` | Single sign-on; see oidcgate's README. Register the client with scopes `openid profile email groups`. |
+| `ALBUMREQ_OIDC_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_BASE_URL` | Single sign-on, all four together; see authy's README. Register the client with redirect URI `<BASE_URL>/auth/callback` and scopes `openid profile email groups`. |
+| `ALBUMREQ_LOCAL_ENABLED` | Default: the local account is on exactly when OIDC is off. `true` keeps it next to OIDC as an escape hatch; `false` without OIDC refuses to start. |
 | `ALBUMREQ_ROLE_ADMIN_GROUP` | The provider group whose members are **admins** |
 | `ALBUMREQ_ROLE_USER_GROUP` | If set, the only way in besides the admin group: a signed-in person in neither group is turned away. Unset: anyone the provider lets sign in is a user. |
 
@@ -408,7 +412,7 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 
 1. **Done:** search, poster grid, type badges, status chips, album details and tracks.
 2. **Done:** request an album: add it, monitor it and search for it.
-3. **Done:** login (oidcgate, OIDC), roles from groups, approvers.
+3. **Done:** login (authy: local account or OIDC), roles from groups, approvers.
 4. **Done:** request records and the approval flow (backend, API and the Pending chip).
 5. **Done:** the pages: Requests (with sort and filters) and Settings → Users.
 6. **Done:** notifications (ntfy: shared channel, per-person topics, availability).
