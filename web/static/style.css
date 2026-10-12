@@ -489,3 +489,5 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
   .swipe-action { display: flex; }
   .req-delete { display: none; }
 }
+/* the sheet's Request button fills the width, as the main action of the sheet */
+.request > .btn.primary { align-self: stretch; padding: 13px 18px; font-size: 16px; }
