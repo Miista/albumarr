@@ -137,6 +137,42 @@ var migrations = []string{
 	       decided_at = CAST(strftime('%s', 'now') AS INTEGER),
 	       decline_reason = 'This was requested before albumreq recorded the artist, so it cannot be approved. Please request it again.'
 	 WHERE state = 'pending';`,
+
+	// 3: notifications. One row for the ntfy server (the shared channel, and where
+	// everyone's own topic lives), each person's own topic and the events they want,
+	// and a flag so an approved request is told "available" only once.
+	//
+	// enabled_since is when notifications were first switched on: "available" is only
+	// checked for requests decided after it, so turning them on never replays the
+	// backlog. A topic may belong to one person (case-insensitively), so nobody
+	// receives someone else's request news.
+	`ALTER TABLE requests ADD COLUMN available_notified INTEGER NOT NULL DEFAULT 0;
+
+	CREATE TABLE ntfy (
+		id            INTEGER PRIMARY KEY CHECK (id = 1),
+		enabled       INTEGER NOT NULL DEFAULT 0,
+		enabled_since INTEGER NOT NULL DEFAULT 0,
+		url           TEXT    NOT NULL DEFAULT '',
+		topic         TEXT    NOT NULL DEFAULT '',
+		tags          TEXT    NOT NULL DEFAULT '',
+		auth          TEXT    NOT NULL DEFAULT 'none' CHECK (auth IN ('none', 'basic', 'token')),
+		username      TEXT    NOT NULL DEFAULT '',
+		password      TEXT    NOT NULL DEFAULT '',
+		token         TEXT    NOT NULL DEFAULT '',
+		priority      INTEGER NOT NULL DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),
+		embed_poster  INTEGER NOT NULL DEFAULT 0,
+		types         TEXT    NOT NULL DEFAULT 'pending,auto_approved,approved,declined,available,failed',
+		app_url       TEXT    NOT NULL DEFAULT ''
+	);
+	INSERT INTO ntfy (id) VALUES (1);
+
+	CREATE TABLE user_notifications (
+		sub        TEXT    PRIMARY KEY,
+		topic      TEXT    NOT NULL,
+		types      TEXT    NOT NULL DEFAULT 'approved,declined,available,failed',
+		updated_at INTEGER NOT NULL
+	);
+	CREATE UNIQUE INDEX user_notifications_topic ON user_notifications (topic COLLATE NOCASE);`,
 }
 
 func (d *DB) migrate() error {
