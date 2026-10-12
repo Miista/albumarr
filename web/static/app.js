@@ -1120,7 +1120,6 @@ function App() {
       try {
         const res = await api('/api/requests/' + r.id, { method: 'DELETE', headers: { 'X-Albumreq': '1' } });
         if (!res.ok && res.status !== 404) throw new Error((await res.text()).trim() || res.statusText);
-        this.notice = 'Deleted the request for ' + r.title + '.';
         this.deleting = null;
         await this.loadRequests();
       } catch (e) {
