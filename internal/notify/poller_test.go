@@ -158,3 +158,32 @@ func TestAListFailureIsReported(t *testing.T) {
 		t.Error("a failure to read the requests is an error")
 	}
 }
+
+func TestRunChecksOnTheIntervalItWasGivenAndStopsWithItsContext(t *testing.T) {
+	p, _, fr, _ := pollerRig(t)
+	p.first = 5 * time.Millisecond
+	p.every = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the poller did not stop")
+	}
+	if n := len(fr.sinceSeen); n < 3 {
+		t.Errorf("only %d checks in 300ms at a 20ms interval", n)
+	}
+}
+
+func TestTheIntervalHasAFloorSoATypoCannotFloodLidarr(t *testing.T) {
+	p, _, _, _ := pollerRig(t)
+	if p.SetEvery(time.Millisecond); p.every != MinCheckEvery || p.first > MinCheckEvery {
+		t.Errorf("every=%v first=%v", p.every, p.first)
+	}
+	if p.SetEvery(20 * time.Minute); p.every != 20*time.Minute || p.first != firstCheck {
+		t.Errorf("every=%v first=%v", p.every, p.first)
+	}
+}

@@ -166,7 +166,15 @@ func main() {
 	dispatcher := notify.NewDispatcher(notifySettings, ntfyStore, ntfy, logger)
 	flow.SetObserver(dispatcher)
 	go dispatcher.Run(ctx)
-	go notify.NewPoller(flow.Store(), cat, notifySettings, dispatcher, logger).Run(ctx)
+	poller := notify.NewPoller(flow.Store(), cat, notifySettings, dispatcher, logger)
+	if raw := os.Getenv("ALBUMREQ_NOTIFICATIONS_CHECK_EVERY"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			logger.Fatal().Msg("ALBUMREQ_NOTIFICATIONS_CHECK_EVERY must be a duration like 5m or 90s")
+		}
+		poller.SetEvery(d)
+	}
+	go poller.Run(ctx)
 
 	// Live checks against Lidarr, remembered briefly: the nav asks on every page load.
 	problems := issues.Combine(30*time.Second, service, authn, notifySettings)

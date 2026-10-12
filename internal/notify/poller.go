@@ -21,7 +21,11 @@ type Availability interface {
 }
 
 const (
-	checkEvery  = 5 * time.Minute
+	// DefaultCheckEvery is how often approved requests are checked for arrival.
+	DefaultCheckEvery = 5 * time.Minute
+	// MinCheckEvery keeps a typo from turning the check into a flood of Lidarr calls.
+	MinCheckEvery = 10 * time.Second
+
 	firstCheck  = 30 * time.Second
 	giveUpAfter = 90 * 24 * time.Hour // an album still not here after this is not coming
 	perPass     = 50
@@ -37,16 +41,29 @@ type Poller struct {
 	d        *Dispatcher
 	log      zerolog.Logger
 	now      func() time.Time
+	every    time.Duration
+	first    time.Duration
 }
 
-// NewPoller returns a Poller.
+// NewPoller returns a Poller that checks every DefaultCheckEvery.
 func NewPoller(records Records, lidarr Availability, set *Settings, d *Dispatcher, log zerolog.Logger) *Poller {
-	return &Poller{records: records, lidarr: lidarr, settings: set, d: d, log: log, now: time.Now}
+	return &Poller{records: records, lidarr: lidarr, settings: set, d: d, log: log, now: time.Now, every: DefaultCheckEvery, first: firstCheck}
+}
+
+// SetEvery changes how often it checks, never below MinCheckEvery. The first
+// check comes sooner, after at most 30 seconds.
+func (p *Poller) SetEvery(d time.Duration) *Poller {
+	if d < MinCheckEvery {
+		d = MinCheckEvery
+	}
+	p.every = d
+	p.first = min(firstCheck, d)
+	return p
 }
 
 // Run checks every few minutes until ctx ends.
 func (p *Poller) Run(ctx context.Context) {
-	wait := firstCheck
+	wait := p.first
 	for {
 		select {
 		case <-ctx.Done():
@@ -56,7 +73,7 @@ func (p *Poller) Run(ctx context.Context) {
 		if _, err := p.Check(ctx); err != nil && ctx.Err() == nil {
 			p.log.Warn().Err(err).Msg("could not check which requested albums have arrived")
 		}
-		wait = checkEvery
+		wait = p.every
 	}
 }
 
