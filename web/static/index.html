@@ -102,7 +102,7 @@
           <span class="cover-fallback">{{ a.title }}</span>
           <img v-if="a.cover" :src="a.cover" :alt="''" loading="lazy" @error="$event.target.remove()">
           <span class="cover-kind kind-pill" :class="kindClass(a)">{{ a.type || 'Album' }}</span>
-          <span class="cover-status status-pill" v-if="a.status" :class="a.status"><span class="dot"></span>{{ statusLabel(a.status) }}</span>
+          <span class="cover-status status-pill" v-if="shownStatus(a.status)" :class="a.status"><span class="dot"></span>{{ statusLabel(a.status) }}</span>
         </div>
         <div class="meta">
           <div class="title">{{ a.title }}</div>
@@ -501,7 +501,7 @@
         <div class="sheet-info">
           <div class="sheet-pills">
             <span class="kind-pill" :class="kindClass(view())" v-if="view().type">{{ view().type }}</span>
-            <span class="status-pill" v-if="view().status" :class="view().status"><span class="dot"></span>{{ statusLabel(view().status) }}</span>
+            <span class="status-pill" v-if="shownStatus(view().status)" :class="view().status"><span class="dot"></span>{{ statusLabel(view().status) }}</span>
             <span class="tag" v-for="t in view().secondaryTypes">{{ t }}</span>
           </div>
           <h2>{{ view().title || (detailLoading ? 'Loading…' : 'Album') }}</h2>

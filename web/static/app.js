@@ -3,7 +3,6 @@ const STATUS_LABELS = {
   processing: 'Processing',
   requested: 'Requested',
   notfound: 'Not found',
-  inlidarr: 'In Lidarr',
   pending: 'Pending approval',
 };
 
@@ -1287,6 +1286,13 @@ function App() {
       return '';
     },
 
+
+    // shownStatus: "In Lidarr" is not shown. It means Lidarr knows the album but is not
+    // looking for it, which to a person is the same as not having asked: the Request
+    // button says what they can do, and naming Lidarr only confuses.
+    shownStatus(s) {
+      return !!s && s !== 'inlidarr';
+    },
 
     statusLabel(s) {
       return STATUS_LABELS[s] || s;

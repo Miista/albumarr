@@ -22,8 +22,7 @@ badge** (Album, EP, Single, …) and, when Lidarr knows about the album, a
 | **Processing** | An item for the album is in Lidarr's download queue. |
 | **Requested** | Monitored in Lidarr, not searched for yet. |
 | **Not found** | Monitored and searched, but nothing was grabbed. |
-| **In Lidarr** | In Lidarr but not monitored, so Lidarr is not looking for it. A request fixes that. |
-| *(none)* | Lidarr does not know the album. |
+| *(none)* | Lidarr does not know the album, or has it but is not looking for it (the API calls that `inlidarr`). The page shows no chip for either, since to a person both mean "not requested yet"; a request fixes the second. |
 
 "Not found" is inferred from the album's `lastSearchTime`, because Lidarr has
 no explicit "search failed" state. Secondary types (Live, Soundtrack,
@@ -123,7 +122,7 @@ asked, the request simply shows *Approved*.
 ## Requesting
 
 When it is turned on, an album that Lidarr does not have, or has but is not
-looking for (the *In Lidarr* chip), shows a **Request** button in its sheet. A
+looking for (status `inlidarr`, shown without a chip), shows a **Request** button in its sheet. A
 request does three things in Lidarr, as three calls:
 
 1. **Adds** the album, monitored, and its artist if Lidarr lacks it, with the
