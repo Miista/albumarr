@@ -67,6 +67,35 @@ func (c *Client) AlbumByForeignID(ctx context.Context, foreignID string) (*Album
 	return &states[0], nil
 }
 
+// ArtistAlbumStates returns the library state of every album Lidarr has for the
+// artist with the given MusicBrainz ID, by the album's MusicBrainz release-group
+// ID. An artist Lidarr does not have has none, which is not an error.
+func (c *Client) ArtistAlbumStates(ctx context.Context, artistMBID string) (map[string]AlbumState, error) {
+	var artists []struct {
+		ID int `json:"id"`
+	}
+	if err := c.get(ctx, "/api/v1/artist", url.Values{"mbId": {artistMBID}}, &artists); err != nil {
+		return nil, err
+	}
+	out := map[string]AlbumState{}
+	if len(artists) == 0 {
+		return out, nil
+	}
+	var albums []struct {
+		AlbumState
+		ForeignAlbumID string `json:"foreignAlbumId"`
+	}
+	if err := c.get(ctx, "/api/v1/album", url.Values{"artistId": {strconv.Itoa(artists[0].ID)}}, &albums); err != nil {
+		return nil, err
+	}
+	for _, a := range albums {
+		if a.ForeignAlbumID != "" {
+			out[a.ForeignAlbumID] = a.AlbumState
+		}
+	}
+	return out, nil
+}
+
 // Stage is how far an album's download has got, rolled up from its queue items.
 type Stage string
 
@@ -533,6 +562,14 @@ func (l *Live) Queue(ctx context.Context) (map[int]Download, error) {
 		return nil, ErrNotConfigured
 	}
 	return c.Queue(ctx)
+}
+
+func (l *Live) ArtistAlbumStates(ctx context.Context, artistMBID string) (map[string]AlbumState, error) {
+	c := l.Client()
+	if c == nil {
+		return nil, ErrNotConfigured
+	}
+	return c.ArtistAlbumStates(ctx, artistMBID)
 }
 
 func (l *Live) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error) {

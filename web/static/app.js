@@ -34,6 +34,7 @@ function App() {
   let timer = null;
   let seq = 0;
   let detailSeq = 0;
+  let artistSeq = 0;
 
   return {
     query: '',
@@ -47,6 +48,13 @@ function App() {
     loading: false,
     searched: false,
     error: '',
+
+    // artists: matches for the search, and the artist page being browsed
+    artistHits: [],
+    artist: null, // { id, name, disambiguation, type, albums, libraryOk } once loading starts
+    artistLoading: false,
+    artistError: '',
+    artistGroup: 'albums', // albums | eps | singles | more
 
     selected: null, // the card (or just { id }) behind the open sheet
     detail: null,
@@ -122,6 +130,15 @@ function App() {
     atest: null,
 
     go(page) {
+      if (page === 'search') {
+        // The Search tab is also the way out of an artist's page.
+        if (this.artist && this.page === 'search') {
+          if (this.selected) this.close();
+          this.leaveArtist(true);
+          return;
+        }
+        this.artist = null;
+      }
       if (page === this.page) return;
       if (this.selected) this.close();
       history.pushState(null, '', location.pathname + (HASHES[page] || location.search));
@@ -605,6 +622,7 @@ function App() {
       this.moreError = '';
 
       if (q.length < MIN_QUERY) {
+        this.artistHits = [];
         this.albums = [];
         this.hasMore = false;
         this.searched = false;
@@ -617,6 +635,7 @@ function App() {
       this.loading = true;
       this.error = '';
       this.replaceQuery('?q=' + encodeURIComponent(q));
+      this.searchArtists(q, mine); // alongside the albums; a failure only costs the artist row
       try {
         const res = await api('/api/search?q=' + encodeURIComponent(q));
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
@@ -637,6 +656,70 @@ function App() {
       } finally {
         if (mine === seq) this.loading = false;
       }
+    },
+
+    async searchArtists(q, mine) {
+      try {
+        const res = await api('/api/artists?q=' + encodeURIComponent(q));
+        if (!res.ok) throw new Error(res.statusText);
+        const data = await res.json();
+        if (mine === seq) this.artistHits = data.artists || [];
+      } catch (e) {
+        if (mine === seq) this.artistHits = [];
+      }
+    },
+
+    // --- an artist's page ---
+
+    openArtist(hit) {
+      history.pushState({ artist: hit.id }, '', location.pathname + location.search + '#artist=' + hit.id);
+      this.showArtist(hit.id, hit.name, hit.disambiguation);
+    },
+
+    async showArtist(id, name, disambiguation) {
+      const mine = ++artistSeq;
+      this.artist = { id, name: name || '', disambiguation: disambiguation || '', albums: [], libraryOk: true };
+      this.artistError = '';
+      this.artistLoading = true;
+      window.scrollTo(0, 0);
+      try {
+        const res = await api('/api/artist/' + id, { cache: 'no-store' });
+        if (!res.ok) throw new Error(res.status === 404 ? 'That artist could not be found.' : (await res.text()).trim() || res.statusText);
+        const data = await res.json();
+        if (mine !== artistSeq) return;
+        this.artist = data;
+        this.artistGroup = ['albums', 'eps', 'singles', 'more'].find((g) => data.albums.some((a) => a.group === g)) || 'albums';
+      } catch (e) {
+        if (mine === artistSeq) this.artistError = e.message;
+      } finally {
+        if (mine === artistSeq) this.artistLoading = false;
+      }
+    },
+
+    // leaveArtist goes back to the search the artist was opened from. Opened by a
+    // pasted link there is nothing to go back to, so the address is rewritten.
+    leaveArtist(fromTab) {
+      artistSeq++;
+      if (!fromTab && history.state && history.state.artist) {
+        history.back();
+        return;
+      }
+      this.artist = null;
+      history.replaceState(null, '', location.pathname + location.search);
+    },
+
+    artistGroups() {
+      if (!this.artist) return [];
+      const names = { albums: 'Albums', eps: 'EPs', singles: 'Singles', more: 'More' };
+      return Object.keys(names)
+        .map((g) => ({ id: g, label: names[g], n: this.artist.albums.filter((a) => a.group === g).length }))
+        .filter((g) => g.n);
+    },
+
+    // gridAlbums is what the poster grid shows: the search results, or one group of
+    // the open artist's albums.
+    gridAlbums() {
+      return this.artist ? this.artist.albums.filter((a) => a.group === this.artistGroup) : this.albums;
     },
 
     // loadMore appends the next page of the search that is on screen. A new
@@ -709,7 +792,7 @@ function App() {
         const d = await res.json();
         if (mine === detailSeq) this.detail = d;
         // Keep the card behind the sheet in step with what Lidarr just said.
-        const card = this.albums.find((a) => a.id === id);
+        const card = this.albums.find((a) => a.id === id) || (this.artist && this.artist.albums.find((a) => a.id === id));
         if (card && d.libraryOk) card.status = d.status;
       } catch (e) {
         if (mine === detailSeq) this.detailError = e.message;
@@ -784,6 +867,20 @@ function App() {
         if (page !== this.page) this.showPage(page);
         return;
       }
+      // An artist's hash shows their page in Search; an album's hash opens its sheet
+      // over whatever is showing, so the artist's page stays behind it.
+      const am = /^#artist=(.+)$/.exec(location.hash);
+      if (am && UUID.test(am[1])) {
+        if (this.selected) {
+          detailSeq++;
+          this.selected = null;
+          document.body.style.overflow = '';
+        }
+        if (this.page !== 'search') this.showPage('search');
+        if (!this.artist || this.artist.id !== am[1]) this.showArtist(am[1]);
+        return;
+      }
+      if (!/^#album=/.test(location.hash)) this.artist = null;
       // An album's own hash opens its sheet over whatever page is showing (so Back
       // from a sheet opened on My requests returns there); anything else is search.
       if (!/^#album=/.test(location.hash) && this.page !== 'search') this.showPage('search');

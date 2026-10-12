@@ -279,3 +279,59 @@ func TestErrorsDoNotLeakTheContact(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+const artistID = "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6"
+
+func TestSearchArtistsParsesHitsAndDropsWhatCannotBeUsed(t *testing.T) {
+	c, _ := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/artist" || r.URL.Query().Get("limit") != "6" {
+			t.Errorf("unexpected request %s", r.URL)
+		}
+		fmt.Fprint(w, `{"artists":[
+			{"id":"`+artistID+`","name":"Ed Sheeran","type":"Person","disambiguation":"UK singer‐songwriter","country":"GB","score":100},
+			{"id":"not-a-uuid","name":"Broken","score":99},
+			{"id":"`+rgID+`","name":"   ","score":98},
+			{"id":"3bca1168-e7c6-4beb-9af9-db9dc674b1fa","name":"Ed Sheeran","score":87}]}`)
+	})
+	hits, err := c.SearchArtists(context.Background(), "ed sheeran", 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].ID != artistID || hits[0].Name != "Ed Sheeran" || hits[0].Type != "Person" ||
+		hits[0].Disambiguation != "UK singer‐songwriter" || hits[0].Country != "GB" || hits[0].Score != 100 || hits[1].Type != "" {
+		t.Errorf("hits: %+v", hits)
+	}
+}
+
+func TestSearchArtistsClampsTheLimitEscapesTheTermAndCaches(t *testing.T) {
+	var seen []string
+	c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Query().Get("limit")+" "+r.URL.Query().Get("query"))
+		fmt.Fprint(w, `{"artists":[]}`)
+	})
+	for _, limit := range []int{0, 1000} {
+		if _, err := c.SearchArtists(context.Background(), `AC/DC (live)`, limit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(seen) != 2 || seen[0] != `1 AC\/DC \(live\)` || seen[1] != `25 AC\/DC \(live\)` {
+		t.Errorf("limit and operators: %q", seen)
+	}
+	for i := 0; i < 3; i++ {
+		c.SearchArtists(context.Background(), "again", 6)
+	}
+	if calls.Load() != 3 { // two distinct limits above, then one for "again"
+		t.Errorf("a repeated search must come from the cache: %d upstream calls", calls.Load())
+	}
+}
+
+func TestSearchArtistsFailuresAndBadJSON(t *testing.T) {
+	c, _ := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `<html>`) })
+	if _, err := c.SearchArtists(context.Background(), "x", 6); err == nil {
+		t.Error("a bad body must be an error")
+	}
+	c, _ = newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", http.StatusServiceUnavailable) })
+	if _, err := c.SearchArtists(context.Background(), "x", 6); err == nil {
+		t.Error("a 503 must be an error")
+	}
+}

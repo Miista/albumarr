@@ -44,6 +44,7 @@ type Client struct {
 	http *http.Client
 
 	mu       sync.Mutex
+	artists  map[string]artistEntry
 	cache    map[string]cached
 	inflight map[string]*call
 }
@@ -68,8 +69,118 @@ func New(base string) *Client {
 		base:     strings.TrimRight(base, "/"),
 		http:     &http.Client{Timeout: 20 * time.Second},
 		cache:    map[string]cached{},
+		artists:  map[string]artistEntry{},
 		inflight: map[string]*call{},
 	}
+}
+
+// Artist is an artist and every release group the service knows for them.
+type Artist struct {
+	ID             string
+	Name           string
+	Disambiguation string
+	Type           string
+	Albums         []ArtistAlbum
+}
+
+// ArtistAlbum is one release group in an artist's list: enough for a card.
+type ArtistAlbum struct {
+	ID             string
+	Title          string
+	Type           string // Album, EP, Single, Broadcast, Other
+	SecondaryTypes []string
+	ReleaseDate    string
+}
+
+type artistEntry struct {
+	artist Artist
+	exp    time.Time
+}
+
+const artistTTL = 10 * time.Minute
+
+// Artist fetches an artist and their release groups by MusicBrainz artist ID.
+// Answers are remembered for a few minutes, since an artist page is opened and
+// closed again while browsing.
+func (c *Client) Artist(ctx context.Context, id string) (Artist, error) {
+	if !musicbrainz.ValidID(id) {
+		return Artist{}, ErrInvalidID
+	}
+	c.mu.Lock()
+	if e, ok := c.artists[id]; ok && time.Now().Before(e.exp) {
+		c.mu.Unlock()
+		return e.artist, nil
+	}
+	c.mu.Unlock()
+
+	body, err := c.get(ctx, "/artist/"+id)
+	if err != nil {
+		return Artist{}, err
+	}
+	var w struct {
+		ID             string `json:"id"`
+		Name           string `json:"artistname"`
+		Disambiguation string `json:"disambiguation"`
+		Type           string `json:"type"`
+		Albums         []struct {
+			ID             string   `json:"id"`
+			Title          string   `json:"title"`
+			Type           string   `json:"type"`
+			SecondaryTypes []string `json:"secondarytypes"`
+			ReleaseDate    string   `json:"releasedate"`
+		} `json:"albums"`
+	}
+	if err := json.Unmarshal(body, &w); err != nil {
+		return Artist{}, fmt.Errorf("metadata service: decoding response: %w", err)
+	}
+	a := Artist{ID: w.ID, Name: w.Name, Disambiguation: w.Disambiguation, Type: w.Type, Albums: []ArtistAlbum{}}
+	for _, x := range w.Albums {
+		if !musicbrainz.ValidID(x.ID) || strings.TrimSpace(x.Title) == "" {
+			continue
+		}
+		a.Albums = append(a.Albums, ArtistAlbum{ID: x.ID, Title: x.Title, Type: x.Type, SecondaryTypes: nonNil(x.SecondaryTypes), ReleaseDate: knownDate(x.ReleaseDate)})
+	}
+	c.mu.Lock()
+	if len(c.artists) >= 64 {
+		c.artists = map[string]artistEntry{}
+	}
+	c.artists[id] = artistEntry{artist: a, exp: time.Now().Add(artistTTL)}
+	c.mu.Unlock()
+	return a, nil
+}
+
+// get is one GET against the service; a 404 is ErrNotFound.
+func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", musicbrainz.AnonymousUserAgent)
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, fmt.Errorf("metadata service request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	default:
+		return nil, fmt.Errorf("metadata service returned %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading metadata response: %w", err)
+	}
+	if len(body) > maxBody {
+		return nil, fmt.Errorf("metadata response larger than %d bytes", maxBody)
+	}
+	return body, nil
 }
 
 // Album is one album with everything the detail view needs.

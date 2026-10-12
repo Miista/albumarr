@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"testing"
 
@@ -75,12 +76,13 @@ func TestYear(t *testing.T) {
 // --- fakes ---
 
 type fakeSearch struct {
-	hits   []musicbrainz.Hit
-	total  int // total matches; defaults to len(hits)
-	err    error
-	limit  int
-	offset int
-	calls  int
+	hits    []musicbrainz.Hit
+	artists []musicbrainz.ArtistHit
+	total   int // total matches; defaults to len(hits)
+	err     error
+	limit   int
+	offset  int
+	calls   int
 }
 
 func (f *fakeSearch) Search(_ context.Context, _ string, limit, offset int) (musicbrainz.Page, error) {
@@ -93,10 +95,31 @@ func (f *fakeSearch) Search(_ context.Context, _ string, limit, offset int) (mus
 	return musicbrainz.Page{Hits: f.hits, Total: total}, f.err
 }
 
+func (f *fakeSearch) SearchArtists(context.Context, string, int) ([]musicbrainz.ArtistHit, error) {
+	f.calls++
+	return f.artists, f.err
+}
+
+func (f *fakeMeta) Artist(context.Context, string) (lidarrmeta.Artist, error) {
+	f.calls++
+	return f.artist, f.err
+}
+
+func (f *fakeLib) ArtistAlbumStates(context.Context, string) (map[string]lidarr.AlbumState, error) {
+	out := map[string]lidarr.AlbumState{}
+	for id, st := range f.states {
+		if st != nil {
+			out[id] = *st
+		}
+	}
+	return out, f.artistStatesErr
+}
+
 type fakeMeta struct {
-	album lidarrmeta.Album
-	err   error
-	calls int
+	album  lidarrmeta.Album
+	artist lidarrmeta.Artist
+	err    error
+	calls  int
 }
 
 func (f *fakeMeta) Album(context.Context, string) (lidarrmeta.Album, error) {
@@ -105,26 +128,27 @@ func (f *fakeMeta) Album(context.Context, string) (lidarrmeta.Album, error) {
 }
 
 type fakeLib struct {
-	states       map[string]*lidarr.AlbumState
-	queued       map[int]bool
-	tracks       []lidarr.LibraryTrack
-	albumErr     error
-	queueErr     error
-	tracksErr    error
-	addErr       error
-	searchErr    error
-	monitorErr   error
-	profileID    int // what MetadataProfileByName answers; 0 means addedProfileID
-	profileErr   error
-	profileAsked []string
-	newMonitored bool // whether the fake's newly added albums come back monitored
-	monitored    []int
-	added        []lidarr.NewAlbum
-	searched     []int
-	albumCalls   atomic.Int32 // AlbumByForeignID runs from several goroutines
-	queueCalls   atomic.Int32
-	downloads    map[int]lidarr.Download
-	tracksCalls  atomic.Int32
+	states          map[string]*lidarr.AlbumState
+	queued          map[int]bool
+	tracks          []lidarr.LibraryTrack
+	albumErr        error
+	queueErr        error
+	artistStatesErr error
+	tracksErr       error
+	addErr          error
+	searchErr       error
+	monitorErr      error
+	profileID       int // what MetadataProfileByName answers; 0 means addedProfileID
+	profileErr      error
+	profileAsked    []string
+	newMonitored    bool // whether the fake's newly added albums come back monitored
+	monitored       []int
+	added           []lidarr.NewAlbum
+	searched        []int
+	albumCalls      atomic.Int32 // AlbumByForeignID runs from several goroutines
+	queueCalls      atomic.Int32
+	downloads       map[int]lidarr.Download
+	tracksCalls     atomic.Int32
 }
 
 func (f *fakeLib) AlbumByForeignID(_ context.Context, id string) (*lidarr.AlbumState, error) {
@@ -869,5 +893,107 @@ func TestProgressLeavesOutWhatLidarrCannotAnswer(t *testing.T) {
 	done := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(1, false, 12, 100, searchedAt))}, queueErr: errors.New("down")}
 	if got := New(&fakeSearch{}, &fakeMeta{}, done).Progress(context.Background(), []string{id1}); got[id1].Status != StatusAvailable || done.queueCalls.Load() != 0 {
 		t.Errorf("a complete album needs no queue: %v, %d calls", got, done.queueCalls.Load())
+	}
+}
+
+// --- artists ---
+
+func TestSearchArtistsKeepsTheStrongMatchesOnly(t *testing.T) {
+	fs := &fakeSearch{artists: []musicbrainz.ArtistHit{
+		{ID: "a1", Name: "Ed Sheeran", Type: "Person", Disambiguation: "UK singer", Country: "GB", Score: 100},
+		{ID: "a2", Name: "Ed Sheeran", Score: 50},
+		{ID: "a3", Name: "Eddie", Score: 49},
+	}}
+	got, err := New(fs, &fakeMeta{}, &fakeLib{}).SearchArtists(context.Background(), "ed sheeran")
+	if err != nil || len(got) != 2 || got[0].ID != "a1" || got[0].Name != "Ed Sheeran" || got[0].Disambiguation != "UK singer" || got[1].ID != "a2" {
+		t.Errorf("got %+v, %v", got, err)
+	}
+	if _, err := New(&fakeSearch{err: errors.New("down")}, &fakeMeta{}, &fakeLib{}).SearchArtists(context.Background(), "x"); err == nil {
+		t.Error("a failing search must be an error")
+	}
+}
+
+const edSheeran = "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6"
+
+func artistMeta() lidarrmeta.Artist {
+	return lidarrmeta.Artist{ID: edSheeran, Name: "Ed Sheeran", Type: "Person", Albums: []lidarrmeta.ArtistAlbum{
+		{ID: id1, Title: "÷", Type: "Album", SecondaryTypes: []string{}, ReleaseDate: "2017-03-03"},
+		{ID: id2, Title: "×", Type: "Album", SecondaryTypes: []string{}, ReleaseDate: "2014-06-20"},
+		{ID: id3, Title: "Live at Wembley", Type: "Album", SecondaryTypes: []string{"Live"}, ReleaseDate: "2019-01-01"},
+		{ID: "11111111-1111-4111-8111-111111111111", Title: "Sing", Type: "Single", SecondaryTypes: []string{}, ReleaseDate: "2014-04-07"},
+		{ID: "11111111-1111-4111-8111-111111111112", Title: "Undated EP", Type: "EP", SecondaryTypes: []string{}},
+		{ID: "11111111-1111-4111-8111-111111111113", Title: "A Broadcast", Type: "Broadcast", SecondaryTypes: []string{}, ReleaseDate: "2012-01-01"},
+	}}
+}
+
+func TestArtistListsTheirAlbumsNewestFirstInGroupsWithLidarrsState(t *testing.T) {
+	lib := &fakeLib{
+		states: map[string]*lidarr.AlbumState{
+			id1: stp(state(1, false, 12, 100, searchedAt)), // complete
+			id2: stp(state(2, true, 0, 0, never)),          // downloading
+		},
+		queued: map[int]bool{2: true},
+	}
+	page, err := New(&fakeSearch{}, &fakeMeta{artist: artistMeta()}, lib).Artist(context.Background(), edSheeran)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Name != "Ed Sheeran" || !page.LibraryOK || len(page.Albums) != 6 {
+		t.Fatalf("page: %+v", page)
+	}
+	var order []string
+	for _, a := range page.Albums {
+		order = append(order, a.Title)
+	}
+	if want := []string{"Live at Wembley", "÷", "×", "Sing", "A Broadcast", "Undated EP"}; !reflect.DeepEqual(order, want) {
+		t.Errorf("order %v, want newest first with the undated last: %v", order, want)
+	}
+	byTitle := map[string]Album{}
+	for _, a := range page.Albums {
+		byTitle[a.Title] = a
+	}
+	for title, want := range map[string]string{"÷": "albums", "×": "albums", "Live at Wembley": "more", "Sing": "singles", "Undated EP": "eps", "A Broadcast": "more"} {
+		if byTitle[title].Group != want {
+			t.Errorf("%s is in %q, want %q", title, byTitle[title].Group, want)
+		}
+	}
+	if byTitle["÷"].Status != StatusAvailable || byTitle["×"].Status != StatusProcessing || byTitle["Sing"].Status != "" {
+		t.Errorf("statuses: ÷ %q × %q Sing %q", byTitle["÷"].Status, byTitle["×"].Status, byTitle["Sing"].Status)
+	}
+	if a := byTitle["÷"]; a.Artist != "Ed Sheeran" || a.ArtistID != edSheeran || a.Cover != "/api/cover/"+id1 || a.Year != 2017 {
+		t.Errorf("a card carries what the request needs: %+v", a)
+	}
+}
+
+func TestArtistWithLidarrDownStillListsTheAlbumsWithoutChips(t *testing.T) {
+	lib := &fakeLib{artistStatesErr: errors.New("down")}
+	page, err := New(&fakeSearch{}, &fakeMeta{artist: artistMeta()}, lib).Artist(context.Background(), edSheeran)
+	if err != nil || page.LibraryOK || len(page.Albums) != 6 {
+		t.Fatalf("%+v, %v", page, err)
+	}
+	for _, a := range page.Albums {
+		if a.Status != "" {
+			t.Errorf("no chip may be shown when Lidarr cannot be asked: %s %q", a.Title, a.Status)
+		}
+	}
+}
+
+func TestArtistDoesNotAskForTheQueueWhenEverythingIsComplete(t *testing.T) {
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(1, false, 12, 100, searchedAt))}, queueErr: errors.New("would fail")}
+	page, err := New(&fakeSearch{}, &fakeMeta{artist: artistMeta()}, lib).Artist(context.Background(), edSheeran)
+	if err != nil || !page.LibraryOK || lib.queueCalls.Load() != 0 {
+		t.Errorf("%v, libraryOk %v, %d queue calls", err, page.LibraryOK, lib.queueCalls.Load())
+	}
+}
+
+func TestArtistErrors(t *testing.T) {
+	if _, err := New(&fakeSearch{}, &fakeMeta{}, &fakeLib{}).Artist(context.Background(), "../x"); !errors.Is(err, ErrInvalidID) {
+		t.Errorf("invalid id: %v", err)
+	}
+	if _, err := New(&fakeSearch{}, &fakeMeta{err: lidarrmeta.ErrNotFound}, &fakeLib{}).Artist(context.Background(), edSheeran); !errors.Is(err, ErrNotInMetadata) {
+		t.Errorf("unknown artist: %v", err)
+	}
+	if _, err := New(&fakeSearch{}, &fakeMeta{err: errors.New("503")}, &fakeLib{}).Artist(context.Background(), edSheeran); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("metadata down: %v", err)
 	}
 }

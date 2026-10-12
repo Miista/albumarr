@@ -360,3 +360,72 @@ func TestDeletingARequestNeedsTheHeaderAndMapsTheServicesAnswers(t *testing.T) {
 		t.Errorf("a bad id: %d", rec.Code)
 	}
 }
+
+const artistPath = "/api/artist/b8a7c51f-362c-4dcb-a259-bc6e0095f0a6"
+
+func artistRig(rq *fakeRequests, fa *fakeArtists, who auth.Role) *http.ServeMux {
+	mux := http.NewServeMux()
+	New(&fakeCatalog{}, &fakeCovers{}, &fakeSettings{}, as(who), &fakeUsers{}, rq, &fakeIssues{}, zerolog.Nop()).Artists(fa).Routes(mux)
+	return mux
+}
+
+func TestArtistSearchReturnsTheHitsAndValidatesTheQuery(t *testing.T) {
+	fa := &fakeArtists{hits: []catalog.ArtistHit{{ID: "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6", Name: "Ed Sheeran", Disambiguation: "UK singer"}}}
+	mux := artistRig(&fakeRequests{}, fa, auth.User)
+	rec := get(mux, "/api/artists?q=+ed+sheeran+")
+	if rec.Code != 200 || fa.lastQ != "ed sheeran" || !strings.Contains(rec.Body.String(), `"name":"Ed Sheeran"`) {
+		t.Errorf("%d %q %s", rec.Code, fa.lastQ, rec.Body)
+	}
+	for _, q := range []string{"", "a", strings.Repeat("x", 101)} {
+		fa.calls = 0
+		if rec := get(mux, "/api/artists?q="+q); rec.Code != http.StatusBadRequest || fa.calls != 0 {
+			t.Errorf("q=%q: %d, %d calls", q, rec.Code, fa.calls)
+		}
+	}
+	fa.err = errors.New("dial tcp 10.0.0.1: secret")
+	if rec := get(mux, "/api/artists?q=ed"); rec.Code != http.StatusBadGateway || strings.Contains(rec.Body.String(), "secret") {
+		t.Errorf("a failure: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestAnArtistsPageShowsWaitingRequestsAsPending(t *testing.T) {
+	fa := &fakeArtists{page: catalog.ArtistPage{ID: "x", Name: "Ed Sheeran", LibraryOK: true, Albums: []catalog.Album{
+		{ID: id1, Title: "÷"},
+		{ID: "22222222-2222-4222-8222-222222222222", Title: "×", Status: catalog.StatusAvailable},
+		{ID: "33333333-3333-4333-8333-333333333333", Title: "+"},
+	}}}
+	rq := &fakeRequests{pending: map[string]requests.Record{id1: {ID: 5}, "22222222-2222-4222-8222-222222222222": {ID: 6}}}
+	rec := get(artistRig(rq, fa, auth.User), artistPath)
+	var body catalog.ArtistPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %v %s", rec.Code, err, rec.Body)
+	}
+	if body.Albums[0].Status != catalog.StatusPending || body.Albums[1].Status != catalog.StatusAvailable || body.Albums[2].Status != "" {
+		t.Errorf("pending shows only where Lidarr has nothing to say: %+v", body.Albums)
+	}
+	if fa.lastID != "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6" {
+		t.Errorf("asked for %q", fa.lastID)
+	}
+}
+
+func TestAnArtistsPageErrors(t *testing.T) {
+	for _, c := range []struct {
+		err  error
+		want int
+	}{{catalog.ErrInvalidID, 400}, {catalog.ErrNotInMetadata, 404}, {errors.New("metadata: secret"), 502}} {
+		rec := get(artistRig(&fakeRequests{}, &fakeArtists{err: c.err}, auth.User), artistPath)
+		if rec.Code != c.want || strings.Contains(rec.Body.String(), "secret") {
+			t.Errorf("%v: %d %s", c.err, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestArtistRoutesAre404WhenNotSetUp(t *testing.T) {
+	mux := http.NewServeMux()
+	New(&fakeCatalog{}, &fakeCovers{}, &fakeSettings{}, as(auth.User), &fakeUsers{}, &fakeRequests{}, &fakeIssues{}, zerolog.Nop()).Routes(mux)
+	for _, p := range []string{"/api/artists?q=ed", artistPath} {
+		if rec := get(mux, p); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: %d", p, rec.Code)
+		}
+	}
+}

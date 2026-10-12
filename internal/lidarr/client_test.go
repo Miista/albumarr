@@ -651,3 +651,67 @@ func TestQueueIgnoresItemsWithNoAlbum(t *testing.T) {
 		t.Errorf("an item with no album must not appear: %v", got)
 	}
 }
+
+func TestArtistAlbumStatesMapsByAlbumMBID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != testKey {
+			t.Errorf("no key on %s", r.URL)
+		}
+		switch r.URL.Path {
+		case "/api/v1/artist":
+			if r.URL.Query().Get("mbId") != "artist-mbid" {
+				t.Errorf("mbId = %q", r.URL.Query().Get("mbId"))
+			}
+			fmt.Fprint(w, `[{"id":2}]`)
+		case "/api/v1/album":
+			if r.URL.Query().Get("artistId") != "2" {
+				t.Errorf("artistId = %q", r.URL.Query().Get("artistId"))
+			}
+			fmt.Fprint(w, `[{"id":10,"foreignAlbumId":"album-a","monitored":true,"lastSearchTime":"0001-01-01T00:00:00Z","statistics":{"trackFileCount":0,"totalTrackCount":19}},
+				{"id":11,"foreignAlbumId":"album-b","monitored":false,"statistics":{"trackFileCount":12,"totalTrackCount":12,"percentOfTracks":100}},
+				{"id":12,"foreignAlbumId":""}]`)
+		default:
+			t.Errorf("unexpected %s", r.URL)
+		}
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, testKey).ArtistAlbumStates(context.Background(), "artist-mbid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["album-a"].ID != 10 || !got["album-a"].Monitored || got["album-b"].Statistics.PercentOfTracks != 100 {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestArtistAlbumStatesForAnArtistLidarrDoesNotHaveIsEmptyNotAnError(t *testing.T) {
+	var albumCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/album" {
+			albumCalls++
+		}
+		fmt.Fprint(w, `[]`)
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL, testKey).ArtistAlbumStates(context.Background(), "nobody")
+	if err != nil || got == nil || len(got) != 0 || albumCalls != 0 {
+		t.Errorf("got %v, %v, %d album calls", got, err, albumCalls)
+	}
+}
+
+func TestArtistAlbumStatesFailuresAreErrors(t *testing.T) {
+	for _, failAt := range []string{"/api/v1/artist", "/api/v1/album"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == failAt {
+				http.Error(w, "boom "+r.Header.Get("X-Api-Key"), http.StatusInternalServerError)
+				return
+			}
+			fmt.Fprint(w, `[{"id":2}]`)
+		}))
+		_, err := New(srv.URL, testKey).ArtistAlbumStates(context.Background(), "x")
+		srv.Close()
+		if err == nil || strings.Contains(err.Error(), testKey) {
+			t.Errorf("failing at %s: %v", failAt, err)
+		}
+	}
+}

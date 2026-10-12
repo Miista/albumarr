@@ -182,6 +182,7 @@ func main() {
 	problems := issues.Combine(30*time.Second, service, authn, notifySettings)
 	api.New(cat, coverart.New(coverURL), service, authn, known, flow, problems, logger).
 		Progress(cat).
+		Artists(cat).
 		Notifications(notifySettings, notify.NewUserSettings(ntfyStore, notifySettings, ntfy, logger)).
 		Routes(mux)
 

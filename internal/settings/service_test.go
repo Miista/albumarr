@@ -33,7 +33,15 @@ func (nopSearch) Search(context.Context, string, int, int) (musicbrainz.Page, er
 	return musicbrainz.Page{}, errors.New("unused")
 }
 
+func (nopSearch) SearchArtists(context.Context, string, int) ([]musicbrainz.ArtistHit, error) {
+	return nil, errors.New("unused")
+}
+
 type nopMeta struct{}
+
+func (nopMeta) Artist(context.Context, string) (lidarrmeta.Artist, error) {
+	return lidarrmeta.Artist{}, errors.New("unused")
+}
 
 func (nopMeta) Album(context.Context, string) (lidarrmeta.Album, error) {
 	return lidarrmeta.Album{}, errors.New("unused")

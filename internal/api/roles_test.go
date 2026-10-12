@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/Miista/albumreq/internal/auth"
+	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/notify"
 	"github.com/Miista/albumreq/internal/requests"
@@ -111,6 +112,27 @@ func (f *fakeRequests) Pending(ids []string) (map[string]requests.Record, error)
 	return f.pending, f.pendingErr
 }
 
+// fakeArtists stands in for the artist search and pages.
+type fakeArtists struct {
+	hits   []catalog.ArtistHit
+	page   catalog.ArtistPage
+	err    error
+	calls  int
+	lastID string
+	lastQ  string
+}
+
+func (f *fakeArtists) SearchArtists(_ context.Context, q string) ([]catalog.ArtistHit, error) {
+	f.calls++
+	f.lastQ = q
+	return f.hits, f.err
+}
+func (f *fakeArtists) Artist(_ context.Context, id string) (catalog.ArtistPage, error) {
+	f.calls++
+	f.lastID = id
+	return f.page, f.err
+}
+
 // fakeIssues stands in for the checks.
 type fakeIssues struct {
 	list       []issues.Issue
@@ -179,6 +201,8 @@ var routes = []struct {
 	{"GET", "/api/cover/" + id1, "", auth.User},
 	{"POST", "/api/album/" + id1 + "/request", requestBody, auth.User},
 	{"GET", "/api/requests", "", auth.User},
+	{"GET", "/api/artists?q=ed+sheeran", "", auth.User},
+	{"GET", "/api/artist/b8a7c51f-362c-4dcb-a259-bc6e0095f0a6", "", auth.User},
 	{"POST", "/api/requests/1/approve", "", auth.Approver},
 	{"POST", "/api/requests/1/decline", `{"reason":"no"}`, auth.Approver},
 	{"DELETE", "/api/requests/1", "", auth.User},
@@ -207,20 +231,21 @@ type rig struct {
 	issues   *fakeIssues
 	notifyA  *fakeNotifyAdmin
 	notifyU  *fakeNotifyUser
+	artists  *fakeArtists
 }
 
 func newRig(a Authenticator) *rig {
 	r := &rig{cat: &fakeCatalog{}, covers: &fakeCovers{data: []byte("img"), ct: "image/png"}, settings: &fakeSettings{}, users: &fakeUsers{},
 		requests: &fakeRequests{out: requests.Outcome{Result: "added"}}, issues: &fakeIssues{},
-		notifyA: &fakeNotifyAdmin{}, notifyU: &fakeNotifyUser{}}
+		notifyA: &fakeNotifyAdmin{}, notifyU: &fakeNotifyUser{}, artists: &fakeArtists{}}
 	r.mux = http.NewServeMux()
-	New(r.cat, r.covers, r.settings, a, r.users, r.requests, r.issues, zerolog.Nop()).Notifications(r.notifyA, r.notifyU).Routes(r.mux)
+	New(r.cat, r.covers, r.settings, a, r.users, r.requests, r.issues, zerolog.Nop()).Notifications(r.notifyA, r.notifyU).Artists(r.artists).Routes(r.mux)
 	return r
 }
 
 // touched reports whether anything behind the handlers was reached.
 func (r *rig) touched() bool {
-	return r.cat.searchCalls+r.cat.detailCalls != 0 || r.requests.calls+r.requests.listCalls != 0 || r.covers.lastID != "" ||
+	return r.cat.searchCalls+r.cat.detailCalls != 0 || r.requests.calls+r.requests.listCalls != 0 || r.artists.calls != 0 || r.covers.lastID != "" ||
 		len(r.settings.patches)+len(r.settings.testCalls)+r.settings.reads != 0 || r.users.calls+r.users.reads != 0 || r.issues.issueCalls+r.issues.freshCalls != 0 || len(r.notifyA.patches)+len(r.notifyA.tests)+r.notifyA.reads != 0 || len(r.notifyU.views)+len(r.notifyU.saves)+len(r.notifyU.tests) != 0
 }
 

@@ -462,3 +462,18 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .btn.danger { color: var(--red-text); }
 .btn.primary.danger { color: #fff; }
 @media (max-width: 640px) { .req-delete { flex-direction: row; width: 100%; } .req-delete .btn { flex: 1; } }
+
+/* artists: the row under the search box, and an artist's page */
+.artist-strip { display: flex; gap: 10px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+.artist-strip::-webkit-scrollbar { display: none; }
+.artist-chip { flex: none; display: flex; align-items: center; gap: 10px; max-width: 280px; padding: 8px 14px 8px 8px; border: 1px solid var(--border); border-radius: 999px; background: oklch(0.17 0.012 270 / .7); color: var(--text); cursor: pointer; text-align: left; }
+.artist-chip:hover, .artist-chip:focus-visible { border-color: oklch(0.65 0.2 290 / .7); outline: none; }
+.avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; background: oklch(0.5 0.14 var(--hue, 290)); }
+.artist-chip-text { display: flex; flex-direction: column; min-width: 0; }
+.artist-chip .name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artist-chip .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; border: 0; background: none; color: var(--muted); font-size: 13px; cursor: pointer; }
+.back-link:hover { color: var(--text); }
+.group-tabs { overflow-x: auto; }
+.group-tabs button { white-space: nowrap; }
+.contents { display: contents; } /* a wrapper for v-if: petite-vue cannot put v-if on a template's direct children */

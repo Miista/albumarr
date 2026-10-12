@@ -96,6 +96,13 @@ type NotifyUser interface {
 	Test(ctx context.Context, sub string) (notify.TestResult, error)
 }
 
+// Artists finds artists and lists an artist's albums. It is a way to browse: the
+// request flow is the same whether an album was found by name or on an artist's page.
+type Artists interface {
+	SearchArtists(ctx context.Context, term string) ([]catalog.ArtistHit, error)
+	Artist(ctx context.Context, id string) (catalog.ArtistPage, error)
+}
+
 // Progress says where albums stand in Lidarr, to show on the requests lists.
 type Progress interface {
 	Progress(ctx context.Context, ids []string) map[string]catalog.Progress
@@ -113,7 +120,15 @@ type Server struct {
 	notifyA  NotifyAdmin
 	notifyU  NotifyUser
 	progress Progress
+	artists  Artists
 	log      zerolog.Logger
+}
+
+// Artists lets people search for an artist and open their page. Without it those
+// routes answer 404, as if they were not there.
+func (s *Server) Artists(a Artists) *Server {
+	s.artists = a
+	return s
 }
 
 // Progress lets the requests lists show how each approved album is doing in
@@ -177,6 +192,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/requests", s.guard(auth.User, s.handleListRequests))
 	mux.HandleFunc("POST /api/requests/{id}/approve", s.guard(auth.Approver, s.handleApprove))
 	mux.HandleFunc("POST /api/requests/{id}/decline", s.guard(auth.Approver, s.handleDecline))
+	mux.HandleFunc("GET /api/artists", s.guard(auth.User, s.handleArtistSearch))
+	mux.HandleFunc("GET /api/artist/{id}", s.guard(auth.User, s.handleArtist))
 	mux.HandleFunc("DELETE /api/requests/{id}", s.guard(auth.User, s.handleDeleteRequest))
 	mux.HandleFunc("GET /api/cover/{id}", s.guard(auth.User, s.handleCover))
 	mux.HandleFunc("GET /api/settings", s.guard(auth.Admin, s.handleSettings))
@@ -250,6 +267,50 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 // markPending shows a waiting request on the albums that have one. Lidarr's own
 // state wins: an album it already knows keeps its chip. A failure to read the
 // records only costs the chip; it must not break a search.
+func (s *Server) handleArtistSearch(w http.ResponseWriter, r *http.Request) {
+	if s.artists == nil {
+		http.NotFound(w, r)
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if n := utf8.RuneCountInString(q); n < minQueryLen || n > maxQueryLen {
+		http.Error(w, fmt.Sprintf("q must be %d-%d characters", minQueryLen, maxQueryLen), http.StatusBadRequest)
+		return
+	}
+	hits, err := s.artists.SearchArtists(r.Context(), q)
+	if err != nil {
+		if r.Context().Err() == nil {
+			s.log.Error().Err(err).Msg(fmt.Sprintf("artist search for %q failed", q))
+		}
+		http.Error(w, "Search is unavailable", http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{"query": q, "artists": hits})
+}
+
+func (s *Server) handleArtist(w http.ResponseWriter, r *http.Request) {
+	if s.artists == nil {
+		http.NotFound(w, r)
+		return
+	}
+	page, err := s.artists.Artist(r.Context(), r.PathValue("id"))
+	switch {
+	case errors.Is(err, catalog.ErrInvalidID):
+		http.Error(w, "invalid artist id", http.StatusBadRequest)
+		return
+	case errors.Is(err, catalog.ErrNotInMetadata):
+		http.Error(w, "No such artist", http.StatusNotFound)
+		return
+	case err != nil:
+		s.log.Warn().Err(err).Msg("artist page failed")
+		http.Error(w, "The artist is unavailable", http.StatusBadGateway)
+		return
+	}
+	s.markPending(page.Albums)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, page)
+}
+
 func (s *Server) markPending(albums []catalog.Album) {
 	ids := make([]string, len(albums))
 	for i, a := range albums {

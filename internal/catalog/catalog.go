@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -74,22 +75,29 @@ type Album struct {
 	Year           int      `json:"year,omitempty"`
 	Cover          string   `json:"cover"`
 	Status         Status   `json:"status"`
+	Group          string   `json:"group,omitempty"` // on an artist's page: albums, eps, singles or more
+
+	releaseDate string // for ordering an artist's page; not sent
 }
 
-// Searcher finds albums by free text.
+// Searcher finds albums and artists by free text.
 type Searcher interface {
 	Search(ctx context.Context, term string, limit, offset int) (musicbrainz.Page, error)
+	SearchArtists(ctx context.Context, term string, limit int) ([]musicbrainz.ArtistHit, error)
 }
 
-// Metadata supplies one album's details, editions and tracks.
+// Metadata supplies one album's details, editions and tracks, and an artist's
+// release groups.
 type Metadata interface {
 	Album(ctx context.Context, id string) (lidarrmeta.Album, error)
+	Artist(ctx context.Context, id string) (lidarrmeta.Artist, error)
 }
 
 // Library is the part of the Lidarr client the catalog uses.
 type Library interface {
 	AlbumByForeignID(ctx context.Context, foreignID string) (*lidarr.AlbumState, error)
 	QueuedAlbumIDs(ctx context.Context) (map[int]bool, error)
+	ArtistAlbumStates(ctx context.Context, artistMBID string) (map[string]lidarr.AlbumState, error)
 	Queue(ctx context.Context) (map[int]lidarr.Download, error)
 	Tracks(ctx context.Context, albumID int) ([]lidarr.LibraryTrack, error)
 	AddAlbum(ctx context.Context, a lidarr.NewAlbum) error
@@ -620,4 +628,114 @@ func (c *Catalog) Progress(ctx context.Context, ids []string) map[string]Progres
 		out[id] = p
 	}
 	return out
+}
+
+// ArtistHit is one artist in the results of a search.
+type ArtistHit struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Disambiguation string `json:"disambiguation,omitempty"`
+	Type           string `json:"type,omitempty"`
+	Country        string `json:"country,omitempty"`
+}
+
+const (
+	maxArtistHits  = 6
+	minArtistScore = 50 // MusicBrainz scores 0-100; weaker matches are noise next to the album results
+)
+
+// SearchArtists finds the artists whose name matches term, best first. It only
+// offers a way into their pages: nothing about the request flow changes.
+func (c *Catalog) SearchArtists(ctx context.Context, term string) ([]ArtistHit, error) {
+	hits, err := c.search.SearchArtists(ctx, term, maxArtistHits)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ArtistHit, 0, len(hits))
+	for _, h := range hits {
+		if h.Score < minArtistScore {
+			continue
+		}
+		out = append(out, ArtistHit{ID: h.ID, Name: h.Name, Disambiguation: h.Disambiguation, Type: h.Type, Country: h.Country})
+	}
+	return out, nil
+}
+
+// ArtistPage is an artist and their release groups, each with its state in Lidarr.
+type ArtistPage struct {
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Disambiguation string  `json:"disambiguation,omitempty"`
+	Type           string  `json:"type,omitempty"`
+	Albums         []Album `json:"albums"`
+	LibraryOK      bool    `json:"libraryOk"`
+}
+
+// groupOf sorts a release group into one of the page's filters: studio albums,
+// EPs, singles, and everything else (live albums, compilations, broadcasts, …).
+func groupOf(primary string, secondary []string) string {
+	switch {
+	case primary == "Album" && len(secondary) == 0:
+		return "albums"
+	case primary == "EP":
+		return "eps"
+	case primary == "Single":
+		return "singles"
+	}
+	return "more"
+}
+
+// Artist returns an artist's release groups, newest first, annotated with what
+// Lidarr has. A Lidarr that cannot be asked leaves the albums without a status
+// (LibraryOK false), as in a search.
+func (c *Catalog) Artist(ctx context.Context, id string) (ArtistPage, error) {
+	if !musicbrainz.ValidID(id) {
+		return ArtistPage{}, ErrInvalidID
+	}
+	a, err := c.meta.Artist(ctx, id)
+	switch {
+	case errors.Is(err, lidarrmeta.ErrNotFound):
+		return ArtistPage{}, ErrNotInMetadata
+	case err != nil:
+		return ArtistPage{}, fmt.Errorf("%w: asking the metadata service: %v", ErrUnavailable, err)
+	}
+	page := ArtistPage{ID: a.ID, Name: a.Name, Disambiguation: a.Disambiguation, Type: a.Type, Albums: make([]Album, 0, len(a.Albums))}
+	for _, x := range a.Albums {
+		page.Albums = append(page.Albums, Album{
+			ID: x.ID, Title: x.Title, Artist: a.Name, ArtistID: a.ID, Type: x.Type, SecondaryTypes: x.SecondaryTypes,
+			Year: year(x.ReleaseDate), Cover: "/api/cover/" + x.ID, Group: groupOf(x.Type, x.SecondaryTypes),
+			releaseDate: x.ReleaseDate,
+		})
+	}
+	sort.SliceStable(page.Albums, func(i, j int) bool {
+		di, dj := page.Albums[i].releaseDate, page.Albums[j].releaseDate
+		if (di == "") != (dj == "") {
+			return di != ""
+		}
+		if di != dj {
+			return di > dj
+		}
+		return page.Albums[i].Title < page.Albums[j].Title
+	})
+
+	states, err := c.lib.ArtistAlbumStates(ctx, id)
+	if err != nil {
+		return page, nil
+	}
+	var queued map[int]bool
+	for _, st := range states {
+		if !complete(st) {
+			if queued, err = c.lib.QueuedAlbumIDs(ctx); err != nil {
+				return page, nil
+			}
+			break
+		}
+	}
+	page.LibraryOK = true
+	for i := range page.Albums {
+		if st, ok := states[page.Albums[i].ID]; ok {
+			page.Albums[i].Status = DeriveStatus(st, queued[st.ID])
+		}
+	}
+	return page, nil
 }

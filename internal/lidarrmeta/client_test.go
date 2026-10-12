@@ -255,3 +255,65 @@ func TestPlaceholderDatesAndBracketedRegionsAreCleanedUp(t *testing.T) {
 		t.Errorf("an unknown date must not win as the earliest edition, picked %q", pick.ID)
 	}
 }
+
+const artistFixture = `{"id":"b8a7c51f-362c-4dcb-a259-bc6e0095f0a6","artistname":"Ed Sheeran","disambiguation":"UK singer‐songwriter","type":"Person",
+ "Albums":[
+  {"Id":"c24e5416-0b6b-3b1d-8a3a-000000000001","Title":"×","Type":"Album","SecondaryTypes":[],"ReleaseDate":"2014-06-20"},
+  {"Id":"6f5bdb7d-eb3b-4b24-abc3-3312621cb7e8","Title":"Sing","Type":"Single","SecondaryTypes":null,"ReleaseDate":"2014-04-07"},
+  {"Id":"85ae85d3-7f71-473f-ac8f-5bb9be1a10f7","Title":"iTunes Festival: London 2012","Type":"EP","SecondaryTypes":["Live"],"ReleaseDate":"0001-01-01T00:00:00Z"},
+  {"Id":"not-a-uuid","Title":"Broken","Type":"Album"},
+  {"Id":"2a621cc8-309b-42c6-a2ac-5ac6f73e7ab0","Title":"  ","Type":"Single"}]}`
+
+func TestArtistParsesTheServicesShapeAndSkipsWhatCannotBeUsed(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/artist/b8a7c51f-362c-4dcb-a259-bc6e0095f0a6" {
+			t.Errorf("path %q", r.URL.Path)
+		}
+		fmt.Fprint(w, artistFixture)
+	})
+	a, err := c.Artist(context.Background(), "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Name != "Ed Sheeran" || a.Type != "Person" || a.Disambiguation == "" || len(a.Albums) != 3 {
+		t.Fatalf("artist: %+v", a)
+	}
+	if x := a.Albums[0]; x.Title != "×" || x.Type != "Album" || x.ReleaseDate != "2014-06-20" || x.SecondaryTypes == nil {
+		t.Errorf("first album: %+v", x)
+	}
+	if a.Albums[1].SecondaryTypes == nil || a.Albums[2].SecondaryTypes[0] != "Live" || a.Albums[2].ReleaseDate != "" {
+		t.Errorf("secondary types must be a slice and an unknown date empty: %+v", a.Albums[1:])
+	}
+}
+
+func TestArtistInvalidIDNotFoundFailureAndCache(t *testing.T) {
+	var status atomic.Int32
+	status.Store(200)
+	c, calls := newTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if s := int(status.Load()); s != 200 {
+			w.WriteHeader(s)
+			return
+		}
+		fmt.Fprint(w, artistFixture)
+	})
+	const id = "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6"
+	if _, err := c.Artist(context.Background(), "../etc/passwd"); !errors.Is(err, ErrInvalidID) || calls.Load() != 0 {
+		t.Errorf("an invalid id must not reach the service: %v, %d calls", err, calls.Load())
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := c.Artist(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Errorf("a repeated artist must come from the cache: %d calls", calls.Load())
+	}
+	status.Store(404)
+	if _, err := c.Artist(context.Background(), "3bca1168-e7c6-4beb-9af9-db9dc674b1fa"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("404: %v", err)
+	}
+	status.Store(500)
+	if _, err := c.Artist(context.Background(), "c590f877-9bd4-45ac-b0f5-799ac5496d1a"); err == nil || errors.Is(err, ErrNotFound) {
+		t.Errorf("500 is a failure, not 'not found': %v", err)
+	}
+}

@@ -62,6 +62,7 @@ marked automatic: they could approve it themselves a second later.
 | Endpoint | Who |
 |---|---|
 | `POST /api/album/{id}/request` with `{"artistId", "title", "artist"}` | any user: pending for a user, approved at once for an approver or admin |
+| `GET /api/artists?q=`, `GET /api/artist/{id}` | any user: artist matches, and an artist's albums with Lidarr's state |
 | `GET /api/requests?scope=mine` | any user: their own |
 | `GET /api/issues` (`?fresh=1` to check again) | admins |
 | `GET /api/requests?scope=pending` | approvers: the queue, oldest first |
@@ -97,6 +98,18 @@ records: an approved request does not block a new one. If an album that was appr
 later unmonitored or removed in Lidarr, its sheet shows **Request again**, with a note that
 it was approved before (by you, or "requested", never naming anyone else) and Lidarr is no
 longer monitoring it. Asking again records a new request next to the old one.
+
+### Browsing by artist
+
+Searching also looks for artists. The strongest matches (at most six, MusicBrainz score 50 or
+more) show as chips under the search box; the album results come first and do not wait for
+them. A chip opens the artist's page (`#artist=<MusicBrainz ID>`, so it can be linked and the
+Back button works): every release group Lidarr's metadata service lists for them, newest first,
+in tabs for **Albums** (studio albums), **EPs**, **Singles** and **More** (live albums,
+compilations, broadcasts). Each card carries Lidarr's usual chip, and opening one shows the
+same sheet as from a search, so **requesting is unchanged**. For the chips, albumreq asks
+Lidarr for the artist's albums in one go (nothing is asked for an artist Lidarr does not
+have); if Lidarr cannot be reached the albums are listed without chips.
 
 ### Progress on the requests
 

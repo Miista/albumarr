@@ -170,6 +170,47 @@ func (c *Client) Search(ctx context.Context, term string, limit, offset int) (Pa
 	return page, nil
 }
 
+// ArtistHit is one artist search result.
+type ArtistHit struct {
+	ID             string
+	Name           string
+	Disambiguation string
+	Type           string // Person, Group, Orchestra, … ("" when MusicBrainz has none)
+	Country        string
+	Score          int
+}
+
+// SearchArtists finds artists matching term: at most limit (1-25), best first.
+func (c *Client) SearchArtists(ctx context.Context, term string, limit int) ([]ArtistHit, error) {
+	limit = min(max(limit, 1), 25)
+	q := url.Values{"query": {escapeLucene(term)}, "limit": {strconv.Itoa(limit)}, "fmt": {"json"}}
+	body, err := c.cached(ctx, "/artist?"+q.Encode(), searchTTL)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Artists []struct {
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			Disambiguation string `json:"disambiguation"`
+			Type           string `json:"type"`
+			Country        string `json:"country"`
+			Score          int    `json:"score"`
+		} `json:"artists"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("musicbrainz artist search: decoding response: %w", err)
+	}
+	out := make([]ArtistHit, 0, len(resp.Artists))
+	for _, a := range resp.Artists {
+		if !ValidID(a.ID) || strings.TrimSpace(a.Name) == "" {
+			continue
+		}
+		out = append(out, ArtistHit{ID: a.ID, Name: a.Name, Disambiguation: a.Disambiguation, Type: a.Type, Country: a.Country, Score: a.Score})
+	}
+	return out, nil
+}
+
 type credit struct {
 	Name       string `json:"name"`
 	JoinPhrase string `json:"joinphrase"`
