@@ -768,3 +768,22 @@ func ids(l []Record) []int64 {
 	}
 	return out
 }
+
+func TestLastApprovedIsTheNewestApprovalOfThatAlbumOnly(t *testing.T) {
+	s, _, _ := rig(t)
+	if _, ok, err := s.LastApproved(album1); err != nil || ok {
+		t.Fatalf("nothing approved yet: %v %v", ok, err)
+	}
+	submit(t, s, alice, album1) // pending
+	if _, ok, _ := s.LastApproved(album1); ok {
+		t.Error("a pending request is not an approval")
+	}
+	first := submit(t, s, anna, album2).Record
+	other := submit(t, s, anna, album1).Record // approved at once
+	if rec, ok, _ := s.LastApproved(album1); !ok || rec.ID != other.ID {
+		t.Errorf("album1: %+v (ok %v), want %d", rec, ok, other.ID)
+	}
+	if rec, ok, _ := s.LastApproved(album2); !ok || rec.ID != first.ID {
+		t.Errorf("album2: %+v (ok %v), want %d", rec, ok, first.ID)
+	}
+}

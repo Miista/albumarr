@@ -117,6 +117,13 @@ func (s *Service) Pending(albumIDs []string) (map[string]Record, error) {
 	return s.store.Pending(albumIDs)
 }
 
+// LastApproved is the album's most recently approved request, if any. Approved
+// records do not block a new request, so this is how the sheet can say that the
+// album was approved before and Lidarr no longer wants it.
+func (s *Service) LastApproved(albumID string) (Record, bool, error) {
+	return s.store.LastApproved(albumID)
+}
+
 func person(p auth.Principal) Person { return Person{Sub: p.Sub, Name: p.Name} }
 
 // Submit is someone asking for an album.

@@ -494,8 +494,9 @@
             <p class="note-text" v-if="detail.status === 'pending' && !detail.pendingRequest">A request for this album is waiting for an approver.</p>
             <div class="request" v-if="(detail.canRequest && mayRequest()) || requestNote || requestError">
               <button type="button" class="btn primary" v-if="detail.canRequest && mayRequest()" @click="request" :disabled="requesting">
-                <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : 'Request' }}
+                <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : (detail.earlierApproval ? 'Request again' : 'Request') }}
               </button>
+              <p class="note-text" v-if="detail.earlierApproval && detail.canRequest && mayRequest() && !requestNote">{{ detail.earlierApproval.byYou ? 'You asked for this' : 'This was requested' }} and approved {{ ago(detail.earlierApproval.at) }}, but Lidarr is not monitoring it any more.</p>
               <p class="note-text" v-if="detail.canRequest && mayRequest() && !requestNote">{{ canApprove() ? 'Lidarr will search for this album and download it if it finds a release that fits your quality profile.' : 'An approver will review your request before anything is downloaded.' }}</p>
               <p class="ok-text" v-if="requestNote">{{ requestNote }}</p>
               <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>

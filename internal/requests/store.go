@@ -109,6 +109,18 @@ func (s *Store) PendingFor(albumID string) (Record, bool, error) {
 	return r, true, nil
 }
 
+// LastApproved returns the album's most recently approved request, if it has one.
+func (s *Store) LastApproved(albumID string) (Record, bool, error) {
+	r, err := scan(s.db.QueryRow(`SELECT `+columns+` FROM requests WHERE album_id = ? AND state = 'approved' ORDER BY decided_at DESC, id DESC LIMIT 1`, albumID))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Record{}, false, nil
+	case err != nil:
+		return Record{}, false, err
+	}
+	return r, true, nil
+}
+
 // Pending returns the pending requests among the albums, by album ID. It is how
 // search results and the album sheet learn that something is waiting.
 func (s *Store) Pending(albumIDs []string) (map[string]Record, error) {

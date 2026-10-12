@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -284,5 +285,42 @@ func TestAnAlbumLidarrDoesNotKnowIsA422(t *testing.T) {
 	rec := postBody(muxWith(&fakeRequests{err: catalog.ErrNotInMetadata}, adminAuth()), "/api/album/"+id1+"/request", requestBody, sameOrigin)
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "does not have this album") {
 		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+func earlierRig(d catalog.Detail, rq *fakeRequests, who auth.Role) http.Handler {
+	mux := http.NewServeMux()
+	New(&fakeCatalog{detail: d}, &fakeCovers{}, &fakeSettings{}, as(who), &fakeUsers{}, rq, &fakeIssues{}, zerolog.Nop()).Routes(mux)
+	return mux
+}
+
+func TestTheSheetSaysAnAlbumWasApprovedBeforeWhenLidarrNoLongerWantsIt(t *testing.T) {
+	at := time.Date(2026, 10, 12, 20, 59, 0, 0, time.UTC)
+	d := catalog.Detail{Album: catalog.Album{ID: id1, Status: catalog.StatusInLidarr}, CanRequest: true}
+	earlier := requests.Record{ID: 9, State: requests.Approved, Requester: requests.Person{Sub: "sub-user", Name: "Cindy"}, CreatedAt: at.Add(-time.Hour), DecidedAt: &at}
+	body := get(earlierRig(d, &fakeRequests{lastApproved: earlier}, auth.User), "/api/album/"+id1).Body.String()
+	if !strings.Contains(body, `"earlierApproval":{"at":"2026-10-12T20:59:00Z","byYou":true}`) {
+		t.Errorf("the requester sees their own approval: %s", body)
+	}
+	body = get(earlierRig(d, &fakeRequests{lastApproved: earlier}, auth.Approver), "/api/album/"+id1).Body.String()
+	if !strings.Contains(body, `"byYou":false`) || strings.Contains(body, "Cindy") {
+		t.Errorf("someone else's approval says so and names nobody: %s", body)
+	}
+}
+
+func TestTheSheetSaysNothingAboutEarlierApprovalsWhenThereIsNoneOrNoRequestButton(t *testing.T) {
+	at := time.Date(2026, 10, 12, 20, 59, 0, 0, time.UTC)
+	earlier := requests.Record{ID: 9, State: requests.Approved, DecidedAt: &at}
+	d := catalog.Detail{Album: catalog.Album{ID: id1}, CanRequest: true}
+	if body := get(earlierRig(d, &fakeRequests{}, auth.User), "/api/album/"+id1).Body.String(); strings.Contains(body, "earlierApproval") {
+		t.Errorf("no earlier approval: %s", body)
+	}
+	d.CanRequest = false // Lidarr wants it: the button is not there, so no note either
+	if body := get(earlierRig(d, &fakeRequests{lastApproved: earlier}, auth.User), "/api/album/"+id1).Body.String(); strings.Contains(body, "earlierApproval") {
+		t.Errorf("no request button, no note: %s", body)
+	}
+	d.CanRequest = true
+	if rec := get(earlierRig(d, &fakeRequests{lastApprovedErr: errors.New("boom")}, auth.User), "/api/album/"+id1); rec.Code != 200 || strings.Contains(rec.Body.String(), "earlierApproval") {
+		t.Errorf("unreadable records must not break the sheet: %d %s", rec.Code, rec.Body)
 	}
 }

@@ -89,6 +89,12 @@ person to search; the server refuses the calls regardless. On a phone the nav is
 bottom tab bar (icon over label, a count on the icon), as in Reaparr, with the
 Settings sub-tabs floating just above it.
 
+**Asking again.** Lidarr's own state decides whether an album can be requested, not the
+records: an approved request does not block a new one. If an album that was approved is
+later unmonitored or removed in Lidarr, its sheet shows **Request again**, with a note that
+it was approved before (by you, or "requested", never naming anyone else) and Lidarr is no
+longer monitoring it. Asking again records a new request next to the old one.
+
 ### Progress on the requests
 
 An approved request on **Requests** follows Lidarr, refreshed

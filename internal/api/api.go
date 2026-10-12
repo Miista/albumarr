@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/rs/zerolog"
@@ -46,6 +47,7 @@ type Requests interface {
 	Decline(ctx context.Context, by auth.Principal, id int64, reason string) (requests.Outcome, error)
 	List(p auth.Principal, scope requests.Scope) ([]requests.Record, error)
 	Pending(albumIDs []string) (map[string]requests.Record, error)
+	LastApproved(albumID string) (requests.Record, bool, error)
 }
 
 // CoverFetcher fetches an album's front cover at 250 or 500 pixels.
@@ -268,6 +270,16 @@ func (s *Server) markPending(albums []catalog.Album) {
 type albumDetail struct {
 	catalog.Detail
 	PendingRequest *requests.Record `json:"pendingRequest,omitempty"`
+	// EarlierApproval is set when the album can be requested although a request for
+	// it was approved before: Lidarr has since dropped it (unmonitored or removed it).
+	EarlierApproval *earlierApproval `json:"earlierApproval,omitempty"`
+}
+
+// earlierApproval says an approval exists, and whether it was the viewer's own. It
+// names no one else.
+type earlierApproval struct {
+	At    time.Time `json:"at"`
+	ByYou bool      `json:"byYou"`
 }
 
 func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
@@ -291,6 +303,18 @@ func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
 			if p, _ := s.auth.Principal(r); p.Role.AtLeast(auth.Approver) {
 				out.PendingRequest = &rec
 			}
+		}
+	}
+	if d.CanRequest {
+		if rec, ok, err := s.requests.LastApproved(r.PathValue("id")); err != nil {
+			s.log.Warn().Err(err).Msg("could not read an album's earlier approval")
+		} else if ok {
+			p, _ := s.auth.Principal(r)
+			at := rec.CreatedAt
+			if rec.DecidedAt != nil {
+				at = *rec.DecidedAt
+			}
+			out.EarlierApproval = &earlierApproval{At: at, ByYou: rec.Requester.Sub == p.Sub}
 		}
 	}
 	writeJSON(w, out)

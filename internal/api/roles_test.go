@@ -70,9 +70,11 @@ type fakeRequests struct {
 	listScope requests.Scope
 	listCalls int
 
-	pending      map[string]requests.Record
-	pendingErr   error
-	pendingCalls int
+	lastApproved    requests.Record
+	lastApprovedErr error
+	pending         map[string]requests.Record
+	pendingErr      error
+	pendingCalls    int
 }
 
 func (f *fakeRequests) Submit(_ context.Context, p auth.Principal, a requests.Ask) (requests.Outcome, error) {
@@ -94,6 +96,9 @@ func (f *fakeRequests) List(p auth.Principal, scope requests.Scope) ([]requests.
 	f.listCalls++
 	f.by, f.listScope = p, scope
 	return f.list, f.listErr
+}
+func (f *fakeRequests) LastApproved(string) (requests.Record, bool, error) {
+	return f.lastApproved, f.lastApproved.ID != 0, f.lastApprovedErr
 }
 func (f *fakeRequests) Pending(ids []string) (map[string]requests.Record, error) {
 	f.pendingCalls++
