@@ -179,6 +179,42 @@ When Lidarr cannot be reached or rejects the key, the later questions are not as
 An issue never contains the API key or a bad value from the environment. Warnings
 and errors count in the nav; notes do not.
 
+## Notifications
+
+Push messages through **ntfy**, modelled on Seerr's. Settings → Notifications (admins) holds the
+server address, authentication (none, user and password, or an access token), a priority, tags,
+the application address (so a message opens the right page) and whether to attach the album
+cover. A **Send test** button sends what is on the page before it is saved.
+
+Two kinds of recipient:
+
+- **The shared channel**, one topic with a checklist of events. Meant for whoever approves.
+- **Each person**, on their own **Account** page (their name in the top bar, or the person icon
+  on a phone): their own topic, and which of *approved, declined, available, could not be
+  searched for* they want to hear about, for their own requests only. People cannot see or
+  set anyone else's topic, and a topic belongs to one person (case-insensitive). On an open
+  ntfy server anyone who knows a topic's name can read it, so the page offers a random one.
+
+| Event | Shared channel | The requester |
+|---|---|---|
+| A request is waiting for approval | yes | |
+| A request was approved automatically (an approver's or admin's own) | yes | |
+| A request was approved | yes | yes |
+| A request was declined (with the reason) | yes | yes |
+| An approved album is available (all tracks in Lidarr) | yes | yes |
+| An approved album could not be searched for | yes | yes |
+
+Nobody is told about their own action. Nothing tells albumreq when a download finishes, so it
+asks Lidarr every five minutes (`ALBUMREQ_NOTIFICATIONS_CHECK_EVERY`, at least 10 seconds)
+about approved requests not yet announced, and gives up on a request after 90 days. Turning
+notifications on never replays old events. Sending is asynchronous and never holds up a
+request; a full queue drops messages rather than waiting. Errors shown are fixed phrases that
+never contain an address or a secret, and a failing server shows up on the Issues page.
+
+Settings pin like Lidarr's: `ALBUMREQ_SETTING_NOTIFICATIONS_<ENABLED|URL|TOPIC|TAGS|AUTH|USERNAME|PASSWORD|TOKEN|PRIORITY|EMBED_POSTER|TYPES|APP_URL>`.
+The server address and credentials lock together, so a pinned token can never be sent to an
+address typed into the page.
+
 ## Settings
 
 Lidarr is configured on the **Settings** page, not in the environment: its URL,
@@ -240,6 +276,8 @@ Environment variables:
 |---|---|---|---|
 | `ALBUMREQ_SETTING_LIDARR_*` | no | | The four Lidarr settings above. Not needed when you use the Settings page. A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` is ignored, with a warning. |
 | `ALBUMREQ_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
+| `ALBUMREQ_SETTING_NOTIFICATIONS_*` | no | | The ntfy settings (see Notifications). Not needed when you use the Settings page. |
+| `ALBUMREQ_NOTIFICATIONS_CHECK_EVERY` | no | `5m` | How often approved requests are checked for arrival (a duration, minimum `10s`) |
 | `ALBUMREQ_DATA_DIR` | no | `/app/data` | Where `albumreq.db` (settings, users; holds the Lidarr key), `backup/` and `auth/` (the local account and session key) are kept |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT` | yes | | An email address or a project URL. MusicBrainz requires a way to contact whoever runs an application, in the User-Agent. **There is no default:** it is yours to choose, and it is sent to MusicBrainz only, never to Lidarr's services. |
 | `ALBUMREQ_SETTING_MUSICBRAINZ_URL` | no | public MusicBrainz | Another MusicBrainz web service (WS/2), e.g. a self-hosted mirror |
@@ -360,4 +398,5 @@ docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
 3. **Done:** login (oidcgate, OIDC), roles from groups, approvers.
 4. **Done:** request records and the approval flow (backend, API and the Pending chip).
 5. **Done:** the pages: My requests, Approvals, and Settings → Users.
-6. Deployment, and notifications when a request is decided (see `PLAN-REQUESTS.md`).
+6. **Done:** notifications (ntfy: shared channel, per-person topics, availability).
+7. Deployment.

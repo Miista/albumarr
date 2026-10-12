@@ -23,8 +23,10 @@ function api(url, opts) {
 }
 
 // The pages other than search have their own hash; search keeps the query string.
-const HASHES = { requests: '#/requests', approvals: '#/approvals', issues: '#/issues', settings: '#/settings' };
-const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings' };
+const HASHES = { requests: '#/requests', approvals: '#/approvals', issues: '#/issues', settings: '#/settings', account: '#/account' };
+const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'approvals', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings', '#/settings/notifications': 'settings', '#/account': 'account' };
+const TAB_OF_HASH = { '#/settings/users': 'users', '#/settings/notifications': 'notifications' };
+const HASH_OF_TAB = { users: '#/settings/users', notifications: '#/settings/notifications', lidarr: '#/settings' };
 
 function App() {
   // Kept out of the reactive scope: timers and the in-flight counters have no
@@ -57,7 +59,7 @@ function App() {
     // --- settings page ---
 
     page: 'search',
-    settingsTab: 'lidarr', // lidarr | users
+    settingsTab: 'lidarr', // lidarr | notifications | users
     me: null, // GET /api/me: who is signed in and what they may do
 
     // requests: mine, the approval queue (and its history, for admins), and who acts
@@ -99,6 +101,26 @@ function App() {
     saveError: '',
     warning: '',
 
+    // Notifications (admins): the ntfy server and the shared channel
+    ncfg: null, // GET /api/notifications
+    nerror: '',
+    nform: null,
+    ntesting: false,
+    ntest: null,
+    nsaving: false,
+    nstate: '',
+    nsaveError: '',
+
+    // Account (everyone): where I hear about my own requests
+    acct: null, // GET /api/me/notifications
+    acctError: '',
+    aform: { topic: '', types: [] },
+    asaving: false,
+    astate: '',
+    asaveError: '',
+    atesting: false,
+    atest: null,
+
     go(page) {
       if (page === this.page) return;
       if (this.selected) this.close();
@@ -133,6 +155,9 @@ function App() {
       if (page === 'settings') {
         this.loadSettings();
         this.loadUsers();
+        this.loadNotifications();
+      } else if (page === 'account') {
+        this.loadAccount();
       } else if (page === 'requests') {
         this.loadMine();
       } else if (page === 'approvals') {
@@ -292,7 +317,222 @@ function App() {
     goSettingsTab(tab) {
       if (tab === this.settingsTab) return;
       this.settingsTab = tab;
-      history.pushState(null, '', location.pathname + (tab === 'users' ? '#/settings/users' : '#/settings'));
+      history.pushState(null, '', location.pathname + HASH_OF_TAB[tab]);
+    },
+
+    // openLink follows an Issues link to the settings tab that can fix it.
+    openLink(link) {
+      if (this.selected) this.close();
+      if (!link.startsWith('#/settings')) return this.go('issues');
+      this.settingsTab = TAB_OF_HASH[link] || 'lidarr';
+      history.pushState(null, '', location.pathname + link);
+      this.showPage('settings');
+    },
+
+    // ---- Settings -> Notifications ----
+
+    nlock(key) {
+      return this.ncfg && this.ncfg.locks ? this.ncfg.locks['notifications.' + key] : null;
+    },
+
+    nlockText(key) {
+      const l = this.nlock(key);
+      if (!l) return '';
+      if (l.reason === 'env') return 'Managed by ' + l.env_var;
+      if (l.reason === 'paired') return 'Locked with ' + l.env_var;
+      return 'Read-only';
+    },
+
+    async loadNotifications() {
+      this.nerror = '';
+      try {
+        const res = await api('/api/notifications', { cache: 'no-store' });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.applyNotifications(await res.json());
+      } catch (e) {
+        this.nerror = e.message;
+      }
+    },
+
+    // Secrets never come to the page: their fields start empty, and empty means keep.
+    applyNotifications(c) {
+      this.ncfg = c;
+      const v = c.values;
+      this.nform = {
+        enabled: v.enabled, url: v.url, topic: v.topic, tags: v.tags, auth: v.auth,
+        username: v.username, password: '', token: '', priority: v.priority,
+        embed_poster: v.embed_poster, types: (v.types || []).slice(), app_url: v.app_url,
+      };
+    },
+
+    sameSet(a, b) {
+      return a.length === b.length && a.every((x) => b.includes(x));
+    },
+
+    nchanges() {
+      if (!this.ncfg || !this.nform) return {};
+      const v = this.ncfg.values;
+      const f = this.nform;
+      const out = {};
+      const text = (k) => { if (!this.nlock(k) && f[k].trim() !== v[k]) out[k] = f[k].trim(); };
+      for (const k of ['url', 'topic', 'tags', 'username', 'app_url']) text(k);
+      if (!this.nlock('auth') && f.auth !== v.auth) out.auth = f.auth;
+      for (const k of ['enabled', 'embed_poster']) if (!this.nlock(k) && f[k] !== v[k]) out[k] = f[k];
+      if (!this.nlock('priority') && Number(f.priority) !== v.priority) out.priority = Number(f.priority);
+      if (!this.nlock('password') && f.password !== '') out.password = f.password;
+      if (!this.nlock('token') && f.token !== '') out.token = f.token;
+      if (!this.nlock('types') && !this.sameSet(f.types, v.types)) out.types = f.types.slice();
+      return out;
+    },
+
+    ndirty() {
+      return Object.keys(this.nchanges()).length > 0;
+    },
+
+    nbar() {
+      if (this.nstate === 'failed') return { cls: 'failed', msg: this.nsaveError };
+      if (this.nsaving) return { cls: 'dirty', msg: 'Saving…' };
+      if (this.nstate === 'saved') return { cls: 'saved', msg: 'Settings saved' };
+      if (this.ndirty()) return { cls: 'dirty', msg: 'You have unsaved changes' };
+      return { cls: '', msg: '' };
+    },
+
+    ndiscard() {
+      if (!this.ncfg) return;
+      this.applyNotifications(this.ncfg);
+      this.nstate = '';
+      this.nsaveError = '';
+    },
+
+    toggleType(list, id, on) {
+      const i = list.indexOf(id);
+      if (on && i < 0) list.push(id);
+      if (!on && i >= 0) list.splice(i, 1);
+    },
+
+    async saveNotifications() {
+      const body = this.nchanges();
+      if (this.nsaving || !Object.keys(body).length) return;
+      this.nsaving = true;
+      this.nstate = '';
+      try {
+        const res = await api('/api/notifications', {
+          method: 'POST',
+          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ntfy: body }),
+        });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.applyNotifications((await res.json()).settings);
+        this.nstate = 'saved';
+        setTimeout(() => { if (this.nstate === 'saved') this.nstate = ''; }, 3000);
+        this.ntest = null;
+        this.loadIssues(true, true);
+      } catch (e) {
+        this.nsaveError = e.message;
+        this.nstate = 'failed';
+      } finally {
+        this.nsaving = false;
+      }
+    },
+
+    // The test sends what is on the page, so a server can be tried before it is
+    // saved. A secret left empty is the saved one; the server decides if that is allowed.
+    async testNotifications() {
+      if (this.ntesting || !this.nform) return;
+      this.ntesting = true;
+      this.ntest = null;
+      const f = this.nform;
+      try {
+        const res = await api('/api/notifications/test', {
+          method: 'POST',
+          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: f.url.trim(), topic: f.topic.trim(), auth: f.auth, username: f.username.trim(),
+            password: f.password, token: f.token, priority: Number(f.priority), tags: f.tags.trim(),
+          }),
+        });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.ntest = await res.json();
+      } catch (e) {
+        this.ntest = { ok: false, message: e.message };
+      } finally {
+        this.ntesting = false;
+      }
+    },
+
+    // ---- Account ----
+
+    async loadAccount() {
+      this.acctError = '';
+      try {
+        const res = await api('/api/me/notifications', { cache: 'no-store' });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.applyAccount(await res.json());
+      } catch (e) {
+        this.acctError = e.message;
+      }
+    },
+
+    applyAccount(v) {
+      this.acct = v;
+      this.aform = { topic: v.topic, types: (v.types || []).slice() };
+    },
+
+    adirty() {
+      return !!this.acct && (this.aform.topic.trim() !== this.acct.topic || !this.sameSet(this.aform.types, this.acct.types));
+    },
+
+    abar() {
+      if (this.astate === 'failed') return { cls: 'failed', msg: this.asaveError };
+      if (this.asaving) return { cls: 'dirty', msg: 'Saving…' };
+      if (this.astate === 'saved') return { cls: 'saved', msg: 'Saved' };
+      if (this.adirty()) return { cls: 'dirty', msg: 'You have unsaved changes' };
+      return { cls: '', msg: '' };
+    },
+
+    adiscard() {
+      if (this.acct) this.applyAccount(this.acct);
+      this.astate = '';
+      this.asaveError = '';
+    },
+
+    async saveAccount() {
+      if (this.asaving || !this.adirty()) return;
+      this.asaving = true;
+      this.astate = '';
+      try {
+        const res = await api('/api/me/notifications', {
+          method: 'POST',
+          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: this.aform.topic.trim(), types: this.aform.types }),
+        });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.applyAccount(await res.json());
+        this.atest = null;
+        this.astate = 'saved';
+        setTimeout(() => { if (this.astate === 'saved') this.astate = ''; }, 3000);
+      } catch (e) {
+        this.asaveError = e.message;
+        this.astate = 'failed';
+      } finally {
+        this.asaving = false;
+      }
+    },
+
+    // Sends to the saved topic, so unsaved edits are saved first by the person.
+    async testAccount() {
+      if (this.atesting) return;
+      this.atesting = true;
+      this.atest = null;
+      try {
+        const res = await api('/api/me/notifications/test', { method: 'POST', headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' }, body: '{}' });
+        if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
+        this.atest = await res.json();
+      } catch (e) {
+        this.atest = { ok: false, message: e.message };
+      } finally {
+        this.atesting = false;
+      }
     },
 
     async save() {
@@ -525,7 +765,7 @@ function App() {
 
     syncFromHash() {
       const page = PAGE_OF_HASH[location.hash];
-      if (page === 'settings') this.settingsTab = location.hash === '#/settings/users' ? 'users' : 'lidarr';
+      if (page === 'settings') this.settingsTab = TAB_OF_HASH[location.hash] || 'lidarr';
       if (page) {
         if (this.selected) {
           detailSeq++;

@@ -29,7 +29,9 @@
       <a href="#/settings" v-if="me.role === 'admin'" :class="{ active: page === 'settings' }" @click.prevent="go('settings')"><span class="tab-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span><span class="tab-label">Settings</span></a>
     </nav>
     <div class="whoami" v-if="me">
-      <span class="who-name" :title="me.email || ''">{{ me.name }}</span>
+      <a class="who-name" href="#/account" :title="(me.email || '') + ' · notifications'" @click.prevent="go('account')" v-if="me.role !== 'none'">{{ me.name }}</a>
+      <span class="who-name" :title="me.email || ''" v-else>{{ me.name }}</span>
+      <a class="acct-icon" href="#/account" aria-label="Account and notifications" @click.prevent="go('account')" v-if="me.role !== 'none'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"></circle><path d="M4.5 20c0-4 3.4-6 7.5-6s7.5 2 7.5 6"></path></svg></a>
       <span class="role-pill" v-if="me.role !== 'none'">{{ me.role }}</span>
       <a class="only-with-gate signout" href="/auth/logout">Sign out</a>
     </div>
@@ -103,7 +105,7 @@
   <main class="settings" v-if="page === 'settings' && me && me.role === 'admin'">
     <div class="title-block">
       <h1>Settings</h1>
-      <p class="env-note" v-if="settingsTab === 'lidarr'">
+      <p class="env-note" v-if="settingsTab !== 'users'">
         Fields locked with
         <span class="env-chip">ENV</span>
         are pinned by an environment variable and cannot be changed here.
@@ -112,11 +114,12 @@
 
     <nav class="subtabs" aria-label="Settings sections">
       <a href="#/settings" :class="{ active: settingsTab === 'lidarr' }" @click.prevent="goSettingsTab('lidarr')">Lidarr</a>
+      <a href="#/settings/notifications" :class="{ active: settingsTab === 'notifications' }" @click.prevent="goSettingsTab('notifications')">Notifications</a>
       <a href="#/settings/users" :class="{ active: settingsTab === 'users' }" @click.prevent="goSettingsTab('users')">Users</a>
     </nav>
 
-    <p class="error-text" v-if="cfgError" role="alert">{{ cfgError }}</p>
-    <div class="searching" v-if="!cfg && !cfgError"><span class="spinner"></span>Loading…</div>
+    <p class="error-text" v-if="cfgError && settingsTab !== 'notifications'" role="alert">{{ cfgError }}</p>
+    <div class="searching" v-if="!cfg && !cfgError && settingsTab !== 'notifications'"><span class="spinner"></span>Loading…</div>
 
     <p class="banner" v-if="cfg && settingsTab === 'lidarr' && cfg.read_only">Settings are read-only (<code>ALBUMREQ_SETTINGS_READONLY</code>). Nothing here can be changed from the page.</p>
 
@@ -181,6 +184,106 @@
       </div>
     </form>
 
+    <p class="error-text" v-if="nerror && settingsTab === 'notifications'" role="alert">{{ nerror }}</p>
+    <p class="banner" v-if="ncfg && settingsTab === 'notifications' && ncfg.read_only">Settings are read-only (<code>ALBUMREQ_SETTINGS_READONLY</code>). Nothing here can be changed from the page.</p>
+    <p class="banner warn" v-for="p in (ncfg && settingsTab === 'notifications' ? ncfg.problems : [])" :key="p">{{ p }}</p>
+
+    <form class="cards with-bar" v-if="ncfg && nform && settingsTab === 'notifications'" @submit.prevent="saveNotifications" autocomplete="off">
+      <section class="card">
+        <div class="card-head">
+          <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></div>
+          <div class="card-text"><h2>ntfy</h2><p>Where notifications are sent from. Each person can add their own topic on their account page.</p></div>
+          <span class="conn-pill" :class="ncfg.values.enabled ? 'on' : 'off'">{{ ncfg.values.enabled ? 'On' : 'Off' }}</span>
+        </div>
+        <div class="card-grid">
+          <div class="field">
+            <label class="field-label" for="n-url">Server address <span class="lock-label" v-if="nlock('url')">{{ nlockText('url') }}</span></label>
+            <input id="n-url" class="input plain" :class="{ locked: nlock('url') }" type="url" v-model="nform.url" :readonly="nlock('url') ? true : null" placeholder="https://ntfy.example.com" autocapitalize="off" autocorrect="off" spellcheck="false" >
+          </div>
+          <div class="field">
+            <label class="field-label" for="n-auth">Authentication <span class="lock-label" v-if="nlock('auth')">{{ nlockText('auth') }}</span></label>
+            <select id="n-auth" class="input plain" :class="{ locked: nlock('auth') }" v-model="nform.auth" :disabled="!!nlock('auth')">
+              <option value="none">None</option>
+              <option value="basic">Username and password</option>
+              <option value="token">Access token</option>
+            </select>
+          </div>
+          <template v-if="nform.auth === 'basic'">
+          <div class="field">
+            <label class="field-label" for="n-username">Username <span class="lock-label" v-if="nlock('username')">{{ nlockText('username') }}</span></label>
+            <input id="n-username" class="input plain" :class="{ locked: nlock('username') }" type="text" v-model="nform.username" :readonly="nlock('username') ? true : null" placeholder="" autocapitalize="off" autocorrect="off" spellcheck="false" >
+          </div>
+          <div class="field">
+            <label class="field-label" for="n-password">Password <span class="lock-label" v-if="nlock('password')">{{ nlockText('password') }}</span></label>
+            <input id="n-password" class="input plain" :class="{ locked: nlock('password') }" type="password" v-model="nform.password" :readonly="nlock('password') ? true : null" :placeholder="ncfg.values.password_set ? ncfg.values.password + ' (saved, type to replace)' : ''" autocomplete="new-password">
+          </div>
+          </template>
+          <template v-if="nform.auth === 'token'">
+          <div class="field">
+            <label class="field-label" for="n-token">Access token <span class="lock-label" v-if="nlock('token')">{{ nlockText('token') }}</span></label>
+            <input id="n-token" class="input plain" :class="{ locked: nlock('token') }" type="password" v-model="nform.token" :readonly="nlock('token') ? true : null" :placeholder="ncfg.values.token_set ? ncfg.values.token + ' (saved, type to replace)' : ''" autocomplete="new-password">
+          </div>
+          </template>
+        </div>
+        <div class="card-foot">
+          <button type="button" class="btn btn-test" @click="testNotifications" :disabled="ntesting">
+            <span class="spinner" v-if="ntesting"></span>{{ ntesting ? 'Sending…' : 'Send test' }}
+          </button>
+          <span class="msg ok" v-if="ntest && ntest.ok">{{ ntest.message }}</span>
+          <span class="msg bad" v-if="ntest && !ntest.ok">{{ ntest.message }}</span>
+          <span class="msg bad" v-if="!ntest && ncfg.last_error">Last send failed: {{ ncfg.last_error.message }}</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg></div>
+          <div class="card-text"><h2>Shared channel</h2><p>One topic that hears about everyone's requests. Meant for whoever approves.</p></div>
+        </div>
+        <div class="card-grid">
+          <label class="toggle wide">
+            <input type="checkbox" v-model="nform.enabled" :disabled="!!nlock('enabled')">
+            <span>Send notifications <span class="lock-label" v-if="nlock('enabled')">{{ nlockText('enabled') }}</span></span>
+          </label>
+          <div class="field">
+            <label class="field-label" for="n-topic">Topic <span class="lock-label" v-if="nlock('topic')">{{ nlockText('topic') }}</span></label>
+            <input id="n-topic" class="input plain" :class="{ locked: nlock('topic') }" type="text" v-model="nform.topic" :readonly="nlock('topic') ? true : null" placeholder="albumreq" autocapitalize="off" autocorrect="off" spellcheck="false" >
+          </div>
+          <div class="field">
+            <label class="field-label" for="n-priority">Priority <span class="lock-label" v-if="nlock('priority')">{{ nlockText('priority') }}</span></label>
+            <select id="n-priority" class="input plain" :class="{ locked: nlock('priority') }" v-model.number="nform.priority" :disabled="!!nlock('priority')">
+              <option :value="1">1 · Min</option><option :value="2">2 · Low</option><option :value="3">3 · Default</option><option :value="4">4 · High</option><option :value="5">5 · Max</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="n-tags">Tags <span class="lock-label" v-if="nlock('tags')">{{ nlockText('tags') }}</span></label>
+            <input id="n-tags" class="input plain" :class="{ locked: nlock('tags') }" type="text" v-model="nform.tags" :readonly="nlock('tags') ? true : null" placeholder="musical_note" autocapitalize="off" autocorrect="off" spellcheck="false" >
+          </div>
+          <div class="field">
+            <label class="field-label" for="n-app_url">Application address <span class="lock-label" v-if="nlock('app_url')">{{ nlockText('app_url') }}</span></label>
+            <input id="n-app_url" class="input plain" :class="{ locked: nlock('app_url') }" type="url" v-model="nform.app_url" :readonly="nlock('app_url') ? true : null" placeholder="https://albumreq.example.com" autocapitalize="off" autocorrect="off" spellcheck="false" >
+          </div>
+          <label class="toggle wide">
+            <input type="checkbox" v-model="nform.embed_poster" :disabled="!!nlock('embed_poster')">
+            <span>Attach the album cover <span class="lock-label" v-if="nlock('embed_poster')">{{ nlockText('embed_poster') }}</span></span>
+          </label>
+          <fieldset class="checks wide" :disabled="!!nlock('types')">
+            <legend class="field-label">Tell the channel when <span class="lock-label" v-if="nlock('types')">{{ nlockText('types') }}</span></legend>
+            <label class="toggle" v-for="t in ncfg.event_types" :key="t.id">
+              <input type="checkbox" :checked="nform.types.includes(t.id)" @change="toggleType(nform.types, t.id, $event.target.checked)">
+              <span>{{ t.label }}</span>
+            </label>
+          </fieldset>
+        </div>
+      </section>
+
+      <div class="save-bar" v-if="!ncfg.read_only && nbar().cls" :class="nbar().cls" role="status">
+        <span class="msg"><span class="dot"></span>{{ nbar().msg }}</span>
+        <button type="button" class="btn btn-ghost" @click="ndiscard" :disabled="nsaving || !ndirty()">Discard</button>
+        <button type="submit" class="btn primary" :disabled="nsaving || !ndirty()"><span class="spinner" v-if="nsaving"></span>Save</button>
+      </div>
+    </form>
+
     <section class="card users-card" v-if="cfg && settingsTab === 'users'" aria-labelledby="users-h">
       <div class="card-head">
         <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3 19c0-3.2 2.7-5 6-5s6 1.8 6 5M16 6.2a3 3 0 0 1 0 5.6M18 14.4c1.7.6 3 2 3 4.6"></path></svg></div>
@@ -202,6 +305,52 @@
         </li>
       </ul>
     </section>
+  </main>
+
+  <!-- Account -->
+  <main class="account" v-if="page === 'account' && me && me.role !== 'none'">
+    <div class="title-block">
+      <h1>{{ me.name }}</h1>
+      <p class="lede">{{ me.email || 'Signed in' }} · {{ me.role }}</p>
+    </div>
+    <p class="error-text" v-if="acctError" role="alert">{{ acctError }}</p>
+    <div class="searching" v-if="!acct && !acctError"><span class="spinner"></span>Loading…</div>
+    <form class="cards with-bar" v-if="acct" @submit.prevent="saveAccount" autocomplete="off">
+      <section class="card">
+        <div class="card-head">
+          <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></div>
+          <div class="card-text"><h2>Notify me about my requests</h2><p>Get a push message when a request is approved, declined or ready to play.</p></div>
+        </div>
+        <p class="note-text" v-if="!acct.available">Notifications are not set up yet. Ask whoever runs albumreq.</p>
+        <div class="card-grid" v-else>
+          <div class="field wide">
+            <label class="field-label" for="a-topic">Your topic</label>
+            <input id="a-topic" class="input plain" v-model="aform.topic" placeholder="a name only you know" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="64">
+            <p class="hint">In the ntfy app, subscribe to this topic on <strong>{{ acct.server }}</strong>. Anyone who knows the name can read it, so pick one that cannot be guessed.
+              <a href="#" v-if="acct.suggested_topic && !aform.topic" @click.prevent="aform.topic = acct.suggested_topic">Use <code>{{ acct.suggested_topic }}</code></a></p>
+          </div>
+          <fieldset class="checks wide">
+            <legend class="field-label">Tell me when</legend>
+            <label class="toggle" v-for="t in acct.event_types" :key="t.id">
+              <input type="checkbox" :checked="aform.types.includes(t.id)" @change="toggleType(aform.types, t.id, $event.target.checked)">
+              <span>{{ t.label }}</span>
+            </label>
+          </fieldset>
+        </div>
+        <div class="card-foot" v-if="acct.available">
+          <button type="button" class="btn btn-test" @click="testAccount" :disabled="atesting || !acct.topic || adirty()" :title="adirty() ? 'Save first' : ''">
+            <span class="spinner" v-if="atesting"></span>{{ atesting ? 'Sending…' : 'Send test' }}
+          </button>
+          <span class="msg ok" v-if="atest && atest.ok">{{ atest.message }}</span>
+          <span class="msg bad" v-if="atest && !atest.ok">{{ atest.message }}</span>
+        </div>
+      </section>
+      <div class="save-bar" v-if="acct.available && abar().cls" :class="abar().cls" role="status">
+        <span class="msg"><span class="dot"></span>{{ abar().msg }}</span>
+        <button type="button" class="btn btn-ghost" @click="adiscard" :disabled="asaving || !adirty()">Discard</button>
+        <button type="submit" class="btn primary" :disabled="asaving || !adirty()"><span class="spinner" v-if="asaving"></span>Save</button>
+      </div>
+    </form>
   </main>
 
   <!-- Issues -->
@@ -227,7 +376,7 @@
         </div>
         <p class="issue-detail">{{ i.detail }}</p>
         <p class="issue-fix" v-if="i.fix"><strong>What to do:</strong> {{ i.fix }}</p>
-        <a class="issue-link" v-if="i.link" :href="i.link" @click.prevent="go(i.link === '#/settings' ? 'settings' : 'issues')">Open settings</a>
+        <a class="issue-link" v-if="i.link" :href="i.link" @click.prevent="openLink(i.link)">Open settings</a>
       </li>
     </ul>
   </main>

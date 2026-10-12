@@ -440,3 +440,16 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .card-foot .btn { flex: none; }
   .card-foot .msg { flex: 1; min-width: 0; font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
 }
+
+/* notifications and account */
+.card-grid .wide { grid-column: 1 / -1; }
+.checks { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; min-width: 0; }
+.checks legend { padding: 0; margin-bottom: 8px; }
+.checks:disabled { opacity: .7; }
+.account .hint { font-size: 13px; color: var(--muted); margin: 2px 0 0; line-height: 1.45; }
+.account .hint code { word-break: break-all; }
+a.who-name { text-decoration: none; }
+a.who-name:hover { text-decoration: underline; }
+main.account { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+.acct-icon { display: none; color: var(--muted); padding: 6px; }
+@media (max-width: 640px) { .acct-icon { display: inline-flex; } }
