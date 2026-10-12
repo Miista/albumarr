@@ -10,6 +10,7 @@ const STATUS_LABELS = {
 // MusicBrainz answers about one search a second, so wait for a pause in the
 // typing rather than searching on every few keystrokes.
 const DEBOUNCE_MS = 600;
+const SWIPE_W = 96; // how far a row slides to show its Delete button
 const MIN_QUERY = 2;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -84,6 +85,9 @@ function App() {
     rowError: {}, // request id -> why the last one failed
     declining: null, // the request id whose decline form is open
     deleting: null, // the request id waiting for the second press of Delete
+    swiped: null, // the request id whose row is slid open to show Delete (touch)
+    swipedAt: 0,
+    drag: null, // a swipe in progress: { id, x0, y0, dx, base, active }
     declineReason: '',
 
     // Issues (admins)
@@ -587,7 +591,10 @@ function App() {
         if (document.hidden || !this.me) return;
         if (this.page === 'requests') this.loadRequests();
       }, 15000);
-      window.addEventListener('click', (e) => { if (this.menuOpen && !e.target.closest('.menu-wrap')) this.menuOpen = false; });
+      window.addEventListener('click', (e) => {
+        if (this.menuOpen && !e.target.closest('.menu-wrap')) this.menuOpen = false;
+        if (this.swiped !== null && !e.target.closest('.swipe-action')) this.swiped = null;
+      });
       window.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.menuOpen = false; });
       api('/api/me', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((m) => {
         if (!m) return;
@@ -1037,7 +1044,59 @@ function App() {
 
     // openRequest opens the album's sheet over the current page.
     openRequest(r) {
+      // A tap on a row that is slid open (or just swiped) closes it instead of opening.
+      if (this.swiped !== null || Date.now() - this.swipedAt < 400) {
+        this.swiped = null;
+        return;
+      }
       this.open({ id: r.albumId, title: r.title, artist: r.artist, secondaryTypes: [], cover: '/api/cover/' + r.albumId });
+    },
+
+    // --- swipe a row to reveal Delete, as on iOS (touch only) ---
+
+    swipeStart(e, r) {
+      if (e.pointerType !== 'touch' || !this.canDelete(r)) return;
+      this.drag = { id: r.id, x0: e.clientX, y0: e.clientY, dx: 0, active: false, base: this.swiped === r.id ? -SWIPE_W : 0 };
+    },
+
+    swipeMove(e, r) {
+      const d = this.drag;
+      if (!d || d.id !== r.id) return;
+      const dx = e.clientX - d.x0;
+      const dy = e.clientY - d.y0;
+      if (!d.active) {
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) d.active = true; // sideways: ours
+        else if (Math.abs(dy) > 10) this.drag = null; // downwards: a scroll
+        if (!d.active) return;
+        if (this.swiped !== null && this.swiped !== r.id) this.swiped = null; // one open row at a time
+      }
+      d.dx = dx;
+    },
+
+    swipeEnd(e, r) {
+      const d = this.drag;
+      this.drag = null;
+      if (!d || !d.active) return;
+      this.swipedAt = Date.now(); // the click that follows a swipe must not open the album
+      this.swiped = this.shift(d) < -SWIPE_W / 2 ? r.id : null;
+    },
+
+    shift(d) {
+      return Math.min(0, Math.max(-SWIPE_W, d.base + d.dx));
+    },
+
+    // rowShift is how far the row is slid left: with the finger while dragging,
+    // else all the way open or shut.
+    rowShift(r) {
+      const d = this.drag;
+      if (d && d.active && d.id === r.id) return this.shift(d);
+      return this.swiped === r.id ? -SWIPE_W : 0;
+    },
+
+    // removeNow is the revealed Delete button: the swipe was the deliberate step.
+    removeNow(r) {
+      this.deleting = r.id;
+      this.remove(r);
     },
 
     // canDelete mirrors the server: an admin may delete any request, anyone else only

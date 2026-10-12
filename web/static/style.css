@@ -297,7 +297,10 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .tabs button:hover { color: var(--text); }
 .tabs button.active { color: var(--text); border-bottom-color: oklch(0.65 0.2 290); }
 .req-list, .user-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.req-row { display: flex; align-items: flex-start; gap: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: oklch(0.17 0.012 270 / .6); }
+.req-item { position: relative; border-radius: 12px; overflow: hidden; }
+.req-row { display: flex; align-items: flex-start; gap: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: oklch(0.16 0.012 270); position: relative; transition: transform .22s ease; touch-action: pan-y; }
+.req-row.dragging { transition: none; }
+.swipe-action { display: none; position: absolute; top: 0; right: 0; bottom: 0; width: 96px; align-items: center; justify-content: center; border: 0; border-radius: 0 12px 12px 0; background: oklch(0.55 0.2 25); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
 .req-open { flex: none; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 8px; }
 .req-open:focus-visible { outline: 2px solid oklch(0.65 0.2 290); outline-offset: 2px; }
 .req-cover { display: block; width: 56px; height: 56px; border-radius: 8px; overflow: hidden; position: relative; }
@@ -480,3 +483,9 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .contents { display: contents; } /* a wrapper for v-if: petite-vue cannot put v-if on a template's direct children */
 .artist-chip .kind-pill { position: static; flex: none; margin-left: 4px; }
 .head-pill { position: static; vertical-align: middle; margin-left: 6px; }
+
+/* Touch screens slide a row to show Delete, as iOS does; a mouse keeps the button in the row. */
+@media (hover: none) and (pointer: coarse) {
+  .swipe-action { display: flex; }
+  .req-delete { display: none; }
+}

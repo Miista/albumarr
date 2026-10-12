@@ -445,7 +445,12 @@
       <span class="sub">{{ reqs.length ? 'No request is ' + filterLabel().toLowerCase() + '. Choose another filter.' : 'Search for an album and press Request.' }}</span>
     </div>
     <ul class="req-list" v-if="shown().length">
-      <li class="req-row" v-for="r in shown()" :key="r.id">
+      <li class="req-item" v-for="r in shown()" :key="r.id">
+      <button type="button" class="swipe-action" v-if="canDelete(r)" @click="removeNow(r)" @focus="swiped = r.id" :disabled="busy[r.id]" :aria-label="(r.state === 'pending' && r.requester.sub === me.sub ? 'Cancel the request for ' : 'Delete the request for ') + r.title">
+        <span class="spinner" v-if="busy[r.id]"></span>{{ busy[r.id] ? '' : (r.state === 'pending' && r.requester.sub === me.sub ? 'Cancel' : 'Delete') }}
+      </button>
+      <div class="req-row" :class="{ dragging: drag && drag.active && drag.id === r.id }" :style="rowShift(r) ? { transform: 'translateX(' + rowShift(r) + 'px)' } : null"
+           @pointerdown="swipeStart($event, r)" @pointermove="swipeMove($event, r)" @pointerup="swipeEnd($event, r)" @pointercancel="drag = null">
         <button type="button" class="req-open" @click="openRequest(r)" :aria-label="'Open ' + r.title">
           <span class="req-cover cover" :style="{ '--hue': hueFor(r.title) }"><span class="cover-fallback">{{ r.title }}</span><img :src="'/api/cover/' + r.albumId" alt="" loading="lazy" @error="$event.target.remove()"></span>
         </button>
@@ -475,6 +480,7 @@
             <button type="button" class="btn quiet" @click="deleting = null">Keep</button>
           </template>
         </div>
+      </div>
       </li>
     </ul>
   </main>

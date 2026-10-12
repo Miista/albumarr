@@ -91,7 +91,7 @@ person to search; the server refuses the calls regardless. On a phone the nav is
 bottom tab bar (icon over label, a count on the icon), as in Reaparr, with the
 Settings sub-tabs floating just above it.
 
-**Deleting.** Admins can delete any request from its row (a second press confirms); anyone else can cancel their own request while it is still pending. Deleting removes the record only, never anything in Lidarr, and frees the album to be asked for again.
+**Deleting.** On a phone or tablet a row slides left to reveal a red **Delete** (or **Cancel**) button, as on iOS; tapping elsewhere or swiping back closes it. With a mouse the button stays in the row and a second press confirms. Admins can delete any request; anyone else can cancel their own request while it is still pending. Deleting removes the record only, never anything in Lidarr, and frees the album to be asked for again.
 
 **Asking again.** Lidarr's own state decides whether an album can be requested, not the
 records: an approved request does not block a new one. If an album that was approved is
