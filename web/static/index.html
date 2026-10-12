@@ -404,8 +404,6 @@
           <div class="req-meta">Asked {{ ago(r.createdAt) }}<span v-if="r.decidedBy"> · {{ r.state === 'declined' ? 'declined' : 'approved' }} by {{ r.decidedBy.name }} {{ ago(r.decidedAt) }}</span></div>
           <div class="req-reason" v-if="r.state === 'declined' && r.declineReason">“{{ r.declineReason }}”</div>
           <div class="req-reason" v-if="r.lidarrResult === 'added_unsearched'">Added to Lidarr, but the search could not be started.</div>
-          <div class="req-progress" v-if="reqBar(r)" role="progressbar" :aria-valuenow="reqBar(r).percent" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: reqBar(r).percent + '%' }"></span></div>
-          <div class="req-meta" v-if="reqBar(r) && reqBar(r).etaSeconds">{{ eta(reqBar(r).etaSeconds) }}</div>
         </div>
         <span class="status-pill" :class="reqStateClass(r)"><span class="dot"></span>{{ reqStateLabel(r) }}</span>
       </li>

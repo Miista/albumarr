@@ -64,7 +64,7 @@ function App() {
 
     // requests: mine, the approval queue (and its history, for admins), and who acts
     mine: [],
-    prog: {}, // album id -> where Lidarr has it: { status, stage, percent, etaSeconds }
+    prog: {}, // album id -> where Lidarr has it: { status, stage }
     mineLoaded: false,
     mineError: '',
     queue: [],
@@ -995,7 +995,7 @@ function App() {
       const p = r.state === 'approved' ? this.prog[r.albumId] : null;
       if (p) {
         if (p.status === 'available') return 'Available';
-        const stage = { downloading: 'Downloading' + (p.percent ? ' ' + p.percent + '%' : ''), paused: 'Paused', queued: 'Queued', importing: 'Importing', stalled: 'Needs attention' }[p.stage];
+        const stage = { downloading: 'Downloading', paused: 'Paused', queued: 'Queued', importing: 'Importing', stalled: 'Needs attention' }[p.stage];
         if (stage) return stage;
         if (p.status === 'requested') return 'Searching';
         if (p.status === 'notfound') return 'Not found yet';
@@ -1011,20 +1011,6 @@ function App() {
         if (['available', 'processing', 'requested', 'notfound'].includes(p.status)) return p.status;
       }
       return r.state;
-    },
-
-    // reqBar: the download's progress, while it has any to show.
-    reqBar(r) {
-      const p = r.state === 'approved' ? this.prog[r.albumId] : null;
-      return p && p.stage === 'downloading' ? p : null;
-    },
-
-    eta(sec) {
-      if (!sec) return '';
-      if (sec < 90) return 'under a minute left';
-      if (sec < 5400) return 'about ' + Math.round(sec / 60) + ' min left';
-      if (sec < 172800) return 'about ' + Math.round(sec / 3600) + ' h left';
-      return 'about ' + Math.round(sec / 86400) + ' days left';
     },
 
     // --- issues ---

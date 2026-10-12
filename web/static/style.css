@@ -453,5 +453,3 @@ a.who-name:hover { text-decoration: underline; }
 main.account { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
 .acct-icon { display: none; color: var(--muted); padding: 6px; }
 @media (max-width: 640px) { .acct-icon { display: inline-flex; } }
-.req-progress { height: 4px; border-radius: 2px; background: oklch(0.3 0.02 270); margin-top: 8px; overflow: hidden; max-width: 320px; }
-.req-progress > span { display: block; height: 100%; background: var(--amber); transition: width .6s; }
