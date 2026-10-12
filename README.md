@@ -85,6 +85,16 @@ person to search; the server refuses the calls regardless. On a phone the nav is
 bottom tab bar (icon over label, a count on the icon), as in Reaparr, with the
 Settings sub-tabs floating just above it.
 
+### Progress on the requests
+
+An approved request on **My requests** (and the Approvals history) follows Lidarr, refreshed
+every 15 seconds while the page is open: *Searching*, *Not found yet*, *Downloading 42%* with
+a bar and the time left, *Queued*, *Paused*, *Importing*, *Needs attention* (a failed download
+or an import Lidarr is blocked on, which an admin should look at in Lidarr), and *Available*.
+It is read from Lidarr's download queue and the album's file count; the queue's field names
+come from Lidarr's source and were not yet seen with a live download. If Lidarr cannot be
+asked, the request simply shows *Approved*.
+
 ## Requesting
 
 When it is turned on, an album that Lidarr does not have, or has but is not

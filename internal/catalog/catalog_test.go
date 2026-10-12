@@ -28,10 +28,12 @@ func state(id int, monitored bool, fileCount int, percent float64, lastSearch st
 	return st
 }
 
-func TestDeriveStatus(t *testing.T) {
-	const searchedAt = "2026-10-10T15:16:09Z"
-	const never = "0001-01-01T00:00:00Z"
+const (
+	searchedAt = "2026-10-10T15:16:09Z"
+	never      = "0001-01-01T00:00:00Z"
+)
 
+func TestDeriveStatus(t *testing.T) {
 	cases := []struct {
 		name   string
 		st     lidarr.AlbumState
@@ -121,6 +123,7 @@ type fakeLib struct {
 	searched     []int
 	albumCalls   atomic.Int32 // AlbumByForeignID runs from several goroutines
 	queueCalls   atomic.Int32
+	downloads    map[int]lidarr.Download
 	tracksCalls  atomic.Int32
 }
 
@@ -132,6 +135,15 @@ func (f *fakeLib) AlbumByForeignID(_ context.Context, id string) (*lidarr.AlbumS
 func (f *fakeLib) QueuedAlbumIDs(context.Context) (map[int]bool, error) {
 	f.queueCalls.Add(1)
 	return f.queued, f.queueErr
+}
+
+func (f *fakeLib) Queue(context.Context) (map[int]lidarr.Download, error) {
+	f.queueCalls.Add(1)
+	out := map[int]lidarr.Download{}
+	for id := range f.queued {
+		out[id] = f.downloads[id]
+	}
+	return out, f.queueErr
 }
 
 // addedProfileID is the metadata profile ID the fake finds for "None".
@@ -812,5 +824,50 @@ func TestSwappingRequestSettingsIsRaceFree(t *testing.T) {
 		default:
 			cat.Detail(context.Background(), id1)
 		}
+	}
+}
+
+func TestProgressSaysWhereEachAlbumStands(t *testing.T) {
+	const idA, idB, idC, idD = id1, "11111111-1111-4111-8111-111111111112", "11111111-1111-4111-8111-111111111113", "11111111-1111-4111-8111-111111111114"
+	lib := &fakeLib{
+		states: map[string]*lidarr.AlbumState{
+			idA: stp(state(1, false, 12, 100, searchedAt)), // complete
+			idB: stp(state(2, true, 0, 0, never)),          // downloading
+			idC: stp(state(3, true, 0, 0, never)),          // searched for, nothing yet
+			// idD: unknown to Lidarr
+		},
+		queued:    map[int]bool{2: true},
+		downloads: map[int]lidarr.Download{2: {Stage: lidarr.StageDownloading, Percent: 40, ETASeconds: 90}},
+	}
+	got := New(&fakeSearch{}, &fakeMeta{}, lib).Progress(context.Background(), []string{idA, idB, idC, idD, "not-an-id"})
+	if got[idA].Status != StatusAvailable || got[idA].Stage != "" {
+		t.Errorf("complete: %+v", got[idA])
+	}
+	if p := got[idB]; p.Status != StatusProcessing || p.Stage != lidarr.StageDownloading || p.Percent != 40 || p.ETASeconds != 90 {
+		t.Errorf("downloading: %+v", p)
+	}
+	if p := got[idC]; p.Status != StatusRequested || p.Stage != "" {
+		t.Errorf("waiting: %+v", p)
+	}
+	if _, ok := got[idD]; ok {
+		t.Error("an album Lidarr does not have must be left out, not guessed")
+	}
+	if _, ok := got["not-an-id"]; ok {
+		t.Error("an invalid id must be left out")
+	}
+}
+
+func TestProgressLeavesOutWhatLidarrCannotAnswer(t *testing.T) {
+	down := &fakeLib{albumErr: errors.New("down")}
+	if got := New(&fakeSearch{}, &fakeMeta{}, down).Progress(context.Background(), []string{id1}); len(got) != 0 {
+		t.Errorf("Lidarr down: %v", got)
+	}
+	noQueue := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(1, true, 0, 0, never))}, queueErr: errors.New("down")}
+	if got := New(&fakeSearch{}, &fakeMeta{}, noQueue).Progress(context.Background(), []string{id1}); len(got) != 0 {
+		t.Errorf("queue unreadable must not be reported as 'requested': %v", got)
+	}
+	done := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(1, false, 12, 100, searchedAt))}, queueErr: errors.New("down")}
+	if got := New(&fakeSearch{}, &fakeMeta{}, done).Progress(context.Background(), []string{id1}); got[id1].Status != StatusAvailable || done.queueCalls.Load() != 0 {
+		t.Errorf("a complete album needs no queue: %v, %d calls", got, done.queueCalls.Load())
 	}
 }

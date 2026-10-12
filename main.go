@@ -179,6 +179,7 @@ func main() {
 	// Live checks against Lidarr, remembered briefly: the nav asks on every page load.
 	problems := issues.Combine(30*time.Second, service, authn, notifySettings)
 	api.New(cat, coverart.New(coverURL), service, authn, known, flow, problems, logger).
+		Progress(cat).
 		Notifications(notifySettings, notify.NewUserSettings(ntfyStore, notifySettings, ntfy, logger)).
 		Routes(mux)
 

@@ -93,6 +93,11 @@ type NotifyUser interface {
 	Test(ctx context.Context, sub string) (notify.TestResult, error)
 }
 
+// Progress says where albums stand in Lidarr, to show on the requests lists.
+type Progress interface {
+	Progress(ctx context.Context, ids []string) map[string]catalog.Progress
+}
+
 // Server holds the handlers' dependencies.
 type Server struct {
 	catalog  Catalog
@@ -104,7 +109,15 @@ type Server struct {
 	issues   Issues
 	notifyA  NotifyAdmin
 	notifyU  NotifyUser
+	progress Progress
 	log      zerolog.Logger
+}
+
+// Progress lets the requests lists show how each approved album is doing in
+// Lidarr. Without it they simply show the request's own state.
+func (s *Server) Progress(p Progress) *Server {
+	s.progress = p
+	return s
 }
 
 // Notifications gives the server the notification settings. Without them the
@@ -402,8 +415,20 @@ func (s *Server) handleListRequests(w http.ResponseWriter, r *http.Request) {
 		s.requestFailed(w, r, err, "listing requests")
 		return
 	}
+	progress := map[string]catalog.Progress{}
+	if s.progress != nil {
+		var ids []string
+		for _, rec := range list {
+			if rec.State == requests.Approved {
+				ids = append(ids, rec.AlbumID)
+			}
+		}
+		if len(ids) > 0 {
+			progress = s.progress.Progress(r.Context(), ids)
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, map[string]any{"scope": scope, "requests": list})
+	writeJSON(w, map[string]any{"scope": scope, "requests": list, "progress": progress})
 }
 
 // requestID reads the numeric ID in the path; a record's ID is a positive integer.

@@ -67,16 +67,99 @@ func (c *Client) AlbumByForeignID(ctx context.Context, foreignID string) (*Album
 	return &states[0], nil
 }
 
-// QueuedAlbumIDs returns the IDs of every album with an item in Lidarr's
-// download queue.
-func (c *Client) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
-	out := map[int]bool{}
+// Stage is how far an album's download has got, rolled up from its queue items.
+type Stage string
+
+const (
+	StageQueued      Stage = "queued"      // waiting for a client or for the grab delay
+	StageDownloading Stage = "downloading" // bytes are coming in
+	StagePaused      Stage = "paused"
+	StageImporting   Stage = "importing" // downloaded; Lidarr is moving it into the library
+	StageStalled     Stage = "stalled"   // failed, or blocked on someone: needs a person
+)
+
+// Download is an album's place in Lidarr's download queue. An album can have more
+// than one item (a retry, a second release), so these are the items added up, and
+// Stage is the one furthest from done.
+type Download struct {
+	Stage      Stage
+	Percent    int // 0-100 of the bytes; meaningful while downloading
+	ETASeconds int // 0 when Lidarr gave none
+	Items      int
+}
+
+// queueItem is what one item of Lidarr's queue says. Names are Lidarr's (Servarr
+// QueueResource); the values were not seen live, only read from its source.
+type queueItem struct {
+	AlbumID               int     `json:"albumId"`
+	Size                  float64 `json:"size"`
+	SizeLeft              float64 `json:"sizeleft"`
+	TimeLeft              string  `json:"timeleft"`
+	Status                string  `json:"status"`
+	TrackedDownloadStatus string  `json:"trackedDownloadStatus"`
+	TrackedDownloadState  string  `json:"trackedDownloadState"`
+}
+
+// stageOf says where one item is. The tracked state wins over the client's own
+// status, since it is Lidarr's view and knows about the import.
+func stageOf(q queueItem) Stage {
+	switch strings.ToLower(q.TrackedDownloadState) {
+	case "importblocked", "importfailed", "failed", "failedpending":
+		return StageStalled
+	case "importpending", "importing", "imported":
+		return StageImporting
+	}
+	switch strings.ToLower(q.Status) {
+	case "failed", "warning":
+		return StageStalled
+	case "paused":
+		return StagePaused
+	case "queued", "delay":
+		return StageQueued
+	case "completed":
+		return StageImporting
+	}
+	if strings.EqualFold(q.TrackedDownloadStatus, "error") {
+		return StageStalled
+	}
+	return StageDownloading
+}
+
+// rank orders stages by how much a person should care: the worst one describes the album.
+var rank = map[Stage]int{StageStalled: 5, StagePaused: 4, StageQueued: 3, StageDownloading: 2, StageImporting: 1}
+
+// parseTimeLeft reads Lidarr's "[d.]hh:mm:ss"; zero when it is absent or odd.
+func parseTimeLeft(s string) int {
+	days := 0
+	if d, rest, ok := strings.Cut(s, "."); ok && !strings.Contains(d, ":") {
+		n, err := strconv.Atoi(d)
+		if err != nil {
+			return 0
+		}
+		days, s = n, rest
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0
+	}
+	total := days * 86400
+	for i, mult := range []int{3600, 60, 1} {
+		n, err := strconv.Atoi(strings.SplitN(parts[i], ".", 2)[0])
+		if err != nil || n < 0 {
+			return 0
+		}
+		total += n * mult
+	}
+	return total
+}
+
+// Queue returns the download of every album with an item in Lidarr's queue.
+func (c *Client) Queue(ctx context.Context) (map[int]Download, error) {
+	items := map[int][]queueItem{}
 	for page := 1; page <= maxQueuePages; page++ {
 		var resp struct {
-			TotalRecords int `json:"totalRecords"`
-			Records      []struct {
-				AlbumID int `json:"albumId"`
-			} `json:"records"`
+			TotalRecords int         `json:"totalRecords"`
+			Records      []queueItem `json:"records"`
 		}
 		q := url.Values{"page": {strconv.Itoa(page)}, "pageSize": {strconv.Itoa(queuePageSize)}}
 		if err := c.get(ctx, "/api/v1/queue", q, &resp); err != nil {
@@ -84,12 +167,45 @@ func (c *Client) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
 		}
 		for _, r := range resp.Records {
 			if r.AlbumID != 0 {
-				out[r.AlbumID] = true
+				items[r.AlbumID] = append(items[r.AlbumID], r)
 			}
 		}
 		if page*queuePageSize >= resp.TotalRecords || len(resp.Records) == 0 {
 			break
 		}
+	}
+	out := make(map[int]Download, len(items))
+	for id, list := range items {
+		d := Download{Items: len(list), Stage: StageImporting}
+		var size, left float64
+		for _, q := range list {
+			if st := stageOf(q); rank[st] > rank[d.Stage] {
+				d.Stage = st
+			}
+			size += q.Size
+			left += q.SizeLeft
+			if t := parseTimeLeft(q.TimeLeft); t > d.ETASeconds {
+				d.ETASeconds = t
+			}
+		}
+		if size > 0 {
+			d.Percent = min(100, max(0, int((size-left)/size*100)))
+		}
+		out[id] = d
+	}
+	return out, nil
+}
+
+// QueuedAlbumIDs returns the IDs of every album with an item in Lidarr's
+// download queue.
+func (c *Client) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
+	q, err := c.Queue(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int]bool, len(q))
+	for id := range q {
+		out[id] = true
 	}
 	return out, nil
 }
@@ -449,6 +565,14 @@ func (l *Live) QueuedAlbumIDs(ctx context.Context) (map[int]bool, error) {
 		return nil, ErrNotConfigured
 	}
 	return c.QueuedAlbumIDs(ctx)
+}
+
+func (l *Live) Queue(ctx context.Context) (map[int]Download, error) {
+	c := l.Client()
+	if c == nil {
+		return nil, ErrNotConfigured
+	}
+	return c.Queue(ctx)
 }
 
 func (l *Live) Tracks(ctx context.Context, albumID int) ([]LibraryTrack, error) {

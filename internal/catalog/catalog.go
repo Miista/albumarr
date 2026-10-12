@@ -90,6 +90,7 @@ type Metadata interface {
 type Library interface {
 	AlbumByForeignID(ctx context.Context, foreignID string) (*lidarr.AlbumState, error)
 	QueuedAlbumIDs(ctx context.Context) (map[int]bool, error)
+	Queue(ctx context.Context) (map[int]lidarr.Download, error)
 	Tracks(ctx context.Context, albumID int) ([]lidarr.LibraryTrack, error)
 	AddAlbum(ctx context.Context, a lidarr.NewAlbum) error
 	MetadataProfileByName(ctx context.Context, name string) (int, error)
@@ -552,4 +553,73 @@ func year(date string) int {
 		n = n*10 + int(r-'0')
 	}
 	return n
+}
+
+// Progress is where an album stands in Lidarr, for the requests list: the same
+// chip the search shows, plus how the download is going when there is one.
+type Progress struct {
+	Status     Status       `json:"status"`
+	Stage      lidarr.Stage `json:"stage,omitempty"`
+	Percent    int          `json:"percent,omitempty"`
+	ETASeconds int          `json:"etaSeconds,omitempty"`
+}
+
+const (
+	progressMax  = 50 // albums asked about at once; the rest simply have no progress
+	progressPara = 8
+)
+
+// Progress says where each of the albums stands. Albums Lidarr cannot be asked
+// about are left out, never guessed. Lidarr being down is an empty answer.
+func (c *Catalog) Progress(ctx context.Context, ids []string) map[string]Progress {
+	out := map[string]Progress{}
+	if len(ids) > progressMax {
+		ids = ids[:progressMax]
+	}
+	states := make([]*lidarr.AlbumState, len(ids))
+	ok := make([]bool, len(ids))
+	sem := make(chan struct{}, progressPara)
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		if !musicbrainz.ValidID(id) {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			st, err := c.lib.AlbumByForeignID(ctx, id)
+			states[i], ok[i] = st, err == nil
+		}()
+	}
+	wg.Wait()
+	var queue map[int]lidarr.Download
+	var qerr error
+	for _, st := range states {
+		if st != nil && !complete(*st) {
+			queue, qerr = c.lib.Queue(ctx)
+			break
+		}
+	}
+	for i, id := range ids {
+		st := states[i]
+		if !ok[i] || st == nil {
+			continue
+		}
+		if complete(*st) {
+			out[id] = Progress{Status: StatusAvailable}
+			continue
+		}
+		if qerr != nil {
+			continue
+		}
+		d, queued := queue[st.ID]
+		p := Progress{Status: DeriveStatus(*st, queued)}
+		if queued {
+			p.Stage, p.Percent, p.ETASeconds = d.Stage, d.Percent, d.ETASeconds
+		}
+		out[id] = p
+	}
+	return out
 }

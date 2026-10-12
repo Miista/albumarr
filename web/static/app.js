@@ -64,6 +64,7 @@ function App() {
 
     // requests: mine, the approval queue (and its history, for admins), and who acts
     mine: [],
+    prog: {}, // album id -> where Lidarr has it: { status, stage, percent, etaSeconds }
     mineLoaded: false,
     mineError: '',
     queue: [],
@@ -568,6 +569,13 @@ function App() {
     },
 
     mounted() {
+      // What is downloading moves on its own, so the lists that show it refresh
+      // while they are in view.
+      setInterval(() => {
+        if (document.hidden || !this.me) return;
+        if (this.page === 'requests') this.loadMine();
+        else if (this.page === 'approvals' && this.tab === 'history') this.loadQueue();
+      }, 15000);
       api('/api/me', { cache: 'no-store' }).then((r) => r.ok && r.json()).then((m) => {
         if (!m) return;
         this.me = m;
@@ -865,7 +873,11 @@ function App() {
     async fetchRequests(scope) {
       const res = await api('/api/requests?scope=' + scope, { cache: 'no-store' });
       if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
-      return (await res.json()).requests;
+      const body = await res.json();
+      // Lidarr's view of the approved ones, by album: merged, so a page that asked
+      // about fewer albums does not wipe what another list showed.
+      this.prog = Object.assign({}, this.prog, body.progress || {});
+      return body.requests;
     },
 
     async loadMine() {
@@ -977,8 +989,42 @@ function App() {
       else this.refreshPendingCount();
     },
 
+    // An approved request follows Lidarr: searching, downloading 42%, importing,
+    // available. Without an answer from Lidarr it is just "Approved".
     reqStateLabel(r) {
+      const p = r.state === 'approved' ? this.prog[r.albumId] : null;
+      if (p) {
+        if (p.status === 'available') return 'Available';
+        const stage = { downloading: 'Downloading' + (p.percent ? ' ' + p.percent + '%' : ''), paused: 'Paused', queued: 'Queued', importing: 'Importing', stalled: 'Needs attention' }[p.stage];
+        if (stage) return stage;
+        if (p.status === 'requested') return 'Searching';
+        if (p.status === 'notfound') return 'Not found yet';
+        if (p.status === 'processing') return 'Downloading';
+      }
       return { pending: 'Waiting for approval', approved: 'Approved', declined: 'Declined' }[r.state] || r.state;
+    },
+
+    reqStateClass(r) {
+      const p = r.state === 'approved' ? this.prog[r.albumId] : null;
+      if (p) {
+        if (p.stage === 'stalled') return 'notfound';
+        if (['available', 'processing', 'requested', 'notfound'].includes(p.status)) return p.status;
+      }
+      return r.state;
+    },
+
+    // reqBar: the download's progress, while it has any to show.
+    reqBar(r) {
+      const p = r.state === 'approved' ? this.prog[r.albumId] : null;
+      return p && p.stage === 'downloading' ? p : null;
+    },
+
+    eta(sec) {
+      if (!sec) return '';
+      if (sec < 90) return 'under a minute left';
+      if (sec < 5400) return 'about ' + Math.round(sec / 60) + ' min left';
+      if (sec < 172800) return 'about ' + Math.round(sec / 3600) + ' h left';
+      return 'about ' + Math.round(sec / 86400) + ' days left';
     },
 
     // --- issues ---
