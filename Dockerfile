@@ -4,7 +4,7 @@
 # package manager: nothing in the image but the binary, CA certificates and tzdata.
 # The data directory is made in a throwaway stage, because the final image has no shell. It
 # runs on the build machine's own platform (it only makes a directory), so it needs no emulation.
-FROM --platform=$BUILDPLATFORM busybox:1.37 AS data
+FROM --platform=$BUILDPLATFORM busybox:1.38 AS data
 RUN mkdir -p /out/app/data && chown 65532:65532 /out/app/data && chmod 1777 /out/app/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
