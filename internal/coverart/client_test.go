@@ -311,7 +311,7 @@ func TestPhotoIsShrunkReencodedAsJPEGAndCached(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			var ct string
 			var err error
-			data, ct, err = c.Photo(context.Background(), artistID, c.base+"/cache/ed.jpg")
+			data, ct, err = c.Photo(context.Background(), artistID, c.base+"/cache/ed.jpg", photoWidth)
 			if err != nil || ct != "image/jpeg" {
 				t.Fatalf("png=%v: %v %q", asPNG, err, ct)
 			}
@@ -336,7 +336,7 @@ func TestPhotoIsShrunkReencodedAsJPEGAndCached(t *testing.T) {
 
 func TestPhotoIsNotEnlarged(t *testing.T) {
 	c, _ := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", picture(t, 200, 100, false)) })
-	data, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg")
+	data, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", photoWidth)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,11 +357,11 @@ func TestPhotoOnlyFetchesFromTheImageHost(t *testing.T) {
 		"too long":       c.base + "/" + strings.Repeat("a", 1100),
 		"empty":          "",
 	} {
-		if _, _, err := c.Photo(context.Background(), artistID, raw); !errors.Is(err, ErrInvalid) {
+		if _, _, err := c.Photo(context.Background(), artistID, raw, photoWidth); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, _, err := c.Photo(context.Background(), "../x", c.base+"/p.jpg"); !errors.Is(err, ErrInvalid) {
+	if _, _, err := c.Photo(context.Background(), "../x", c.base+"/p.jpg", photoWidth); !errors.Is(err, ErrInvalid) {
 		t.Errorf("bad artist id: %v", err)
 	}
 	if calls.Load() != 0 {
@@ -378,7 +378,7 @@ func TestPhotoRefusesWhatIsNotAUsableImage(t *testing.T) {
 		"empty":                        {},
 	} {
 		c, _ := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", body) })
-		data, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg")
+		data, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", photoWidth)
 		if err == nil || data != nil {
 			t.Errorf("%s: got %d bytes, %v", name, len(data), err)
 		}
@@ -388,7 +388,7 @@ func TestPhotoRefusesWhatIsNotAUsableImage(t *testing.T) {
 func TestPhotoMissesAreRememberedAndServerErrorsRetriedOnce(t *testing.T) {
 	c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	for i := 0; i < 3; i++ {
-		if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg"); !errors.Is(err, ErrNoCover) {
+		if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", photoWidth); !errors.Is(err, ErrNoCover) {
 			t.Fatalf("404: %v", err)
 		}
 	}
@@ -403,11 +403,11 @@ func TestPhotoMissesAreRememberedAndServerErrorsRetriedOnce(t *testing.T) {
 		}
 		serve(w, "image/jpeg", picture(t, 50, 50, false))
 	})
-	if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg"); err != nil || calls.Load() != 2 {
+	if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", photoWidth); err != nil || calls.Load() != 2 {
 		t.Errorf("one 502 then success: %v, %d calls", err, calls.Load())
 	}
 	c, calls = newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusServiceUnavailable) })
-	if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg"); err == nil || errors.Is(err, ErrNoCover) || calls.Load() != 2 {
+	if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", photoWidth); err == nil || errors.Is(err, ErrNoCover) || calls.Load() != 2 {
 		t.Errorf("persistent 503: %v, %d calls", err, calls.Load())
 	}
 }
@@ -430,5 +430,50 @@ func TestShrinkAveragesBlocks(t *testing.T) {
 	}
 	if got := shrink(src, 4); got != image.Image(src) {
 		t.Error("an image that is not wider is returned as is")
+	}
+}
+
+func TestPhotoThumbnailAndFullSizeCostOneDownload(t *testing.T) {
+	c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", picture(t, 1000, 1000, false)) })
+	thumb, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", thumbWidth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", photoWidth)
+	if err != nil || calls.Load() != 1 {
+		t.Fatalf("the second size must come from the same download: %v, %d calls", err, calls.Load())
+	}
+	if b := decode(t, thumb).Bounds(); b.Dx() != thumbWidth || b.Dy() != thumbWidth {
+		t.Errorf("thumbnail %dx%d", b.Dx(), b.Dy())
+	}
+	if b := decode(t, full).Bounds(); b.Dx() != photoWidth {
+		t.Errorf("full %dx%d", b.Dx(), b.Dy())
+	}
+	if len(thumb) >= len(full) {
+		t.Errorf("a thumbnail should be much smaller: %d vs %d", len(thumb), len(full))
+	}
+}
+
+func TestPhotoRefusesAnyOtherWidthWithoutARequest(t *testing.T) {
+	c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", picture(t, 50, 50, false)) })
+	for _, w := range []int{0, -1, 1, 97, 479, 10000} {
+		if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", w); !errors.Is(err, ErrInvalid) {
+			t.Errorf("width %d: %v", w, err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Errorf("%d requests", calls.Load())
+	}
+}
+
+func TestAMissingPhotoIsRememberedForBothSizes(t *testing.T) {
+	c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	for _, w := range []int{thumbWidth, photoWidth, thumbWidth} {
+		if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg", w); !errors.Is(err, ErrNoCover) {
+			t.Fatalf("width %d: %v", w, err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Errorf("one miss covers both sizes: %d calls", calls.Load())
 	}
 }

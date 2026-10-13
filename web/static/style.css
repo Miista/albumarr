@@ -472,7 +472,7 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .artist-strip::-webkit-scrollbar { display: none; }
 .artist-chip { flex: none; display: flex; align-items: center; gap: 10px; max-width: 280px; padding: 8px 14px 8px 8px; border: 1px solid var(--border); border-radius: 999px; background: oklch(0.17 0.012 270 / .7); color: var(--text); cursor: pointer; text-align: left; }
 .artist-chip:hover, .artist-chip:focus-visible { border-color: oklch(0.65 0.2 290 / .7); outline: none; }
-.avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; background: oklch(0.5 0.14 var(--hue, 290)); }
+.avatar { position: relative; overflow: hidden; flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #fff; background: oklch(0.5 0.14 var(--hue, 290)); }
 .artist-chip-text { display: flex; flex-direction: column; min-width: 0; }
 .artist-chip .name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .artist-chip .sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -495,3 +495,4 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .artist-head-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .artist-photo { flex: none; width: 96px; height: 96px; border-radius: 50%; object-fit: cover; background: oklch(0.2 0.02 270); border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,.45); }
 @media (min-width: 641px) { .artist-photo { width: 120px; height: 120px; } }
+.avatar-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; } /* over the letter, which shows when there is no photo */

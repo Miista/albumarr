@@ -101,7 +101,7 @@ type NotifyUser interface {
 type Artists interface {
 	SearchArtists(ctx context.Context, term string) ([]catalog.ArtistHit, error)
 	Artist(ctx context.Context, id string) (catalog.ArtistPage, error)
-	ArtistPhoto(ctx context.Context, id string) (data []byte, contentType string, err error)
+	ArtistPhoto(ctx context.Context, id string, size int) (data []byte, contentType string, err error)
 }
 
 // Progress says where albums stand in Lidarr, to show on the requests lists.
@@ -295,7 +295,16 @@ func (s *Server) handleArtistPhoto(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	data, contentType, err := s.artists.ArtistPhoto(r.Context(), r.PathValue("id"))
+	size := catalog.PhotoFull
+	switch r.URL.Query().Get("size") {
+	case "", "480":
+	case "96":
+		size = catalog.PhotoThumb
+	default:
+		http.Error(w, "size must be 96 or 480", http.StatusBadRequest)
+		return
+	}
+	data, contentType, err := s.artists.ArtistPhoto(r.Context(), r.PathValue("id"), size)
 	switch {
 	case errors.Is(err, catalog.ErrInvalidID), errors.Is(err, coverart.ErrInvalid):
 		http.Error(w, "invalid artist id", http.StatusBadRequest)

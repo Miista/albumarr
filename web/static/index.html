@@ -75,7 +75,7 @@
 
     <div class="artist-strip" v-if="!artist && artistHits.length" aria-label="Artists">
       <button type="button" class="artist-chip" v-for="h in artistHits" :key="h.id" @click="openArtist(h)" :aria-label="'Show albums by ' + h.name">
-        <span class="avatar" :style="{ '--hue': hueFor(h.name) }" aria-hidden="true">{{ h.name.trim().charAt(0).toUpperCase() }}</span>
+        <span class="avatar" :style="{ '--hue': hueFor(h.name) }" aria-hidden="true">{{ h.name.trim().charAt(0).toUpperCase() }}<img class="avatar-img" :src="'/api/artist/' + h.id + '/photo?size=96'" alt="" loading="lazy" @error="$event.target.remove()"></span>
         <span class="artist-chip-text"><span class="name">{{ h.name }}</span><span class="sub" v-if="h.disambiguation || h.type">{{ h.disambiguation || h.type }}</span></span>
         <span class="kind-pill artist">Artist</span>
       </button>

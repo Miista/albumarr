@@ -239,17 +239,19 @@ func (c *Client) store(key string, e entry) {
 const (
 	maxPhoto     = 6 << 20 // an artist photo as the CDN serves it; it is shrunk before it is kept
 	maxPhotoSide = 6000    // pixels: a larger picture is refused before it is decoded
-	photoWidth   = 480     // what the page needs; the originals are 1000-1920 pixels
+	photoWidth   = 480     // the artist page's picture; the originals are 1000-1920 pixels
+	thumbWidth   = 96      // the chip in search results
 	photoQuality = 82
 )
 
-// Photo returns an artist's photo, shrunk to photoWidth and re-encoded as JPEG, for
-// the image at rawURL. The URL comes from a third party's JSON, so it is fetched
+// Photo returns an artist's photo at width (thumbWidth or photoWidth), shrunk and
+// re-encoded as JPEG, for the image at rawURL. Fetching either size keeps both, so
+// the thumbnail in a search and the page it leads to cost one download. The URL comes from a third party's JSON, so it is fetched
 // only if it points at the same host as this client's base (the image CDN): a
 // hostile response cannot make albumreq fetch anything else. The picture is
 // decoded here, so only something that really is an image is ever passed on.
-func (c *Client) Photo(ctx context.Context, artistID, rawURL string) ([]byte, string, error) {
-	if !musicbrainz.ValidID(artistID) {
+func (c *Client) Photo(ctx context.Context, artistID, rawURL string, width int) ([]byte, string, error) {
+	if !musicbrainz.ValidID(artistID) || (width != thumbWidth && width != photoWidth) {
 		return nil, "", ErrInvalid
 	}
 	u, err := url.Parse(rawURL)
@@ -257,7 +259,7 @@ func (c *Client) Photo(ctx context.Context, artistID, rawURL string) ([]byte, st
 	if err != nil || berr != nil || u.Scheme != base.Scheme || u.Host != base.Host || u.User != nil || len(rawURL) > 1000 {
 		return nil, "", ErrInvalid
 	}
-	key := "artist/" + artistID
+	key := fmt.Sprintf("artist/%s/%d", artistID, width)
 	if data, ct, hit, miss := c.lookup(key); hit {
 		return data, ct, nil
 	} else if miss {
@@ -269,26 +271,30 @@ func (c *Client) Photo(ctx context.Context, artistID, rawURL string) ([]byte, st
 	case <-ctx.Done():
 		return nil, "", ctx.Err()
 	}
-	data, err := c.fetchPhoto(ctx, u.String())
+	sizes, err := c.fetchPhoto(ctx, u.String())
 	if err != nil && !errors.Is(err, ErrNoCover) && isRetryable(err) {
 		select {
 		case <-time.After(c.retry):
-			data, err = c.fetchPhoto(ctx, u.String())
+			sizes, err = c.fetchPhoto(ctx, u.String())
 		case <-ctx.Done():
 			return nil, "", ctx.Err()
 		}
 	}
 	switch {
 	case err == nil:
-		c.store(key, entry{data: data, ct: "image/jpeg", exp: time.Now().Add(hitTTL)})
-		return data, "image/jpeg", nil
+		for w, data := range sizes {
+			c.store(fmt.Sprintf("artist/%s/%d", artistID, w), entry{data: data, ct: "image/jpeg", exp: time.Now().Add(hitTTL)})
+		}
+		return sizes[width], "image/jpeg", nil
 	case errors.Is(err, ErrNoCover):
-		c.store(key, entry{exp: time.Now().Add(missTTL)})
+		for _, w := range []int{thumbWidth, photoWidth} {
+			c.store(fmt.Sprintf("artist/%s/%d", artistID, w), entry{exp: time.Now().Add(missTTL)})
+		}
 	}
 	return nil, "", err
 }
 
-func (c *Client) fetchPhoto(ctx context.Context, rawURL string) ([]byte, error) {
+func (c *Client) fetchPhoto(ctx context.Context, rawURL string) (map[int][]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -324,11 +330,15 @@ func (c *Client) fetchPhoto(ctx context.Context, rawURL string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("coverart: the photo is not a usable image")
 	}
-	var out bytes.Buffer
-	if err := imgjpeg.Encode(&out, shrink(img, photoWidth), &imgjpeg.Options{Quality: photoQuality}); err != nil {
-		return nil, err
+	sizes := map[int][]byte{}
+	for _, w := range []int{thumbWidth, photoWidth} {
+		var out bytes.Buffer
+		if err := imgjpeg.Encode(&out, shrink(img, w), &imgjpeg.Options{Quality: photoQuality}); err != nil {
+			return nil, err
+		}
+		sizes[w] = out.Bytes()
 	}
-	return out.Bytes(), nil
+	return sizes, nil
 }
 
 // shrink scales img down to the given width by averaging the source pixels under

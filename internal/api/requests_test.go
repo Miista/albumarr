@@ -447,3 +447,22 @@ func TestArtistPhotoRouteServesTheImageAndMapsErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestArtistPhotoRouteTakesOnlyTheTwoSizes(t *testing.T) {
+	for size, want := range map[string]int{"": 480, "480": 480, "96": 96} {
+		fa := &fakeArtists{photo: []byte("x")}
+		path := artistPath + "/photo"
+		if size != "" {
+			path += "?size=" + size
+		}
+		if rec := get(artistRig(&fakeRequests{}, fa, auth.User), path); rec.Code != 200 || fa.lastSize != want {
+			t.Errorf("size %q: %d, asked for %d", size, rec.Code, fa.lastSize)
+		}
+	}
+	for _, size := range []string{"0", "100", "1000", "abc", "-96"} {
+		fa := &fakeArtists{photo: []byte("x")}
+		if rec := get(artistRig(&fakeRequests{}, fa, auth.User), artistPath+"/photo?size="+size); rec.Code != http.StatusBadRequest || fa.calls != 0 {
+			t.Errorf("size %q: %d, %d calls", size, rec.Code, fa.calls)
+		}
+	}
+}

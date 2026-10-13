@@ -1000,16 +1000,17 @@ func TestArtistErrors(t *testing.T) {
 }
 
 type fakePhotos struct {
-	data   []byte
-	err    error
-	gotID  string
-	gotURL string
-	calls  int
+	data     []byte
+	err      error
+	gotID    string
+	gotURL   string
+	gotWidth int
+	calls    int
 }
 
-func (f *fakePhotos) Photo(_ context.Context, id, rawURL string) ([]byte, string, error) {
+func (f *fakePhotos) Photo(_ context.Context, id, rawURL string, width int) ([]byte, string, error) {
 	f.calls++
-	f.gotID, f.gotURL = id, rawURL
+	f.gotID, f.gotURL, f.gotWidth = id, rawURL, width
 	return f.data, "image/jpeg", f.err
 }
 
@@ -1047,9 +1048,16 @@ func TestArtistPhotoUsesTheAddressTheMetadataServiceGave(t *testing.T) {
 	fp := &fakePhotos{data: []byte("jpeg")}
 	cat := New(&fakeSearch{}, &fakeMeta{artist: metaWithImages(lidarrmeta.ArtistImage{Type: "Poster", URL: "https://cdn.example/p.jpg"})}, &fakeLib{})
 	cat.SetPhotos(fp)
-	data, ct, err := cat.ArtistPhoto(context.Background(), edSheeran)
-	if err != nil || string(data) != "jpeg" || ct != "image/jpeg" || fp.gotID != edSheeran || fp.gotURL != "https://cdn.example/p.jpg" {
-		t.Errorf("%q %q %v, asked for %q %q", data, ct, err, fp.gotID, fp.gotURL)
+	data, ct, err := cat.ArtistPhoto(context.Background(), edSheeran, PhotoFull)
+	if err != nil || string(data) != "jpeg" || ct != "image/jpeg" || fp.gotID != edSheeran || fp.gotURL != "https://cdn.example/p.jpg" || fp.gotWidth != PhotoFull {
+		t.Errorf("%q %q %v, asked for %q %q at %d", data, ct, err, fp.gotID, fp.gotURL, fp.gotWidth)
+	}
+	if _, _, err := cat.ArtistPhoto(context.Background(), edSheeran, PhotoThumb); err != nil || fp.gotWidth != PhotoThumb {
+		t.Errorf("the thumbnail size is passed on: %v, %d", err, fp.gotWidth)
+	}
+	fp.calls = 0
+	if _, _, err := cat.ArtistPhoto(context.Background(), edSheeran, 123); !errors.Is(err, coverart.ErrInvalid) || fp.calls != 0 {
+		t.Errorf("any other size is refused before anything is fetched: %v, %d calls", err, fp.calls)
 	}
 }
 
@@ -1063,19 +1071,19 @@ func TestArtistPhotoErrors(t *testing.T) {
 		}
 		return c
 	}
-	if _, _, err := catWith(&fakeMeta{}, fp).ArtistPhoto(context.Background(), "../x"); !errors.Is(err, ErrInvalidID) || fp.calls != 0 {
+	if _, _, err := catWith(&fakeMeta{}, fp).ArtistPhoto(context.Background(), "../x", PhotoFull); !errors.Is(err, ErrInvalidID) || fp.calls != 0 {
 		t.Errorf("invalid id: %v", err)
 	}
-	if _, _, err := catWith(&fakeMeta{artist: metaWithImages(poster)}, nil).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, coverart.ErrNoCover) {
+	if _, _, err := catWith(&fakeMeta{artist: metaWithImages(poster)}, nil).ArtistPhoto(context.Background(), edSheeran, PhotoFull); !errors.Is(err, coverart.ErrNoCover) {
 		t.Errorf("no fetcher: %v", err)
 	}
-	if _, _, err := catWith(&fakeMeta{artist: metaWithImages()}, fp).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, coverart.ErrNoCover) || fp.calls != 0 {
+	if _, _, err := catWith(&fakeMeta{artist: metaWithImages()}, fp).ArtistPhoto(context.Background(), edSheeran, PhotoFull); !errors.Is(err, coverart.ErrNoCover) || fp.calls != 0 {
 		t.Errorf("no image: %v, %d calls", err, fp.calls)
 	}
-	if _, _, err := catWith(&fakeMeta{err: lidarrmeta.ErrNotFound}, fp).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, coverart.ErrNoCover) {
+	if _, _, err := catWith(&fakeMeta{err: lidarrmeta.ErrNotFound}, fp).ArtistPhoto(context.Background(), edSheeran, PhotoFull); !errors.Is(err, coverart.ErrNoCover) {
 		t.Errorf("unknown artist: %v", err)
 	}
-	if _, _, err := catWith(&fakeMeta{err: errors.New("503")}, fp).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, ErrUnavailable) {
+	if _, _, err := catWith(&fakeMeta{err: errors.New("503")}, fp).ArtistPhoto(context.Background(), edSheeran, PhotoFull); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("metadata down: %v", err)
 	}
 }

@@ -114,13 +114,14 @@ func (f *fakeRequests) Pending(ids []string) (map[string]requests.Record, error)
 
 // fakeArtists stands in for the artist search and pages.
 type fakeArtists struct {
-	photo  []byte
-	hits   []catalog.ArtistHit
-	page   catalog.ArtistPage
-	err    error
-	calls  int
-	lastID string
-	lastQ  string
+	photo    []byte
+	hits     []catalog.ArtistHit
+	page     catalog.ArtistPage
+	err      error
+	calls    int
+	lastID   string
+	lastQ    string
+	lastSize int
 }
 
 func (f *fakeArtists) SearchArtists(_ context.Context, q string) ([]catalog.ArtistHit, error) {
@@ -128,9 +129,9 @@ func (f *fakeArtists) SearchArtists(_ context.Context, q string) ([]catalog.Arti
 	f.lastQ = q
 	return f.hits, f.err
 }
-func (f *fakeArtists) ArtistPhoto(_ context.Context, id string) ([]byte, string, error) {
+func (f *fakeArtists) ArtistPhoto(_ context.Context, id string, size int) ([]byte, string, error) {
 	f.calls++
-	f.lastID = id
+	f.lastID, f.lastSize = id, size
 	return f.photo, "image/jpeg", f.err
 }
 func (f *fakeArtists) Artist(_ context.Context, id string) (catalog.ArtistPage, error) {

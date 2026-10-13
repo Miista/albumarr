@@ -96,7 +96,7 @@ type Metadata interface {
 
 // Photos fetches an artist's picture from the address the metadata service gave.
 type Photos interface {
-	Photo(ctx context.Context, artistID, rawURL string) ([]byte, string, error)
+	Photo(ctx context.Context, artistID, rawURL string, width int) ([]byte, string, error)
 }
 
 // Library is the part of the Lidarr client the catalog uses.
@@ -754,12 +754,22 @@ func (c *Catalog) Artist(ctx context.Context, id string) (ArtistPage, error) {
 // SetPhotos turns on artists' pictures.
 func (c *Catalog) SetPhotos(p Photos) { c.photos = p }
 
-// ArtistPhoto returns the artist's picture, or coverart.ErrNoCover when there is
-// none. It never takes an address from the caller: the metadata service's own
+// Photo sizes the page can ask for: a thumbnail for a search result, and the
+// picture for the artist's page.
+const (
+	PhotoThumb = 96
+	PhotoFull  = 480
+)
+
+// ArtistPhoto returns the artist's picture at the given size (PhotoThumb or
+// PhotoFull), or coverart.ErrNoCover when there is none. It never takes an address from the caller: the metadata service's own
 // answer says where the picture is, and the fetcher accepts only the image CDN.
-func (c *Catalog) ArtistPhoto(ctx context.Context, id string) ([]byte, string, error) {
+func (c *Catalog) ArtistPhoto(ctx context.Context, id string, size int) ([]byte, string, error) {
 	if !musicbrainz.ValidID(id) {
 		return nil, "", ErrInvalidID
+	}
+	if size != PhotoThumb && size != PhotoFull {
+		return nil, "", coverart.ErrInvalid
 	}
 	if c.photos == nil {
 		return nil, "", coverart.ErrNoCover
@@ -775,5 +785,5 @@ func (c *Catalog) ArtistPhoto(ctx context.Context, id string) ([]byte, string, e
 	if u == "" {
 		return nil, "", coverart.ErrNoCover
 	}
-	return c.photos.Photo(ctx, id, u)
+	return c.photos.Photo(ctx, id, u, size)
 }
