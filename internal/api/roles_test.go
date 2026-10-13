@@ -114,6 +114,7 @@ func (f *fakeRequests) Pending(ids []string) (map[string]requests.Record, error)
 
 // fakeArtists stands in for the artist search and pages.
 type fakeArtists struct {
+	photo  []byte
 	hits   []catalog.ArtistHit
 	page   catalog.ArtistPage
 	err    error
@@ -126,6 +127,11 @@ func (f *fakeArtists) SearchArtists(_ context.Context, q string) ([]catalog.Arti
 	f.calls++
 	f.lastQ = q
 	return f.hits, f.err
+}
+func (f *fakeArtists) ArtistPhoto(_ context.Context, id string) ([]byte, string, error) {
+	f.calls++
+	f.lastID = id
+	return f.photo, "image/jpeg", f.err
 }
 func (f *fakeArtists) Artist(_ context.Context, id string) (catalog.ArtistPage, error) {
 	f.calls++
@@ -203,6 +209,7 @@ var routes = []struct {
 	{"GET", "/api/requests", "", auth.User},
 	{"GET", "/api/artists?q=ed+sheeran", "", auth.User},
 	{"GET", "/api/artist/b8a7c51f-362c-4dcb-a259-bc6e0095f0a6", "", auth.User},
+	{"GET", "/api/artist/b8a7c51f-362c-4dcb-a259-bc6e0095f0a6/photo", "", auth.User},
 	{"POST", "/api/requests/1/approve", "", auth.Approver},
 	{"POST", "/api/requests/1/decline", `{"reason":"no"}`, auth.Approver},
 	{"DELETE", "/api/requests/1", "", auth.User},

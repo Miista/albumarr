@@ -7,9 +7,14 @@
 package coverart
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/draw"
+	imgjpeg "image/jpeg"
+	_ "image/png" // artist photos may be PNG; they are always served as JPEG
 	"io"
 	"net/http"
 	"net/url"
@@ -229,4 +234,130 @@ func (c *Client) store(key string, e entry) {
 	}
 	c.cache[key] = e
 	c.bytes += len(e.data)
+}
+
+const (
+	maxPhoto     = 6 << 20 // an artist photo as the CDN serves it; it is shrunk before it is kept
+	maxPhotoSide = 6000    // pixels: a larger picture is refused before it is decoded
+	photoWidth   = 480     // what the page needs; the originals are 1000-1920 pixels
+	photoQuality = 82
+)
+
+// Photo returns an artist's photo, shrunk to photoWidth and re-encoded as JPEG, for
+// the image at rawURL. The URL comes from a third party's JSON, so it is fetched
+// only if it points at the same host as this client's base (the image CDN): a
+// hostile response cannot make albumreq fetch anything else. The picture is
+// decoded here, so only something that really is an image is ever passed on.
+func (c *Client) Photo(ctx context.Context, artistID, rawURL string) ([]byte, string, error) {
+	if !musicbrainz.ValidID(artistID) {
+		return nil, "", ErrInvalid
+	}
+	u, err := url.Parse(rawURL)
+	base, berr := url.Parse(c.base)
+	if err != nil || berr != nil || u.Scheme != base.Scheme || u.Host != base.Host || u.User != nil || len(rawURL) > 1000 {
+		return nil, "", ErrInvalid
+	}
+	key := "artist/" + artistID
+	if data, ct, hit, miss := c.lookup(key); hit {
+		return data, ct, nil
+	} else if miss {
+		return nil, "", ErrNoCover
+	}
+	select {
+	case c.slots <- struct{}{}:
+		defer func() { <-c.slots }()
+	case <-ctx.Done():
+		return nil, "", ctx.Err()
+	}
+	data, err := c.fetchPhoto(ctx, u.String())
+	if err != nil && !errors.Is(err, ErrNoCover) && isRetryable(err) {
+		select {
+		case <-time.After(c.retry):
+			data, err = c.fetchPhoto(ctx, u.String())
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		}
+	}
+	switch {
+	case err == nil:
+		c.store(key, entry{data: data, ct: "image/jpeg", exp: time.Now().Add(hitTTL)})
+		return data, "image/jpeg", nil
+	case errors.Is(err, ErrNoCover):
+		c.store(key, entry{exp: time.Now().Add(missTTL)})
+	}
+	return nil, "", err
+}
+
+func (c *Client) fetchPhoto(ctx context.Context, rawURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", c.ua)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return nil, transportError{err}
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, ErrNoCover
+	case resp.StatusCode != http.StatusOK:
+		return nil, statusError{resp.StatusCode}
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxPhoto+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading photo: %w", err)
+	}
+	if len(raw) > maxPhoto {
+		return nil, fmt.Errorf("coverart: photo larger than %d bytes", maxPhoto)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxPhotoSide || cfg.Height > maxPhotoSide {
+		return nil, fmt.Errorf("coverart: the photo is not a usable image")
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("coverart: the photo is not a usable image")
+	}
+	var out bytes.Buffer
+	if err := imgjpeg.Encode(&out, shrink(img, photoWidth), &imgjpeg.Options{Quality: photoQuality}); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+// shrink scales img down to the given width by averaging the source pixels under
+// each new pixel (a box filter), keeping the proportions. A picture that is not
+// wider is left alone. Only the standard library is used.
+func shrink(img image.Image, width int) image.Image {
+	b := img.Bounds()
+	if b.Dx() <= width {
+		return img
+	}
+	height := max(1, b.Dy()*width/b.Dx())
+	src := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(src, src.Bounds(), img, b.Min, draw.Src)
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		y0, y1 := y*b.Dy()/height, max(y*b.Dy()/height+1, (y+1)*b.Dy()/height)
+		for x := 0; x < width; x++ {
+			x0, x1 := x*b.Dx()/width, max(x*b.Dx()/width+1, (x+1)*b.Dx()/width)
+			var r, g, bl, a, n uint32
+			for sy := y0; sy < y1; sy++ {
+				row := src.Pix[sy*src.Stride : sy*src.Stride+b.Dx()*4]
+				for sx := x0; sx < x1; sx++ {
+					p := row[sx*4 : sx*4+4]
+					r, g, bl, a, n = r+uint32(p[0]), g+uint32(p[1]), bl+uint32(p[2]), a+uint32(p[3]), n+1
+				}
+			}
+			o := dst.PixOffset(x, y)
+			dst.Pix[o], dst.Pix[o+1], dst.Pix[o+2], dst.Pix[o+3] = uint8(r/n), uint8(g/n), uint8(bl/n), uint8(a/n)
+		}
+	}
+	return dst
 }

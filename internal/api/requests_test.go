@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/Miista/albumreq/internal/coverart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -423,9 +424,26 @@ func TestAnArtistsPageErrors(t *testing.T) {
 func TestArtistRoutesAre404WhenNotSetUp(t *testing.T) {
 	mux := http.NewServeMux()
 	New(&fakeCatalog{}, &fakeCovers{}, &fakeSettings{}, as(auth.User), &fakeUsers{}, &fakeRequests{}, &fakeIssues{}, zerolog.Nop()).Routes(mux)
-	for _, p := range []string{"/api/artists?q=ed", artistPath} {
+	for _, p := range []string{"/api/artists?q=ed", artistPath, artistPath + "/photo"} {
 		if rec := get(mux, p); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: %d", p, rec.Code)
+		}
+	}
+}
+
+func TestArtistPhotoRouteServesTheImageAndMapsErrors(t *testing.T) {
+	fa := &fakeArtists{photo: []byte("jpegbytes")}
+	rec := get(artistRig(&fakeRequests{}, fa, auth.User), artistPath+"/photo")
+	if rec.Code != 200 || rec.Body.String() != "jpegbytes" || rec.Header().Get("Content-Type") != "image/jpeg" || !strings.Contains(rec.Header().Get("Cache-Control"), "max-age") {
+		t.Errorf("%d %q %v", rec.Code, rec.Body, rec.Header())
+	}
+	for _, c := range []struct {
+		err  error
+		want int
+	}{{catalog.ErrInvalidID, 400}, {coverart.ErrInvalid, 400}, {coverart.ErrNoCover, 404}, {errors.New("dial tcp 10.0.0.1: secret"), 502}} {
+		rec := get(artistRig(&fakeRequests{}, &fakeArtists{err: c.err}, auth.User), artistPath+"/photo")
+		if rec.Code != c.want || strings.Contains(rec.Body.String(), "secret") {
+			t.Errorf("%v: %d %s", c.err, rec.Code, rec.Body)
 		}
 	}
 }

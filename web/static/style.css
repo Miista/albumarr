@@ -491,3 +491,7 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 }
 /* the sheet's Request button fills the width, as the main action of the sheet */
 .request > .btn.primary { align-self: stretch; padding: 13px 18px; font-size: 16px; }
+.artist-head { display: flex; align-items: center; gap: 16px; }
+.artist-head-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.artist-photo { flex: none; width: 96px; height: 96px; border-radius: 50%; object-fit: cover; background: oklch(0.2 0.02 270); border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+@media (min-width: 641px) { .artist-photo { width: 120px; height: 120px; } }

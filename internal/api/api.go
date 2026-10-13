@@ -101,6 +101,7 @@ type NotifyUser interface {
 type Artists interface {
 	SearchArtists(ctx context.Context, term string) ([]catalog.ArtistHit, error)
 	Artist(ctx context.Context, id string) (catalog.ArtistPage, error)
+	ArtistPhoto(ctx context.Context, id string) (data []byte, contentType string, err error)
 }
 
 // Progress says where albums stand in Lidarr, to show on the requests lists.
@@ -194,6 +195,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/requests/{id}/decline", s.guard(auth.Approver, s.handleDecline))
 	mux.HandleFunc("GET /api/artists", s.guard(auth.User, s.handleArtistSearch))
 	mux.HandleFunc("GET /api/artist/{id}", s.guard(auth.User, s.handleArtist))
+	mux.HandleFunc("GET /api/artist/{id}/photo", s.guard(auth.User, s.handleArtistPhoto))
 	mux.HandleFunc("DELETE /api/requests/{id}", s.guard(auth.User, s.handleDeleteRequest))
 	mux.HandleFunc("GET /api/cover/{id}", s.guard(auth.User, s.handleCover))
 	mux.HandleFunc("GET /api/settings", s.guard(auth.Admin, s.handleSettings))
@@ -286,6 +288,32 @@ func (s *Server) handleArtistSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"query": q, "artists": hits})
+}
+
+func (s *Server) handleArtistPhoto(w http.ResponseWriter, r *http.Request) {
+	if s.artists == nil {
+		http.NotFound(w, r)
+		return
+	}
+	data, contentType, err := s.artists.ArtistPhoto(r.Context(), r.PathValue("id"))
+	switch {
+	case errors.Is(err, catalog.ErrInvalidID), errors.Is(err, coverart.ErrInvalid):
+		http.Error(w, "invalid artist id", http.StatusBadRequest)
+		return
+	case errors.Is(err, coverart.ErrNoCover):
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		http.Error(w, "no photo", http.StatusNotFound)
+		return
+	case err != nil:
+		if r.Context().Err() == nil {
+			s.log.Warn().Err(err).Msg("artist photo failed")
+		}
+		http.Error(w, "photo unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleArtist(w http.ResponseWriter, r *http.Request) {

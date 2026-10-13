@@ -1,8 +1,13 @@
 package coverart
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	imgjpeg "image/jpeg"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -249,5 +254,181 @@ func TestCacheStaysWithinItsByteBudget(t *testing.T) {
 	}
 	if c.bytes > maxCacheB {
 		t.Errorf("cache holds %d bytes, budget %d", c.bytes, maxCacheB)
+	}
+}
+
+// --- artist photos ---
+
+const artistID = "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6"
+
+// picture makes a w x h image, left half dark and right half light, encoded as
+// PNG or JPEG.
+func picture(t *testing.T, w, h int, asPNG bool) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			v := uint8(20)
+			if x >= w/2 {
+				v = 235
+			}
+			img.Set(x, y, color.RGBA{v, v, v, 255})
+		}
+	}
+	var b bytes.Buffer
+	if asPNG {
+		png.Encode(&b, img)
+	} else {
+		imgjpeg.Encode(&b, img, nil)
+	}
+	return b.Bytes()
+}
+
+func serve(w http.ResponseWriter, ct string, body []byte) {
+	w.Header().Set("Content-Type", ct)
+	w.Write(body)
+}
+
+func decode(t *testing.T, data []byte) image.Image {
+	t.Helper()
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil || format != "jpeg" {
+		t.Fatalf("not a JPEG: %v %s", err, format)
+	}
+	return img
+}
+
+func TestPhotoIsShrunkReencodedAsJPEGAndCached(t *testing.T) {
+	for _, asPNG := range []bool{false, true} {
+		src := picture(t, 1000, 600, asPNG)
+		c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/cache/ed.jpg" || r.Header.Get("User-Agent") != "albumreq/0.1 ( test )" {
+				t.Errorf("request %s, UA %q", r.URL, r.Header.Get("User-Agent"))
+			}
+			serve(w, "image/jpeg", src)
+		})
+		var data []byte
+		for i := 0; i < 3; i++ {
+			var ct string
+			var err error
+			data, ct, err = c.Photo(context.Background(), artistID, c.base+"/cache/ed.jpg")
+			if err != nil || ct != "image/jpeg" {
+				t.Fatalf("png=%v: %v %q", asPNG, err, ct)
+			}
+		}
+		if calls.Load() != 1 {
+			t.Errorf("a repeated photo must come from the cache: %d upstream calls", calls.Load())
+		}
+		img := decode(t, data)
+		if b := img.Bounds(); b.Dx() != photoWidth || b.Dy() != 288 { // 600 * 480 / 1000
+			t.Errorf("size %dx%d, want %dx288: shrunk, proportions kept", b.Dx(), b.Dy(), photoWidth)
+		}
+		l, _, _, _ := img.At(20, 100).RGBA()
+		r, _, _, _ := img.At(photoWidth-20, 100).RGBA()
+		if l>>8 > 60 || r>>8 < 200 {
+			t.Errorf("the picture's content survived: left %d, right %d", l>>8, r>>8)
+		}
+		if len(data) >= len(src) && !asPNG {
+			t.Errorf("not smaller: %d >= %d", len(data), len(src))
+		}
+	}
+}
+
+func TestPhotoIsNotEnlarged(t *testing.T) {
+	c, _ := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", picture(t, 200, 100, false)) })
+	data, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := decode(t, data).Bounds(); b.Dx() != 200 || b.Dy() != 100 {
+		t.Errorf("size %dx%d", b.Dx(), b.Dy())
+	}
+}
+
+func TestPhotoOnlyFetchesFromTheImageHost(t *testing.T) {
+	c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", picture(t, 50, 50, false)) })
+	host := strings.TrimPrefix(c.base, "http://")
+	for name, raw := range map[string]string{
+		"another host":   "http://evil.example/p.jpg",
+		"another scheme": "https://" + host + "/p.jpg",
+		"userinfo":       "http://user:pw@" + host + "/p.jpg",
+		"a lookalike":    "http://" + host + ".evil.example/p.jpg",
+		"not a URL":      "::not a url",
+		"too long":       c.base + "/" + strings.Repeat("a", 1100),
+		"empty":          "",
+	} {
+		if _, _, err := c.Photo(context.Background(), artistID, raw); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, _, err := c.Photo(context.Background(), "../x", c.base+"/p.jpg"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("bad artist id: %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("a refused address must never be requested: %d calls", calls.Load())
+	}
+}
+
+func TestPhotoRefusesWhatIsNotAUsableImage(t *testing.T) {
+	huge := picture(t, 7000, 2, true) // tiny on the wire, enormous once decoded
+	for name, body := range map[string][]byte{
+		"text calling itself an image": []byte("<html>not a picture</html>"),
+		"a truncated JPEG":             picture(t, 300, 300, false)[:300],
+		"an image over the size limit": huge,
+		"empty":                        {},
+	} {
+		c, _ := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { serve(w, "image/jpeg", body) })
+		data, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg")
+		if err == nil || data != nil {
+			t.Errorf("%s: got %d bytes, %v", name, len(data), err)
+		}
+	}
+}
+
+func TestPhotoMissesAreRememberedAndServerErrorsRetriedOnce(t *testing.T) {
+	c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	for i := 0; i < 3; i++ {
+		if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg"); !errors.Is(err, ErrNoCover) {
+			t.Fatalf("404: %v", err)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Errorf("a missing photo is remembered: %d calls", calls.Load())
+	}
+	var n atomic.Int32
+	c, calls = newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) == 1 {
+			http.Error(w, "busy", http.StatusBadGateway)
+			return
+		}
+		serve(w, "image/jpeg", picture(t, 50, 50, false))
+	})
+	if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg"); err != nil || calls.Load() != 2 {
+		t.Errorf("one 502 then success: %v, %d calls", err, calls.Load())
+	}
+	c, calls = newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusServiceUnavailable) })
+	if _, _, err := c.Photo(context.Background(), artistID, c.base+"/p.jpg"); err == nil || errors.Is(err, ErrNoCover) || calls.Load() != 2 {
+		t.Errorf("persistent 503: %v, %d calls", err, calls.Load())
+	}
+}
+
+func TestShrinkAveragesBlocks(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 4, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 4; x++ {
+			v := uint8(0)
+			if (x+y)%2 == 1 {
+				v = 200
+			}
+			src.Set(x, y, color.RGBA{v, v, v, 255})
+		}
+	}
+	out := shrink(src, 2) // each new pixel averages a 2x2 block: two dark, two light
+	r, _, _, _ := out.At(0, 0).RGBA()
+	if b := out.Bounds(); b.Dx() != 2 || b.Dy() != 1 || r>>8 != 100 {
+		t.Errorf("%v, value %d, want 2x1 and 100", b, r>>8)
+	}
+	if got := shrink(src, 4); got != image.Image(src) {
+		t.Error("an image that is not wider is returned as is")
 	}
 }

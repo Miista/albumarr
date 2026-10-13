@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Miista/albumreq/internal/coverart"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -994,6 +995,87 @@ func TestArtistErrors(t *testing.T) {
 		t.Errorf("unknown artist: %v", err)
 	}
 	if _, err := New(&fakeSearch{}, &fakeMeta{err: errors.New("503")}, &fakeLib{}).Artist(context.Background(), edSheeran); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("metadata down: %v", err)
+	}
+}
+
+type fakePhotos struct {
+	data   []byte
+	err    error
+	gotID  string
+	gotURL string
+	calls  int
+}
+
+func (f *fakePhotos) Photo(_ context.Context, id, rawURL string) ([]byte, string, error) {
+	f.calls++
+	f.gotID, f.gotURL = id, rawURL
+	return f.data, "image/jpeg", f.err
+}
+
+func metaWithImages(images ...lidarrmeta.ArtistImage) lidarrmeta.Artist {
+	a := artistMeta()
+	a.Images = images
+	return a
+}
+
+func TestAnArtistPageOffersAPhotoOnlyWhenThereIsOneToShow(t *testing.T) {
+	poster := lidarrmeta.ArtistImage{Type: "Poster", URL: "https://cdn.example/p.jpg"}
+	cases := map[string]struct {
+		meta   lidarrmeta.Artist
+		photos Photos
+		want   string
+	}{
+		"a poster and a fetcher": {metaWithImages(poster), &fakePhotos{}, "/api/artist/" + edSheeran + "/photo"},
+		"no images":              {metaWithImages(), &fakePhotos{}, ""},
+		"only a banner":          {metaWithImages(lidarrmeta.ArtistImage{Type: "Banner", URL: "x"}), &fakePhotos{}, ""},
+		"no fetcher":             {metaWithImages(poster), nil, ""},
+	}
+	for name, c := range cases {
+		cat := New(&fakeSearch{}, &fakeMeta{artist: c.meta}, &fakeLib{})
+		if c.photos != nil {
+			cat.SetPhotos(c.photos)
+		}
+		page, err := cat.Artist(context.Background(), edSheeran)
+		if err != nil || page.Photo != c.want {
+			t.Errorf("%s: photo %q, %v", name, page.Photo, err)
+		}
+	}
+}
+
+func TestArtistPhotoUsesTheAddressTheMetadataServiceGave(t *testing.T) {
+	fp := &fakePhotos{data: []byte("jpeg")}
+	cat := New(&fakeSearch{}, &fakeMeta{artist: metaWithImages(lidarrmeta.ArtistImage{Type: "Poster", URL: "https://cdn.example/p.jpg"})}, &fakeLib{})
+	cat.SetPhotos(fp)
+	data, ct, err := cat.ArtistPhoto(context.Background(), edSheeran)
+	if err != nil || string(data) != "jpeg" || ct != "image/jpeg" || fp.gotID != edSheeran || fp.gotURL != "https://cdn.example/p.jpg" {
+		t.Errorf("%q %q %v, asked for %q %q", data, ct, err, fp.gotID, fp.gotURL)
+	}
+}
+
+func TestArtistPhotoErrors(t *testing.T) {
+	poster := lidarrmeta.ArtistImage{Type: "Poster", URL: "https://cdn.example/p.jpg"}
+	fp := &fakePhotos{}
+	catWith := func(m *fakeMeta, photos Photos) *Catalog {
+		c := New(&fakeSearch{}, m, &fakeLib{})
+		if photos != nil {
+			c.SetPhotos(photos)
+		}
+		return c
+	}
+	if _, _, err := catWith(&fakeMeta{}, fp).ArtistPhoto(context.Background(), "../x"); !errors.Is(err, ErrInvalidID) || fp.calls != 0 {
+		t.Errorf("invalid id: %v", err)
+	}
+	if _, _, err := catWith(&fakeMeta{artist: metaWithImages(poster)}, nil).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, coverart.ErrNoCover) {
+		t.Errorf("no fetcher: %v", err)
+	}
+	if _, _, err := catWith(&fakeMeta{artist: metaWithImages()}, fp).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, coverart.ErrNoCover) || fp.calls != 0 {
+		t.Errorf("no image: %v, %d calls", err, fp.calls)
+	}
+	if _, _, err := catWith(&fakeMeta{err: lidarrmeta.ErrNotFound}, fp).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, coverart.ErrNoCover) {
+		t.Errorf("unknown artist: %v", err)
+	}
+	if _, _, err := catWith(&fakeMeta{err: errors.New("503")}, fp).ArtistPhoto(context.Background(), edSheeran); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("metadata down: %v", err)
 	}
 }

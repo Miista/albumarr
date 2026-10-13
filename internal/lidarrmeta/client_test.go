@@ -257,6 +257,7 @@ func TestPlaceholderDatesAndBracketedRegionsAreCleanedUp(t *testing.T) {
 }
 
 const artistFixture = `{"id":"b8a7c51f-362c-4dcb-a259-bc6e0095f0a6","artistname":"Ed Sheeran","disambiguation":"UK singer‐songwriter","type":"Person",
+ "images":[{"CoverType":"Banner","Url":"https://cdn.example/banner.jpg"},{"CoverType":"Fanart","Url":"https://cdn.example/fanart.jpg"},{"CoverType":"Poster","Url":"https://cdn.example/poster.jpg"},{"CoverType":"Logo","Url":""}],
  "Albums":[
   {"Id":"c24e5416-0b6b-3b1d-8a3a-000000000001","Title":"×","Type":"Album","SecondaryTypes":[],"ReleaseDate":"2014-06-20"},
   {"Id":"6f5bdb7d-eb3b-4b24-abc3-3312621cb7e8","Title":"Sing","Type":"Single","SecondaryTypes":null,"ReleaseDate":"2014-04-07"},
@@ -315,5 +316,29 @@ func TestArtistInvalidIDNotFoundFailureAndCache(t *testing.T) {
 	status.Store(500)
 	if _, err := c.Artist(context.Background(), "c590f877-9bd4-45ac-b0f5-799ac5496d1a"); err == nil || errors.Is(err, ErrNotFound) {
 		t.Errorf("500 is a failure, not 'not found': %v", err)
+	}
+}
+
+func TestArtistImagesAndWhichOneIsThePhoto(t *testing.T) {
+	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, artistFixture) })
+	a, err := c.Artist(context.Background(), "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6")
+	if err != nil || len(a.Images) != 4 || a.Images[0].Type != "Banner" || a.Images[2].URL != "https://cdn.example/poster.jpg" {
+		t.Fatalf("%+v, %v", a.Images, err)
+	}
+	if got := a.PhotoURL(); got != "https://cdn.example/poster.jpg" {
+		t.Errorf("the poster is preferred: %q", got)
+	}
+	for name, tc := range map[string]struct {
+		images []ArtistImage
+		want   string
+	}{
+		"fanart when there is no poster":     {[]ArtistImage{{"Banner", "b"}, {"fanart", "f"}}, "f"},
+		"the banner and logo carry the name": {[]ArtistImage{{"Banner", "b"}, {"Logo", "l"}}, ""},
+		"a poster with no address is no use": {[]ArtistImage{{"Poster", ""}, {"Fanart", "f"}}, "f"},
+		"none":                               {nil, ""},
+	} {
+		if got := (Artist{Images: tc.images}).PhotoURL(); got != tc.want {
+			t.Errorf("%s: %q, want %q", name, got, tc.want)
+		}
 	}
 }

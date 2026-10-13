@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
 	"github.com/Miista/albumreq/internal/musicbrainz"
@@ -93,6 +94,11 @@ type Metadata interface {
 	Artist(ctx context.Context, id string) (lidarrmeta.Artist, error)
 }
 
+// Photos fetches an artist's picture from the address the metadata service gave.
+type Photos interface {
+	Photo(ctx context.Context, artistID, rawURL string) ([]byte, string, error)
+}
+
 // Library is the part of the Lidarr client the catalog uses.
 type Library interface {
 	AlbumByForeignID(ctx context.Context, foreignID string) (*lidarr.AlbumState, error)
@@ -111,6 +117,7 @@ type Catalog struct {
 	search   Searcher
 	meta     Metadata
 	lib      Library
+	photos   Photos                          // nil: artists have no pictures
 	requests atomic.Pointer[RequestSettings] // nil: requesting is off; replaced when the settings change
 }
 
@@ -669,6 +676,7 @@ type ArtistPage struct {
 	Type           string  `json:"type,omitempty"`
 	Albums         []Album `json:"albums"`
 	LibraryOK      bool    `json:"libraryOk"`
+	Photo          string  `json:"photo,omitempty"` // where to fetch the artist's picture, when there is one
 }
 
 // groupOf sorts a release group into one of the page's filters: studio albums,
@@ -700,6 +708,9 @@ func (c *Catalog) Artist(ctx context.Context, id string) (ArtistPage, error) {
 		return ArtistPage{}, fmt.Errorf("%w: asking the metadata service: %v", ErrUnavailable, err)
 	}
 	page := ArtistPage{ID: a.ID, Name: a.Name, Disambiguation: a.Disambiguation, Type: a.Type, Albums: make([]Album, 0, len(a.Albums))}
+	if c.photos != nil && a.PhotoURL() != "" {
+		page.Photo = "/api/artist/" + id + "/photo"
+	}
 	for _, x := range a.Albums {
 		page.Albums = append(page.Albums, Album{
 			ID: x.ID, Title: x.Title, Artist: a.Name, ArtistID: a.ID, Type: x.Type, SecondaryTypes: x.SecondaryTypes,
@@ -738,4 +749,31 @@ func (c *Catalog) Artist(ctx context.Context, id string) (ArtistPage, error) {
 		}
 	}
 	return page, nil
+}
+
+// SetPhotos turns on artists' pictures.
+func (c *Catalog) SetPhotos(p Photos) { c.photos = p }
+
+// ArtistPhoto returns the artist's picture, or coverart.ErrNoCover when there is
+// none. It never takes an address from the caller: the metadata service's own
+// answer says where the picture is, and the fetcher accepts only the image CDN.
+func (c *Catalog) ArtistPhoto(ctx context.Context, id string) ([]byte, string, error) {
+	if !musicbrainz.ValidID(id) {
+		return nil, "", ErrInvalidID
+	}
+	if c.photos == nil {
+		return nil, "", coverart.ErrNoCover
+	}
+	a, err := c.meta.Artist(ctx, id)
+	switch {
+	case errors.Is(err, lidarrmeta.ErrNotFound):
+		return nil, "", coverart.ErrNoCover
+	case err != nil:
+		return nil, "", fmt.Errorf("%w: asking the metadata service: %v", ErrUnavailable, err)
+	}
+	u := a.PhotoURL()
+	if u == "" {
+		return nil, "", coverart.ErrNoCover
+	}
+	return c.photos.Photo(ctx, id, u)
 }

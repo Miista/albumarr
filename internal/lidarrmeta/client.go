@@ -81,6 +81,28 @@ type Artist struct {
 	Disambiguation string
 	Type           string
 	Albums         []ArtistAlbum
+	Images         []ArtistImage
+}
+
+// ArtistImage is one picture of an artist: its kind (Poster, Fanart, Banner, Logo)
+// and its address on the image CDN.
+type ArtistImage struct {
+	Type string
+	URL  string
+}
+
+// PhotoURL is the picture to show beside the artist's name: the poster (a square
+// photo), else the fanart (a wide one). The banner and logo carry the name
+// themselves, so they are not used. Empty when there is none.
+func (a Artist) PhotoURL() string {
+	for _, kind := range []string{"Poster", "Fanart"} {
+		for _, im := range a.Images {
+			if strings.EqualFold(im.Type, kind) && im.URL != "" {
+				return im.URL
+			}
+		}
+	}
+	return ""
 }
 
 // ArtistAlbum is one release group in an artist's list: enough for a card.
@@ -129,6 +151,10 @@ func (c *Client) Artist(ctx context.Context, id string) (Artist, error) {
 			SecondaryTypes []string `json:"secondarytypes"`
 			ReleaseDate    string   `json:"releasedate"`
 		} `json:"albums"`
+		Images []struct {
+			CoverType string `json:"covertype"`
+			URL       string `json:"url"`
+		} `json:"images"`
 	}
 	if err := json.Unmarshal(body, &w); err != nil {
 		return Artist{}, fmt.Errorf("metadata service: decoding response: %w", err)
@@ -139,6 +165,9 @@ func (c *Client) Artist(ctx context.Context, id string) (Artist, error) {
 			continue
 		}
 		a.Albums = append(a.Albums, ArtistAlbum{ID: x.ID, Title: x.Title, Type: x.Type, SecondaryTypes: nonNil(x.SecondaryTypes), ReleaseDate: knownDate(x.ReleaseDate)})
+	}
+	for _, im := range w.Images {
+		a.Images = append(a.Images, ArtistImage{Type: im.CoverType, URL: im.URL})
 	}
 	c.mu.Lock()
 	if len(c.artists) >= 64 {

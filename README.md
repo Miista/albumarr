@@ -105,7 +105,7 @@ more) show as chips under the search box; the album results come first and do no
 them. A chip opens the artist's page (`#artist=<MusicBrainz ID>`, so it can be linked and the
 Back button works): every release group Lidarr's metadata service lists for them, newest first,
 in tabs for **Albums** (studio albums), **EPs**, **Singles** and **More** (live albums,
-compilations, broadcasts). Each card carries Lidarr's usual chip, and opening one shows the
+compilations, broadcasts). The header shows the artist's photo as a round picture when the metadata service has a poster (else a fanart picture): the artist answer already lists them, so nothing extra is asked. albumreq fetches it itself, only from the image CDN's host, refuses anything that does not decode as an image, shrinks it to 480 pixels wide and serves it as JPEG with a day's caching (`GET /api/artist/{id}/photo`), so the browser never talks to the CDN. Without a photo the header is just the name. Each card carries Lidarr's usual chip, and opening one shows the
 same sheet as from a search, so **requesting is unchanged**. For the chips, albumreq asks
 Lidarr for the artist's albums in one go (nothing is asked for an artist Lidarr does not
 have); if Lidarr cannot be reached the albums are listed without chips.

@@ -49,8 +49,13 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
         Search
       </button>
-      <h1>{{ artist?.name || 'Artist' }} <span class="kind-pill artist head-pill">Artist</span></h1>
-      <p class="lede" v-if="artist?.disambiguation || artist?.type">{{ [artist?.type, artist?.disambiguation].filter(Boolean).join(' · ') }}</p>
+      <div class="artist-head">
+        <img class="artist-photo" v-if="artist?.photo" :src="artist?.photo" alt="" @error="$event.target.remove()">
+        <div class="artist-head-text">
+          <h1>{{ artist?.name || 'Artist' }} <span class="kind-pill artist head-pill">Artist</span></h1>
+          <p class="lede" v-if="artist?.disambiguation || artist?.type">{{ [artist?.type, artist?.disambiguation].filter(Boolean).join(' · ') }}</p>
+        </div>
+      </div>
     </div>
     <div class="title-block" v-else>
       <h1>Find an album</h1>

@@ -180,7 +180,9 @@ func main() {
 
 	// Live checks against Lidarr, remembered briefly: the nav asks on every page load.
 	problems := issues.Combine(30*time.Second, service, authn, notifySettings)
-	api.New(cat, coverart.New(coverURL), service, authn, known, flow, problems, logger).
+	covers := coverart.New(coverURL)
+	cat.SetPhotos(covers)
+	api.New(cat, covers, service, authn, known, flow, problems, logger).
 		Progress(cat).
 		Artists(cat).
 		Notifications(notifySettings, notify.NewUserSettings(ntfyStore, notifySettings, ntfy, logger)).
