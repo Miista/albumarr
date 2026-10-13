@@ -81,7 +81,7 @@ jobs:
               -o dist/linux/$arch/albumarr .
           done
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Before anything is published: the image must start, run as an unprivileged user (the
       # default one, and 1000:1000), become healthy by its own HEALTHCHECK, and say the
