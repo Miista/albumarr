@@ -103,6 +103,7 @@
   --clear-bg: #d4d6e2;
   --chrome: rgba(255,255,255,.9);
   --chrome-nav: rgba(255,255,255,.94);
+  --chrome-tabbar: rgba(255,255,255,.7); /* the phone's bottom bar: lighter than the top bar, so the page shows faintly through */
   --menu-bg: rgba(255,255,255,.98);
   --menu-hover: oklch(0.94 0.01 270);
   --hover: oklch(0.92 0.03 290 / .7);
@@ -491,7 +492,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
     position: fixed; z-index: 40; left: 0; right: 0; bottom: 0;
     display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0;
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--border); background: var(--chrome-nav); backdrop-filter: blur(14px);
+    border-top: 1px solid var(--border); background: var(--chrome-tabbar, var(--chrome-nav)); backdrop-filter: blur(14px);
   }
   .topnav a {
     position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
