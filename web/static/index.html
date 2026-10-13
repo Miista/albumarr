@@ -216,15 +216,15 @@
         </div>
         <div class="card-grid">
           <div class="field">
-            <label class="field-label" for="f-url">URL <span class="lock-label" v-if="lock('lidarr.url')">{{ lockText('lidarr.url') }}</span></label>
+            <label class="field-label" for="f-url">URL <span class="lock-label" v-if="lock('lidarr.url')" :title="lockText('lidarr.url')">{{ lockText('lidarr.url') }}</span></label>
             <input id="f-url" class="input plain" :class="{ locked: lock('lidarr.url') }" type="url" inputmode="url" v-model="form.url" :readonly="lock('lidarr.url') ? true : null" placeholder="http://lidarr:8686" autocapitalize="off" autocorrect="off" spellcheck="false">
           </div>
           <div class="field">
-            <label class="field-label" for="f-key">API key <span class="lock-label" v-if="lock('lidarr.api_key')">{{ lockText('lidarr.api_key') }}</span></label>
+            <label class="field-label" for="f-key">API key <span class="lock-label" v-if="lock('lidarr.api_key')" :title="lockText('lidarr.api_key')">{{ lockText('lidarr.api_key') }}</span></label>
             <input id="f-key" class="input plain" :class="{ locked: lock('lidarr.api_key') }" type="password" v-model="form.api_key" :readonly="lock('lidarr.api_key') ? true : null" :placeholder="cfg.values.api_key_set ? cfg.values.api_key + ' (saved, type to replace)' : 'Lidarr → Settings → General'" autocomplete="new-password" autocapitalize="off" spellcheck="false">
           </div>
           <div class="field">
-            <label class="field-label" for="f-web">Web address (optional) <span class="lock-label" v-if="lock('lidarr.web_url')">{{ lockText('lidarr.web_url') }}</span></label>
+            <label class="field-label" for="f-web">Web address (optional) <span class="lock-label" v-if="lock('lidarr.web_url')" :title="lockText('lidarr.web_url')">{{ lockText('lidarr.web_url') }}</span></label>
             <input id="f-web" class="input plain" :class="{ locked: lock('lidarr.web_url') }" type="url" inputmode="url" v-model="form.web_url" :readonly="lock('lidarr.web_url') ? true : null" placeholder="https://lidarr.example.com" autocapitalize="off" autocorrect="off" spellcheck="false">
             <p class="hint">Where you open Lidarr in a browser. Admins get an "Open in Lidarr" link on an album when it is set.</p>
           </div>
@@ -247,7 +247,7 @@
         <p class="note-text" v-if="!cfg.configured && !options">Connect to Lidarr first.</p>
         <div class="card-grid" v-else>
           <div class="field">
-            <label class="field-label" for="f-root">Root folder <span class="lock-label" v-if="lock('lidarr.root_folder')">{{ lockText('lidarr.root_folder') }}</span></label>
+            <label class="field-label" for="f-root">Root folder <span class="lock-label" v-if="lock('lidarr.root_folder')" :title="lockText('lidarr.root_folder')">{{ lockText('lidarr.root_folder') }}</span></label>
             <select id="f-root" class="input plain" :class="{ locked: lock('lidarr.root_folder') }" v-if="rootChoices().length" v-model="form.root_folder" :disabled="!!lock('lidarr.root_folder')">
               <option value="">Choose…</option>
               <option v-for="r in rootChoices()" :value="r">{{ r }}</option>
@@ -255,7 +255,7 @@
             <input id="f-root" class="input plain" :class="{ locked: lock('lidarr.root_folder') }" v-else v-model="form.root_folder" :readonly="lock('lidarr.root_folder') ? true : null" placeholder="/music" autocapitalize="off" spellcheck="false">
           </div>
           <div class="field">
-            <label class="field-label" for="f-qp">Quality profile <span class="lock-label" v-if="lock('lidarr.quality_profile_id')">{{ lockText('lidarr.quality_profile_id') }}</span></label>
+            <label class="field-label" for="f-qp">Quality profile <span class="lock-label" v-if="lock('lidarr.quality_profile_id')" :title="lockText('lidarr.quality_profile_id')">{{ lockText('lidarr.quality_profile_id') }}</span></label>
             <select id="f-qp" class="input plain" :class="{ locked: lock('lidarr.quality_profile_id') }" v-if="options" v-model.number="form.quality_profile_id" :disabled="!!lock('lidarr.quality_profile_id')">
               <option :value="0">Choose…</option>
               <option v-for="p in profileChoices('quality_profile_id', options?.qualityProfiles)" :value="p.id">{{ p.name }}</option>
@@ -286,11 +286,11 @@
         </div>
         <div class="card-grid">
           <div class="field">
-            <label class="field-label" for="n-url">Server address <span class="lock-label" v-if="nlock('url')">{{ nlockText('url') }}</span></label>
+            <label class="field-label" for="n-url">Server address <span class="lock-label" v-if="nlock('url')" :title="nlockText('url')">{{ nlockText('url') }}</span></label>
             <input id="n-url" class="input plain" :class="{ locked: nlock('url') }" type="url" v-model="nform.url" :readonly="nlock('url') ? true : null" placeholder="https://ntfy.example.com" autocapitalize="off" autocorrect="off" spellcheck="false" >
           </div>
           <div class="field">
-            <label class="field-label" for="n-auth">Authentication <span class="lock-label" v-if="nlock('auth')">{{ nlockText('auth') }}</span></label>
+            <label class="field-label" for="n-auth">Authentication <span class="lock-label" v-if="nlock('auth')" :title="nlockText('auth')">{{ nlockText('auth') }}</span></label>
             <select id="n-auth" class="input plain" :class="{ locked: nlock('auth') }" v-model="nform.auth" :disabled="!!nlock('auth')">
               <option value="none">None</option>
               <option value="basic">Username and password</option>
@@ -299,17 +299,17 @@
           </div>
           <template v-if="nform.auth === 'basic'">
           <div class="field">
-            <label class="field-label" for="n-username">Username <span class="lock-label" v-if="nlock('username')">{{ nlockText('username') }}</span></label>
+            <label class="field-label" for="n-username">Username <span class="lock-label" v-if="nlock('username')" :title="nlockText('username')">{{ nlockText('username') }}</span></label>
             <input id="n-username" class="input plain" :class="{ locked: nlock('username') }" type="text" v-model="nform.username" :readonly="nlock('username') ? true : null" placeholder="" autocapitalize="off" autocorrect="off" spellcheck="false" >
           </div>
           <div class="field">
-            <label class="field-label" for="n-password">Password <span class="lock-label" v-if="nlock('password')">{{ nlockText('password') }}</span></label>
+            <label class="field-label" for="n-password">Password <span class="lock-label" v-if="nlock('password')" :title="nlockText('password')">{{ nlockText('password') }}</span></label>
             <input id="n-password" class="input plain" :class="{ locked: nlock('password') }" type="password" v-model="nform.password" :readonly="nlock('password') ? true : null" :placeholder="ncfg.values.password_set ? ncfg.values.password + ' (saved, type to replace)' : ''" autocomplete="new-password">
           </div>
           </template>
           <template v-if="nform.auth === 'token'">
           <div class="field">
-            <label class="field-label" for="n-token">Access token <span class="lock-label" v-if="nlock('token')">{{ nlockText('token') }}</span></label>
+            <label class="field-label" for="n-token">Access token <span class="lock-label" v-if="nlock('token')" :title="nlockText('token')">{{ nlockText('token') }}</span></label>
             <input id="n-token" class="input plain" :class="{ locked: nlock('token') }" type="password" v-model="nform.token" :readonly="nlock('token') ? true : null" :placeholder="ncfg.values.token_set ? ncfg.values.token + ' (saved, type to replace)' : ''" autocomplete="new-password">
           </div>
           </template>
@@ -332,32 +332,32 @@
         <div class="card-grid">
           <label class="toggle wide">
             <input type="checkbox" v-model="nform.enabled" :disabled="!!nlock('enabled')">
-            <span>Send notifications <span class="lock-label" v-if="nlock('enabled')">{{ nlockText('enabled') }}</span></span>
+            <span>Send notifications <span class="lock-label" v-if="nlock('enabled')" :title="nlockText('enabled')">{{ nlockText('enabled') }}</span></span>
           </label>
           <div class="field">
-            <label class="field-label" for="n-topic">Topic <span class="lock-label" v-if="nlock('topic')">{{ nlockText('topic') }}</span></label>
+            <label class="field-label" for="n-topic">Topic <span class="lock-label" v-if="nlock('topic')" :title="nlockText('topic')">{{ nlockText('topic') }}</span></label>
             <input id="n-topic" class="input plain" :class="{ locked: nlock('topic') }" type="text" v-model="nform.topic" :readonly="nlock('topic') ? true : null" placeholder="albumreq" autocapitalize="off" autocorrect="off" spellcheck="false" >
           </div>
           <div class="field">
-            <label class="field-label" for="n-priority">Priority <span class="lock-label" v-if="nlock('priority')">{{ nlockText('priority') }}</span></label>
+            <label class="field-label" for="n-priority">Priority <span class="lock-label" v-if="nlock('priority')" :title="nlockText('priority')">{{ nlockText('priority') }}</span></label>
             <select id="n-priority" class="input plain" :class="{ locked: nlock('priority') }" v-model.number="nform.priority" :disabled="!!nlock('priority')">
               <option :value="1">1 · Min</option><option :value="2">2 · Low</option><option :value="3">3 · Default</option><option :value="4">4 · High</option><option :value="5">5 · Max</option>
             </select>
           </div>
           <div class="field">
-            <label class="field-label" for="n-tags">Tags <span class="lock-label" v-if="nlock('tags')">{{ nlockText('tags') }}</span></label>
+            <label class="field-label" for="n-tags">Tags <span class="lock-label" v-if="nlock('tags')" :title="nlockText('tags')">{{ nlockText('tags') }}</span></label>
             <input id="n-tags" class="input plain" :class="{ locked: nlock('tags') }" type="text" v-model="nform.tags" :readonly="nlock('tags') ? true : null" placeholder="musical_note" autocapitalize="off" autocorrect="off" spellcheck="false" >
           </div>
           <div class="field">
-            <label class="field-label" for="n-app_url">Application address <span class="lock-label" v-if="nlock('app_url')">{{ nlockText('app_url') }}</span></label>
+            <label class="field-label" for="n-app_url">Application address <span class="lock-label" v-if="nlock('app_url')" :title="nlockText('app_url')">{{ nlockText('app_url') }}</span></label>
             <input id="n-app_url" class="input plain" :class="{ locked: nlock('app_url') }" type="url" v-model="nform.app_url" :readonly="nlock('app_url') ? true : null" placeholder="https://albumreq.example.com" autocapitalize="off" autocorrect="off" spellcheck="false" >
           </div>
           <label class="toggle wide">
             <input type="checkbox" v-model="nform.embed_poster" :disabled="!!nlock('embed_poster')">
-            <span>Attach the album cover <span class="lock-label" v-if="nlock('embed_poster')">{{ nlockText('embed_poster') }}</span></span>
+            <span>Attach the album cover <span class="lock-label" v-if="nlock('embed_poster')" :title="nlockText('embed_poster')">{{ nlockText('embed_poster') }}</span></span>
           </label>
           <fieldset class="checks wide" :disabled="!!nlock('types')">
-            <legend class="field-label">Tell the channel when <span class="lock-label" v-if="nlock('types')">{{ nlockText('types') }}</span></legend>
+            <legend class="field-label">Tell the channel when <span class="lock-label" v-if="nlock('types')" :title="nlockText('types')">{{ nlockText('types') }}</span></legend>
             <label class="toggle" v-for="t in ncfg.event_types" :key="t.id">
               <input type="checkbox" :checked="nform.types.includes(t.id)" @change="toggleType(nform.types, t.id, $event.target.checked)">
               <span>{{ t.label }}</span>

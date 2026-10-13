@@ -670,3 +670,11 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .segmented button:hover { color: var(--text); }
 .segmented button.active { background: oklch(0.55 0.2 290); color: #fff; }
 :root[data-theme="light"] .artist-photo { box-shadow: 0 6px 20px rgba(40,40,80,.25); }
+
+/* In a field, the "Managed by VARIABLE" note goes under the input, not into the label row: the
+   label stays one short line, so the inputs in a row line up however long the note is. The
+   label's text and the note are lifted out of the <label> (display: contents) and put in order. */
+.field > label.field-label { display: contents; }
+.field > .input, .field > select.input { order: 1; }
+.field > label.field-label .lock-label { order: 2; margin-top: 6px; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.field > .hint, .field > .note-text { order: 3; }
