@@ -136,17 +136,23 @@ function App() {
     atest: null,
 
     go(page) {
+      // An open album page is left without touching the history: close() goes Back, which
+      // is asynchronous and would land on the page behind the album (the artist's, say)
+      // after this has already moved on. The move below pushes its own entry.
+      const wasOpen = !!this.selected;
+      if (wasOpen) {
+        detailSeq++;
+        this.selected = null;
+      }
       if (page === 'search') {
         // The Search tab is also the way out of an artist's page.
         if (this.artist && this.page === 'search') {
-          if (this.selected) this.close();
           this.leaveArtist(true);
           return;
         }
         this.artist = null;
       }
-      if (page === this.page) return;
-      if (this.selected) this.close();
+      if (page === this.page && !wasOpen) return;
       history.pushState(null, '', location.pathname + (HASHES[page] || location.search));
       this.showPage(page);
     },
