@@ -124,6 +124,14 @@ there after the container is replaced; read it in Grafana with `{container="albu
 is asked again once, after two seconds or what it asks for (at most five), when a request fails in a
 way that often passes by itself (a dropped connection, a 429 or a 5xx).
 
+### Light and dark
+
+The page follows the device's light or dark setting by default (**Auto**), and changes live when the
+device does. The sun/moon button in the top bar cycles **Auto, Light, Dark**, and **Account → Appearance**
+has the same choice as a control. The choice is remembered in the browser (`localStorage`); a browser that
+refuses storage still switches for the visit. The theme is set in the page's head, before the first paint,
+so there is no flash of the wrong one, and the browser's own controls and the phone's address bar follow it.
+
 ### Loading states
 
 While data loads, a page shows grey skeleton shapes laid out like the real content (search results, artist chips and pages, the album page's details and tracks, Requests, Account, Issues and the Settings tabs), so nothing jumps when it arrives. Spinners are kept only inside a button whose action is under way.

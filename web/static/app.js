@@ -28,6 +28,27 @@ const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'requests', '#/i
 const TAB_OF_HASH = { '#/settings/users': 'users', '#/settings/notifications': 'notifications' };
 const HASH_OF_TAB = { users: '#/settings/users', notifications: '#/settings/notifications', lidarr: '#/settings' };
 
+// The theme: 'auto' follows the device, 'light' and 'dark' are a choice. <html data-theme> always
+// holds what is shown (light or dark); the head sets it before the first paint, and this keeps
+// it in step with the choice and, on Auto, with the device.
+const THEME_KEY = 'albumreq-theme';
+
+function storedTheme() {
+  try {
+    const t = localStorage.getItem(THEME_KEY);
+    return t === 'light' || t === 'dark' ? t : 'auto';
+  } catch (e) {
+    return 'auto';
+  }
+}
+
+function applyTheme(mode) {
+  const t = mode === 'light' || mode === 'dark' ? mode : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  const c = document.querySelector('meta[name=theme-color]');
+  if (c) c.content = t === 'light' ? '#f4f4f8' : '#0a0b0f';
+}
+
 function App() {
   // Kept out of the reactive scope: timers and the in-flight counters have no
   // reason to trigger a re-render.
@@ -57,6 +78,7 @@ function App() {
     artistError: '',
     artistGroup: 'albums', // albums | eps | singles | more
 
+    theme: storedTheme(), // auto | light | dark
     selected: null, // the card (or just { id }) of the album page that is open
     tabURL: {}, // page -> the address you left it at (query and hash), to return to
     albumCtx: { from: 'search', artist: '' }, // where the album page was opened from; it is in the address too, so a reload or a pasted link keeps it
@@ -608,7 +630,30 @@ function App() {
       }
     },
 
+    setTheme(mode) {
+      this.theme = mode;
+      try {
+        if (mode === 'auto') localStorage.removeItem(THEME_KEY);
+        else localStorage.setItem(THEME_KEY, mode);
+      } catch (e) {
+        /* a browser that refuses storage still changes the theme, for this visit */
+      }
+      applyTheme(mode);
+    },
+
+    cycleTheme() {
+      this.setTheme({ auto: 'light', light: 'dark', dark: 'auto' }[this.theme]);
+    },
+
+    themeLabel() {
+      return { auto: 'Auto (follows your device)', light: 'Light', dark: 'Dark' }[this.theme];
+    },
+
     mounted() {
+      applyTheme(this.theme);
+      matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+        if (this.theme === 'auto') applyTheme('auto');
+      });
       // What is downloading moves on its own, so the lists that show it refresh
       // while they are in view.
       setInterval(() => {
