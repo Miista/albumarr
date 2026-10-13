@@ -135,7 +135,7 @@ jobs:
       # merge) but publishes nothing; a push to main or a tag publishes, with a build
       # provenance attestation and an SBOM attached to the image.
       - name: Build, and push when this is a push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
