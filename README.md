@@ -135,6 +135,11 @@ says where it goes (**Search**, **Requests**, or the artist's name when you came
 page), and the browser's Back button and Escape do the same. The page you came from is kept, so you
 return to the same results at the same scroll position. Where an album was opened from is in its address (`#album=<id>&artist=<artist id>` from an artist's page, `&from=requests` from Requests, search results via the `?q=`), so a reload or a pasted link keeps the same back link; an unknown or malformed value is ignored.
 
+Each nav tab keeps its place, like the tabs of a phone app: leave Search with an album, an artist or a
+set of results open, visit another tab, and the Search tab brings you back to exactly that (the same goes
+for Requests with an album open, and for a Settings tab). Pressing the tab you are already on goes to its
+top instead.
+
 ### Browsing by artist
 
 Searching also looks for artists. The strongest matches (at most six, MusicBrainz score 50 or

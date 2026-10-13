@@ -58,6 +58,7 @@ function App() {
     artistGroup: 'albums', // albums | eps | singles | more
 
     selected: null, // the card (or just { id }) of the album page that is open
+    tabURL: {}, // page -> the address you left it at (query and hash), to return to
     albumCtx: { from: 'search', artist: '' }, // where the album page was opened from; it is in the address too, so a reload or a pasted link keeps it
     albumScroll: 0, // where the page it was opened from was scrolled to
     detail: null,
@@ -136,6 +137,13 @@ function App() {
     atest: null,
 
     go(page) {
+      // Each tab keeps its place, like the tabs of a phone app: leaving one remembers where in
+      // it you were (a search, an artist, an open album, a settings tab), and coming back by
+      // the tab returns to it. Pressing the tab you are already on goes to its top instead.
+      const leaving = this.page;
+      if (page !== leaving) this.tabURL[leaving] = location.search + location.hash;
+      const saved = page !== leaving ? this.tabURL[page] : '';
+
       // An open album page is left without touching the history: close() goes Back, which
       // is asynchronous and would land on the page behind the album (the artist's, say)
       // after this has already moved on. The move below pushes its own entry.
@@ -143,6 +151,12 @@ function App() {
       if (wasOpen) {
         detailSeq++;
         this.selected = null;
+      }
+      if (saved && saved !== location.search + location.hash) {
+        history.pushState(null, '', location.pathname + saved);
+        this.syncFromHash();
+        if (this.page !== page) this.showPage(page);
+        return;
       }
       if (page === 'search') {
         // The Search tab is also the way out of an artist's page.
