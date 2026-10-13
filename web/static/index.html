@@ -594,7 +594,6 @@
                 <span class="spinner" v-if="requesting"></span>{{ requesting ? 'Adding…' : (detail.earlierApproval ? 'Request again' : 'Request') }}
               </button>
               <p class="note-text" v-if="detail.earlierApproval && detail.canRequest && mayRequest() && !requestNote">{{ detail.earlierApproval.byYou ? 'You requested this and it was approved' : 'This was requested and approved' }} {{ ago(detail.earlierApproval.at) }}, but it is not being fetched any more. {{ canApprove() ? 'Requesting it again starts it again.' : 'Requesting it again sends it to an approver.' }}</p>
-              <p class="note-text" v-else-if="detail.canRequest && mayRequest() && !requestNote && !canApprove()">An approver will review your request first.</p>
               <p class="ok-text" v-if="requestNote">{{ requestNote }}</p>
               <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>
             </div>
