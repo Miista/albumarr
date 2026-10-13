@@ -562,12 +562,23 @@
             </div>
             <a class="ext-link" :href="detail.musicbrainzUrl" target="_blank" rel="noopener noreferrer">View on MusicBrainz &#8599;</a>
           </div>
-          <div class="searching left" v-if="detailLoading"><span class="spinner"></span>Loading details…</div>
+          <div class="sheet-details" v-if="!detail && detailLoading" role="status" aria-label="Loading details">
+            <div class="sk-facts" aria-hidden="true">
+              <div v-for="i in (view().status ? 3 : 2)" :key="i"><span class="sk-line w30"></span><span class="sk-line w55"></span></div>
+            </div>
+            <div class="sk-tags" aria-hidden="true"><span class="sk-block sk-tag"></span><span class="sk-block sk-tag"></span><span class="sk-block sk-tag"></span></div>
+            <div class="sk-block sk-button" v-if="mayRequest() && !['available', 'processing', 'requested', 'pending'].includes(view().status)" aria-hidden="true"></div>
+            <span class="sk-line w45" aria-hidden="true"></span>
+          </div>
           <p class="error-text" v-if="detailError" role="alert">{{ detailError }}</p>
         </div>
       </div>
 
-      <div class="sheet-tracks" v-if="detail">
+      <div class="sheet-tracks" v-if="!detail && detailLoading" aria-hidden="true">
+        <div class="tracks-head"><h3>Tracks</h3></div>
+        <div class="sk-track" v-for="i in 8" :key="i"><span class="sk-line w30"></span><span class="sk-line" :class="i % 3 === 0 ? 'w55' : 'w70'"></span><span class="sk-line w10"></span></div>
+      </div>
+      <div class="sheet-tracks" v-else-if="detail">
         <div class="tracks-head">
           <h3>Tracks</h3>
           <span class="faint" v-if="trackNote()">{{ trackNote() }}</span>

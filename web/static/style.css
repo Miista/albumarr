@@ -516,3 +516,14 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .sk-chip .sk-line { margin-top: 0; height: 9px; }
 .sk-chip .sk-line + .sk-line { margin-top: 6px; }
 .avatar.sk-block { background-size: 200% 100%; }
+.sk-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 20px; } /* the same grid as .facts, so nothing moves when they arrive */
+.sk-facts > div { display: flex; flex-direction: column; min-height: 36px; }
+.sk-facts .sk-line { height: 10px; margin-top: 0; }
+.sk-facts .sk-line + .sk-line { margin-top: 8px; height: 14px; }
+.sk-tags { display: flex; gap: 8px; }
+.sk-tag { width: 64px; height: 26px; border-radius: 8px; }
+.sk-button { height: 46px; border-radius: 12px; }
+.sk-track { display: grid; grid-template-columns: 28px 1fr 40px; align-items: center; gap: 12px; height: 35px; border-bottom: 1px solid var(--border); }
+.sk-track .sk-line { margin-top: 0; height: 12px; width: 100%; }
+.sk-track .sk-line.w30 { width: 16px; } .sk-track .sk-line.w10 { width: 36px; }
+.sk-line.w10 { width: 10%; }
