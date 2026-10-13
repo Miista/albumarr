@@ -22,17 +22,19 @@ function api(url, opts) {
   });
 }
 
-// lockScroll stops the page behind a popup from scrolling. Hiding the page's scrollbar
-// would widen the page by the scrollbar's width (with classic scrollbars, as on Windows
-// or a Mac with a mouse), so the content behind would jump sideways: the width is padded
-// back, so the page behind stays exactly where it was.
+// lockScroll stops the page behind a popup from scrolling. The page always has its
+// scrollbar track (see style.css), and hiding it would widen the page by the track's
+// width (with classic scrollbars, as on Windows or a Mac with a mouse), so the content
+// behind would jump sideways: the width is padded back instead.
 function lockScroll() {
   const bar = window.innerWidth - document.documentElement.clientWidth;
   if (bar > 0) document.body.style.paddingRight = bar + 'px';
+  document.documentElement.style.overflow = 'hidden';
   document.body.style.overflow = 'hidden';
 }
 
 function unlockScroll() {
+  document.documentElement.style.overflow = '';
   document.body.style.overflow = '';
   document.body.style.paddingRight = '';
 }

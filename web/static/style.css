@@ -26,6 +26,10 @@
 
 * { box-sizing: border-box; }
 
+/* Always keep the scrollbar's track: with classic scrollbars the page would otherwise get
+   narrower the moment it becomes taller than the window (an empty search, then its results). */
+html { overflow-y: scroll; }
+
 body {
   margin: 0;
   background: var(--bg);
