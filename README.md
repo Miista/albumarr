@@ -102,6 +102,28 @@ longer monitoring it. Asking again records a new request next to the old one.
 
 Admins get an **Open in Lidarr** link on an album's sheet, when Lidarr has the album and an optional **Web address** is set under Settings → Lidarr (where you open Lidarr in a browser, which is not the address albumreq talks to; it opens `<address>/album/<MusicBrainz id>`). Nobody else is sent the address or shown the link.
 
+### Logging
+
+albumreq logs to stdout, and the container runs at `debug` level (`ALBUMREQ_SETTING_LOG_LEVEL`), so
+nothing is left out:
+
+- **Every request it serves** (`request`: method, path, status, bytes, time taken, the signed-in
+  user's subject, the client address from the proxy). The page's own files and `/healthz` are `debug`,
+  everything else `info`, a 4xx `warn`, a 5xx `error`.
+- **Every request it makes** (`outgoing request`: MusicBrainz, the metadata service, the cover CDN,
+  Lidarr, ntfy, the identity provider): method, host, path, status, time. A success is `debug`, a
+  failure `warn`, a slow one `info`.
+- **What happened to a request** (asked, approved, declined, deleted, who by), settings changes,
+  notifications sent or failed, and each pass that checks approved requests for arrival.
+- **Never** a body, a header, a cookie, an API key or token, or the value of any query parameter
+  whose name looks like a secret. A failed outgoing request keeps the cause but not the address it
+  was sent to.
+
+In this stack Promtail ships every container's log to Loki (kept seven days), so an error is still
+there after the container is replaced; read it in Grafana with `{container="albumreq"}`. MusicBrainz
+is asked again once, after two seconds or what it asks for (at most five), when a request fails in a
+way that often passes by itself (a dropped connection, a 429 or a 5xx).
+
 ### Loading states
 
 While data loads, a page shows grey skeleton shapes laid out like the real content (search results, artist chips and pages, the album sheet's details and tracks, Requests, Account, Issues and the Settings tabs), so nothing jumps when it arrives. Spinners are kept only inside a button whose action is under way.

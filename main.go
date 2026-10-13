@@ -37,6 +37,7 @@ import (
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
 	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumreq/internal/httplog"
 	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/lidarrmeta"
@@ -67,6 +68,10 @@ var staticFiles embed.FS
 
 func main() {
 	logger := newLogger(os.Getenv("ALBUMREQ_SETTING_LOG_LEVEL"))
+	// Every request albumreq makes (MusicBrainz, the metadata service, the cover CDN,
+	// Lidarr, ntfy, the identity provider) goes through the default transport, so one
+	// wrapper writes them all down.
+	http.DefaultTransport = httplog.Transport(http.DefaultTransport, logger)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -206,7 +211,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           gate.Wrap(mux), // a no-op with the login off
+		Handler:           httplog.Access(logger)(gate.Wrap(mux)), // every request is logged; the gate is a no-op with the login off
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -251,6 +251,7 @@ func TestUpstreamFailuresAreErrorsAndNotCached(t *testing.T) {
 		}
 		fmt.Fprint(w, `{"release-groups":[]}`)
 	})
+	fast(c)
 	if _, err := c.Search(context.Background(), "x", 5, 0); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("first call: err = %v, want a 503 error", err)
 	}
@@ -258,8 +259,8 @@ func TestUpstreamFailuresAreErrorsAndNotCached(t *testing.T) {
 	if _, err := c.Search(context.Background(), "x", 5, 0); err != nil {
 		t.Errorf("second call: %v", err)
 	}
-	if calls.Load() != 2 {
-		t.Errorf("calls = %d, want 2", calls.Load())
+	if calls.Load() != 3 { // the failed search and its one retry, then the search that works
+		t.Errorf("calls = %d, want 3", calls.Load())
 	}
 }
 
@@ -333,5 +334,125 @@ func TestSearchArtistsFailuresAndBadJSON(t *testing.T) {
 	c, _ = newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", http.StatusServiceUnavailable) })
 	if _, err := c.SearchArtists(context.Background(), "x", 6); err == nil {
 		t.Error("a 503 must be an error")
+	}
+}
+
+// --- the one retry ---
+
+func fast(c *Client) *Client { c.retryDelay = time.Millisecond; return c }
+
+func TestASearchThatFailsOnceIsRetriedOnceAndSucceeds(t *testing.T) {
+	for _, status := range []int{500, 502, 503, 504, 429} {
+		var n atomic.Int32
+		c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) {
+			if n.Add(1) == 1 {
+				http.Error(w, "busy", status)
+				return
+			}
+			fmt.Fprint(w, `{"count":0,"release-groups":[]}`)
+		})
+		if _, err := fast(c).Search(context.Background(), "ed sheeran", 10, 0); err != nil || calls.Load() != 2 {
+			t.Errorf("%d then OK: %v, %d calls", status, err, calls.Load())
+		}
+	}
+}
+
+func TestADroppedConnectionIsRetried(t *testing.T) {
+	var n atomic.Int32
+	c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) == 1 {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			conn.Close() // no answer at all
+			return
+		}
+		fmt.Fprint(w, `{"count":0,"release-groups":[]}`)
+	})
+	if _, err := fast(c).Search(context.Background(), "x", 10, 0); err != nil || calls.Load() != 2 {
+		t.Errorf("%v, %d calls", err, calls.Load())
+	}
+}
+
+func TestOnlyOneRetryAndTheLastErrorIsReported(t *testing.T) {
+	c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusServiceUnavailable) })
+	_, err := fast(c).Search(context.Background(), "x", 10, 0)
+	if err == nil || !strings.Contains(err.Error(), "503") || calls.Load() != 2 {
+		t.Errorf("%v, %d calls: exactly two tries, then the failure", err, calls.Load())
+	}
+}
+
+func TestWhatCannotPassIsNotRetried(t *testing.T) {
+	for _, status := range []int{400, 401, 403, 404, 405} {
+		c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", status) })
+		if _, err := fast(c).Search(context.Background(), "x", 10, 0); err == nil || calls.Load() != 1 {
+			t.Errorf("%d: %v, %d calls", status, err, calls.Load())
+		}
+	}
+	c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, strings.Repeat("x", maxBody+10)) })
+	if _, err := fast(c).Search(context.Background(), "x", 10, 0); err == nil || calls.Load() != 1 {
+		t.Errorf("an oversized answer: %v, %d calls", err, calls.Load())
+	}
+}
+
+func TestTheRetryWaitsItsTurnInTheQueueAndForTheDelay(t *testing.T) {
+	var times []time.Time
+	var mu sync.Mutex
+	c, _ := newTest(t, 80*time.Millisecond, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		times = append(times, time.Now())
+		n := len(times)
+		mu.Unlock()
+		if n == 1 {
+			http.Error(w, "busy", 503)
+			return
+		}
+		fmt.Fprint(w, `{"count":0,"release-groups":[]}`)
+	})
+	c.retryDelay = 120 * time.Millisecond
+	if _, err := c.Search(context.Background(), "x", 10, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(times) != 2 || times[1].Sub(times[0]) < 110*time.Millisecond {
+		t.Errorf("the retry came too soon: %v", times)
+	}
+}
+
+func TestRetryAfterIsHonouredButCapped(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		want   time.Duration
+	}{{"", 2 * time.Second}, {"abc", 2 * time.Second}, {"-3", 2 * time.Second}, {"0", 0}, {"1", time.Second}, {" 3 ", 3 * time.Second}, {"3600", maxRetryAfter}} {
+		if got := retryWait(tc.header, 2*time.Second); got != tc.want {
+			t.Errorf("%q: %v, want %v", tc.header, got, tc.want)
+		}
+	}
+}
+
+func TestWalkingAwayDuringTheWaitEndsItAtOnceWithTheOriginalError(t *testing.T) {
+	c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) { http.Error(w, "busy", 503) })
+	c.retryDelay = 10 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := c.fetch(ctx, "/release-group?x")
+	if err == nil || !strings.Contains(err.Error(), "503") || time.Since(start) > 2*time.Second || calls.Load() != 1 {
+		t.Errorf("%v after %v, %d calls", err, time.Since(start), calls.Load())
+	}
+}
+
+func TestAFailureAfterTheRetryIsNotCached(t *testing.T) {
+	var n atomic.Int32
+	c, calls := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) <= 2 {
+			http.Error(w, "down", 503)
+			return
+		}
+		fmt.Fprint(w, `{"count":0,"release-groups":[]}`)
+	})
+	fast(c)
+	if _, err := c.Search(context.Background(), "again", 10, 0); err == nil {
+		t.Fatal("two 503s must fail")
+	}
+	if _, err := c.Search(context.Background(), "again", 10, 0); err != nil || calls.Load() != 3 {
+		t.Errorf("the next try goes upstream again: %v, %d calls", err, calls.Load())
 	}
 }

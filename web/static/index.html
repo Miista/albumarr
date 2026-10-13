@@ -96,7 +96,10 @@
       </div>
     </div>
     <div class="contents" v-else>
-      <p class="error-text" v-if="error" role="alert">{{ error }}</p>
+      <div class="search-error" v-if="error">
+        <p class="error-text" role="alert">{{ error }}</p>
+        <button type="button" class="btn" @click="search">Try again</button>
+      </div>
       <p class="note-text" v-if="albums.length && !libraryOk">The library could not be checked, so availability is not shown.</p>
     </div>
 

@@ -132,6 +132,10 @@ func TestSearchHidesUpstreamErrorDetail(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "192.0.2.10") {
 		t.Errorf("internal address leaked to the client: %s", rec.Body)
 	}
+	// What a person reads is plain and says what to do, and names no service.
+	if body := rec.Body.String(); !strings.Contains(body, "busy") || !strings.Contains(body, "Try again") || strings.Contains(strings.ToLower(body), "lidarr") || strings.Contains(strings.ToLower(body), "musicbrainz") {
+		t.Errorf("friendly message expected: %q", body)
+	}
 }
 
 func TestAlbumDetail(t *testing.T) {

@@ -21,6 +21,7 @@ import (
 	"github.com/Miista/albumreq/internal/auth"
 	"github.com/Miista/albumreq/internal/catalog"
 	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumreq/internal/httplog"
 	"github.com/Miista/albumreq/internal/issues"
 	"github.com/Miista/albumreq/internal/lidarr"
 	"github.com/Miista/albumreq/internal/notify"
@@ -170,6 +171,7 @@ func (s *Server) guard(min auth.Role, h http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "You do not have access to this", http.StatusForbidden)
 			return
 		}
+		httplog.SetUser(r.Context(), p.Sub) // for the access log
 		h(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
 	}
 }
@@ -261,7 +263,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() == nil {
 			s.log.Error().Err(err).Msg(fmt.Sprintf("search for %q failed", q))
 		}
-		http.Error(w, "Search is unavailable", http.StatusBadGateway)
+		http.Error(w, "Search is busy right now. Try again in a moment.", http.StatusBadGateway)
 		return
 	}
 
@@ -287,7 +289,7 @@ func (s *Server) handleArtistSearch(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() == nil {
 			s.log.Error().Err(err).Msg(fmt.Sprintf("artist search for %q failed", q))
 		}
-		http.Error(w, "Search is unavailable", http.StatusBadGateway)
+		http.Error(w, "Search is busy right now. Try again in a moment.", http.StatusBadGateway)
 		return
 	}
 	writeJSON(w, map[string]any{"query": q, "artists": hits})

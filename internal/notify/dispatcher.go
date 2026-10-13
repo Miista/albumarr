@@ -70,6 +70,7 @@ func (d *Dispatcher) deliver(ctx context.Context, j job) {
 		return
 	}
 	d.settings.Record(Delivery{OK: true, At: d.now()})
+	d.log.Info().Str("to", j.to).Msg("notification sent")
 }
 
 // Observe is how the request flow reports what happened.

@@ -95,6 +95,11 @@ func (p *Poller) Check(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	told := 0
+	if len(recs) > 0 {
+		defer func() {
+			p.log.Info().Int("checked", len(recs)).Int("announced", told).Msg("checked approved requests for arrival")
+		}()
+	}
 	for _, rec := range recs {
 		ok, err := p.lidarr.Available(ctx, rec.AlbumID)
 		if err != nil {

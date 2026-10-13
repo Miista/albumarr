@@ -28,11 +28,13 @@ const (
 	// DefaultBase is the public MusicBrainz web service.
 	DefaultBase = "https://musicbrainz.org/ws/2"
 
-	version     = "0.1"
-	maxBody     = 8 << 20
-	minGap      = 1100 * time.Millisecond // MusicBrainz asks for an average of 1 request/second
-	searchTTL   = 10 * time.Minute
-	maxCacheLen = 512
+	version       = "0.1"
+	maxBody       = 8 << 20
+	minGap        = 1100 * time.Millisecond // MusicBrainz asks for an average of 1 request/second
+	searchTTL     = 10 * time.Minute
+	maxCacheLen   = 512
+	retryDelay    = 2 * time.Second
+	maxRetryAfter = 5 * time.Second // MusicBrainz may ask for longer; a person is waiting
 )
 
 var uuidRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -64,6 +66,9 @@ type Client struct {
 	ua   string
 	http *http.Client
 	gap  time.Duration
+	// retryDelay is how long to wait before the one retry of a request that failed
+	// for a reason that may pass (see fetch).
+	retryDelay time.Duration
 
 	mu       sync.Mutex
 	next     time.Time // earliest start of the next upstream request
@@ -101,12 +106,13 @@ func NewWithBase(base, contact string, gap time.Duration) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		base:     strings.TrimRight(base, "/"),
-		ua:       ua,
-		http:     &http.Client{Timeout: 25 * time.Second},
-		gap:      gap,
-		cache:    map[string]cacheEntry{},
-		inflight: map[string]*call{},
+		base:       strings.TrimRight(base, "/"),
+		ua:         ua,
+		http:       &http.Client{Timeout: 25 * time.Second},
+		gap:        gap,
+		retryDelay: retryDelay,
+		cache:      map[string]cacheEntry{},
+		inflight:   map[string]*call{},
 	}, nil
 }
 
@@ -312,13 +318,37 @@ func (c *Client) store(key string, body []byte, ttl time.Duration) {
 	c.cache[key] = cacheEntry{body: body, exp: time.Now().Add(ttl)}
 }
 
+// fetch asks MusicBrainz, and once more if the first try failed in a way that
+// often passes by itself: a dropped connection, a timeout, a 429 or a 5xx.
+// Anything else (a 404, a 400, a body that is too large) is final. Both tries
+// take their place in the one-request-per-second queue.
 func (c *Client) fetch(ctx context.Context, key string) ([]byte, error) {
-	if err := c.wait(ctx); err != nil {
+	body, retry, after, err := c.fetchOnce(ctx, key)
+	if err == nil || !retry {
+		return body, err
+	}
+	select {
+	case <-time.After(after):
+	case <-ctx.Done():
 		return nil, err
+	}
+	body, _, _, err2 := c.fetchOnce(ctx, key)
+	if err2 != nil {
+		return nil, err2
+	}
+	return body, nil
+}
+
+// fetchOnce makes one request. retry says whether trying again might help, and
+// after how long (what MusicBrainz asked for, within reason, else the default).
+func (c *Client) fetchOnce(ctx context.Context, key string) (body []byte, retry bool, after time.Duration, err error) {
+	after = c.retryDelay
+	if err := c.wait(ctx); err != nil {
+		return nil, false, 0, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+key, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, 0, err
 	}
 	req.Header.Set("User-Agent", c.ua)
 	req.Header.Set("Accept", "application/json")
@@ -328,20 +358,22 @@ func (c *Client) fetch(ctx context.Context, key string) ([]byte, error) {
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return nil, fmt.Errorf("musicbrainz request failed: %w", err)
+		return nil, !errors.Is(err, context.Canceled), after, fmt.Errorf("musicbrainz request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("musicbrainz returned %s", resp.Status)
+		retry := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		after = retryWait(resp.Header.Get("Retry-After"), after)
+		return nil, retry, after, fmt.Errorf("musicbrainz returned %s", resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	body, err = io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		return nil, fmt.Errorf("reading musicbrainz response: %w", err)
+		return nil, true, after, fmt.Errorf("reading musicbrainz response: %w", err)
 	}
 	if len(body) > maxBody {
-		return nil, fmt.Errorf("musicbrainz response larger than %d bytes", maxBody)
+		return nil, false, 0, fmt.Errorf("musicbrainz response larger than %d bytes", maxBody)
 	}
-	return body, nil
+	return body, false, 0, nil
 }
 
 // wait reserves the next upstream slot and sleeps until it starts, so
@@ -367,4 +399,14 @@ func (c *Client) wait(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// retryWait is how long to wait before the retry: what the Retry-After header
+// asks for (whole seconds), but never more than maxRetryAfter, else def.
+func retryWait(header string, def time.Duration) time.Duration {
+	secs, err := strconv.Atoi(strings.TrimSpace(header))
+	if err != nil || secs < 0 {
+		return def
+	}
+	return min(time.Duration(secs)*time.Second, maxRetryAfter)
 }
