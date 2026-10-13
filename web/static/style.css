@@ -496,3 +496,6 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .artist-photo { flex: none; width: 96px; height: 96px; border-radius: 50%; object-fit: cover; background: oklch(0.2 0.02 270); border: 1px solid var(--border); box-shadow: 0 6px 20px rgba(0,0,0,.45); }
 @media (min-width: 641px) { .artist-photo { width: 120px; height: 120px; } }
 .avatar-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; } /* over the letter, which shows when there is no photo */
+.account-signout { display: flex; margin-top: 8px; }
+.account-signout .btn { text-decoration: none; }
+@media (max-width: 640px) { .account-signout .btn { flex: 1; justify-content: center; } }

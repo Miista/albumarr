@@ -6,9 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23d9d2ee'/%3E%3Cpath d='M9 3v11.55A4 4 0 1 0 11 18V8h6V3H9z' fill='%234a2fa0' transform='translate(1.5 1.5) scale(.88)'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
-<!-- oidcgate marks the page when a login is in place; without one there is nobody to sign out. -->
+<!-- authy marks the page (data-authy) when a login is in place; without one there is nobody to sign out. -->
 <script src="/auth/client.js"></script>
-<style>html:not([data-oidcgate]) .only-with-gate { display: none !important }</style>
+<style>html:not([data-authy]) .only-with-gate { display: none !important }</style>
 </head>
 <body>
 
@@ -391,6 +391,9 @@
         <button type="submit" class="btn primary" :disabled="asaving || !adirty()"><span class="spinner" v-if="asaving"></span>Save</button>
       </div>
     </form>
+    <div class="account-signout only-with-gate">
+      <a class="btn" href="/auth/logout">Sign out</a>
+    </div>
   </main>
 
   <!-- Issues -->
