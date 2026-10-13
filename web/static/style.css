@@ -678,3 +678,7 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .field > .input, .field > select.input { order: 1; }
 .field > label.field-label .lock-label { order: 2; margin-top: 6px; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 .field > .hint, .field > .note-text { order: 3; }
+
+/* A title block's heading and its line under it are spaced the same on every page, including
+   the ones where they sit in a wrapper next to a control (Requests, with its filter menu). */
+.title-row > div:first-child { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
