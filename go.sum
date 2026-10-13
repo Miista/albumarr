@@ -14,8 +14,8 @@ github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHP
 github.com/mattn/go-colorable v0.1.14/go.mod h1:6LmQG8QLFO4G5z1gPvYEzlUgJ2wF+stgPZH1UqBm1s8=
 github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
-github.com/miista/authy v0.0.0-20261012185228-3c0224f40163 h1:gGknGlp6SVF4PKQdsmEbCPAJur8XWcrNsBWKckxt68Q=
-github.com/miista/authy v0.0.0-20261012185228-3c0224f40163/go.mod h1:/HqAmvX74AFrhP/fYhY9bI5bmM5ln11nmYXHOQ2B7Zg=
+github.com/miista/authy v0.1.1-0.20261012211910-1658afaff1eb h1:GLg5rCXTa7B+y8OJibcfMP7EMfhFrNzE+goyJm0js+E=
+github.com/miista/authy v0.1.1-0.20261012211910-1658afaff1eb/go.mod h1:/HqAmvX74AFrhP/fYhY9bI5bmM5ln11nmYXHOQ2B7Zg=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=

@@ -49,11 +49,13 @@ import (
 	"github.com/Miista/albumreq/internal/users"
 )
 
-// defaultAddr is loopback on purpose: with no login yet, nothing but this
-// machine should be able to reach the app unless the operator opts in.
+// defaultAddr is loopback on purpose: until a login is set up (the first visitor to a
+// fresh install creates the admin account), nothing but this machine should be able to
+// reach the app unless the operator opts in.
 const defaultAddr = "127.0.0.1:8768"
 
-// defaultDataDir holds config.json, the settings saved from the settings page.
+// defaultDataDir holds albumreq.db (settings, users, requests), its backup copy and the
+// login's state (auth/).
 const defaultDataDir = "/app/data"
 
 // sessionTTL is how long a sign-in lasts without use, and so how long a change of
@@ -67,6 +69,9 @@ const sessionTTL = 12 * time.Hour
 var staticFiles embed.FS
 
 func main() {
+	if handled, code := command(os.Args[1:], os.Getenv, os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
 	logger := newLogger(os.Getenv("ALBUMREQ_SETTING_LOG_LEVEL"))
 	// Every request albumreq makes (MusicBrainz, the metadata service, the cover CDN,
 	// Lidarr, ntfy, the identity provider) goes through the default transport, so one
@@ -216,7 +221,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info().Msg(fmt.Sprintf("starting albumreq on %s, settings in %s", addr, dataDir))
+		logger.Info().Msg(fmt.Sprintf("starting albumreq %s on %s, settings in %s", version, addr, dataDir))
 		if gate == nil && !isLoopback(addr) {
 			logger.Warn().Msg("listening beyond loopback with no login: anyone who can reach this port can search your Lidarr, request albums and change its settings" + readOnlyHint())
 		}
