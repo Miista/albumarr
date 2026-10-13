@@ -105,7 +105,7 @@ func TestCommandVersionAndUnknownWords(t *testing.T) {
 
 func TestPermissionHintOnlyForPermissionErrors(t *testing.T) {
 	denied := fmt.Errorf("creating /app/data/albumreq.db: %w", &fs.PathError{Op: "open", Path: "/app/data/albumreq.db", Err: os.ErrPermission})
-	if h := permissionHint(denied); !strings.Contains(h, "65532") || !strings.Contains(h, "--user") {
+	if h := permissionHint(denied); !strings.Contains(h, "65532") || !strings.Contains(h, "--user") || !strings.Contains(h, "owned by that user") {
 		t.Errorf("hint = %q", h)
 	}
 	for _, err := range []error{errors.New("database is locked"), fmt.Errorf("x: %w", fs.ErrNotExist), nil} {

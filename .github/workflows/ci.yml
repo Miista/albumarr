@@ -83,8 +83,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # Before anything is published: the image must start, run as an unprivileged user,
-      # become healthy by its own HEALTHCHECK, and say the version it was built as.
+      # Before anything is published: the image must start, run as an unprivileged user (the
+      # default one, and 1000:1000), become healthy by its own HEALTHCHECK, and say the
+      # version it was built as.
       - name: Smoke test the image
         run: |
           docker build --platform linux/amd64 --build-arg TARGETARCH=amd64 -t albumreq:smoke .
@@ -98,6 +99,18 @@ jobs:
           docker logs smoke
           [ "$status" = healthy ] || { echo "the image did not become healthy"; exit 1; }
           [ "$(docker inspect --format '{{.Config.User}}' smoke)" = 65532 ] || { echo "the image must not run as root"; exit 1; }
+          docker rm -f smoke >/dev/null
+          # The same image as the user someone usually runs a container as, on a fresh named
+          # volume, which only works if the data directory is writable by any user.
+          docker run -d --name smoke1000 --user 1000:1000 -v smoke-data:/app/data \
+            -e ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/ci albumreq:smoke
+          for _ in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' smoke1000)
+            [ "$status" = healthy ] && break
+            sleep 2
+          done
+          docker logs smoke1000
+          [ "$status" = healthy ] || { echo "the image did not become healthy as 1000:1000"; exit 1; }
 
       - name: Log in to GHCR
         if: github.event_name == 'push'

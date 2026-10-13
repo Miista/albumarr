@@ -370,6 +370,7 @@ services:
   albumreq:
     image: ghcr.io/miista/albumreq:latest
     restart: unless-stopped
+    user: "1000:1000"                # optional: any user; the default is 65532
     ports: ["127.0.0.1:8768:8768"]   # or put it behind your reverse proxy instead
     environment:
       ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT: https://example.org/you   # required: see Configuration
@@ -387,10 +388,13 @@ variables, see below).
   attestation and an SBOM (`docker buildx imagetools inspect ghcr.io/miista/albumreq:1.2.3`).
 - **What is in it.** The static binary and nothing else (a distroless base: no shell, no package manager).
   `albumreq version` prints the version.
-- **Who it runs as.** An unprivileged user, uid 65532. A named volume is writable as it is; a **bind mount**
-  must be owned by that user (`chown 65532:65532 /path`), or start the container with `--user` set to the
-  directory's owner (`--user 0:0` keeps the old behaviour of earlier builds that ran as root). When the data
-  directory cannot be written the log says so and names the fix.
+- **Who it runs as.** An unprivileged user, uid 65532, unless you choose another: `--user 1000:1000` (compose:
+  `user: "1000:1000"`) works the same. A fresh named volume is writable by whoever runs the container (the data
+  directory in the image is world-writable with the sticky bit, like `/tmp`; what albumreq writes inside it is
+  private to that user: files `0600`, directories `0700`). A **bind mount** must be writable by the user it
+  runs as: `chown 1000:1000 /path` for the example above, or the default `chown 65532:65532`. The root
+  filesystem can be read-only (`read_only: true`). When the data directory cannot be written the log says so and
+  names the fix.
 - **Health.** The image has a `HEALTHCHECK` (the binary asks its own `/healthz`), so `docker ps` shows
   `healthy` and an orchestrator can restart it.
 - **Before anyone can reach it.** A fresh install has no login: **the first visitor creates the admin

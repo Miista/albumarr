@@ -2,14 +2,22 @@
 # Development section) and copied in, so building the image never compiles anything, and
 # never needs QEMU emulation for the other platform. distroless/static has no shell and no
 # package manager: nothing in the image but the binary, CA certificates and tzdata.
+# The data directory is made in a throwaway stage, because the final image has no shell. It
+# runs on the build machine's own platform (it only makes a directory), so it needs no emulation.
+FROM --platform=$BUILDPLATFORM busybox:1.37 AS data
+RUN mkdir -p /out/app/data && chown 65532:65532 /out/app/data && chmod 1777 /out/app/data
+
 FROM gcr.io/distroless/static-debian12:nonroot
 
 ARG TARGETARCH
 COPY dist/linux/${TARGETARCH}/albumreq /albumreq
 
-# The container runs as the image's unprivileged user (65532). /app/data is created owned by
-# that user, so a fresh named volume is writable; a bind-mounted directory must be owned by
-# 65532 too (chown 65532:65532 <dir>), or run the container with --user matching its owner.
+# The container runs as the image's unprivileged user (65532), or as any user you choose with
+# --user / `user:` (1000:1000, say). /app/data is world-writable with the sticky bit, like
+# /tmp, so a fresh named volume (which copies this directory's permissions) is writable by
+# whoever runs the container; what albumreq writes inside it is private to that user (files
+# 0600, directories 0700). A bind-mounted directory must be writable by the user it runs as.
+COPY --from=data /out/ /
 WORKDIR /app/data
 VOLUME /app/data
 

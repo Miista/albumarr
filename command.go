@@ -86,5 +86,5 @@ func permissionHint(err error) string {
 	if !errors.Is(err, fs.ErrPermission) {
 		return ""
 	}
-	return ": the directory must be writable by the user albumreq runs as. The image runs as 65532, so chown 65532:65532 the directory (or a bind mount's source), or start the container with --user set to the directory's owner"
+	return ": the directory must be writable by the user albumreq runs as (65532 unless you set --user or `user:`). Make the directory (a bind mount's source) owned by that user, or start the container with --user set to the directory's owner"
 }
