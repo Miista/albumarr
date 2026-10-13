@@ -94,7 +94,7 @@ func TestSendAuthenticates(t *testing.T) {
 	f := newFakeNtfy(t)
 	c := NewClient()
 	c.Send(context.Background(), Server{URL: f.URL, Auth: AuthBasic, Username: "alice", Password: "p:ass w0rd"}, Message{Topic: "t", Body: "b"})
-	if f.last().auth != "Basic c29yZW46cDphc3MgdzByZA==" {
+	if f.last().auth != "Basic YWxpY2U6cDphc3MgdzByZA==" {
 		t.Errorf("basic: %q", f.last().auth)
 	}
 	c.Send(context.Background(), Server{URL: f.URL, Auth: AuthToken, Token: "tk_abc"}, Message{Topic: "t", Body: "b"})

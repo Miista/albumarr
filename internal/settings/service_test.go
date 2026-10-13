@@ -287,9 +287,9 @@ func TestBadURLsAreRefused(t *testing.T) {
 
 func TestURLsAreNormalised(t *testing.T) {
 	for in, want := range map[string]string{
-		"http://lidarr:8686":              "http://lidarr:8686",
-		" http://lidarr:8686/ ":           "http://lidarr:8686",
-		"https://music.example/":          "https://music.example",
+		"http://lidarr:8686":             "http://lidarr:8686",
+		" http://lidarr:8686/ ":          "http://lidarr:8686",
+		"https://music.example/":         "https://music.example",
 		"http://192.0.2.10:8686/lidarr/": "http://192.0.2.10:8686/lidarr",
 	} {
 		got, err := ValidateURL(in)
