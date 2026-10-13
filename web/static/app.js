@@ -642,6 +642,11 @@ function App() {
         return;
       }
 
+      // Nothing from the last search stays on screen: it would be someone else's results.
+      this.albums = [];
+      this.hasMore = false;
+      this.artistHits = [];
+      this.artistHitsLoading = true;
       this.loading = true;
       this.error = '';
       this.replaceQuery('?q=' + encodeURIComponent(q));
