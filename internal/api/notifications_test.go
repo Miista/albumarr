@@ -12,11 +12,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/notify"
-	"github.com/Miista/albumreq/internal/requests"
-	"github.com/Miista/albumreq/internal/settings"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/notify"
+	"github.com/Miista/albumarr/internal/requests"
+	"github.com/Miista/albumarr/internal/settings"
 )
 
 func notifyRig(role auth.Role) *rig {
@@ -28,14 +28,14 @@ func notifyRig(role auth.Role) *rig {
 
 func TestAdminSavesTheNtfySettingsFieldByField(t *testing.T) {
 	rg := notifyRig(auth.Admin)
-	body := `{"ntfy":{"enabled":true,"url":"https://ntfy.example.com","topic":"approvers","tags":"eyes","auth":"token","token":"tk_x","priority":4,"embed_poster":true,"types":["pending","declined"],"app_url":"http://albumreq.example"}}`
+	body := `{"ntfy":{"enabled":true,"url":"https://ntfy.example.com","topic":"approvers","tags":"eyes","auth":"token","token":"tk_x","priority":4,"embed_poster":true,"types":["pending","declined"],"app_url":"http://albumarr.example"}}`
 	rec := call(rg, "POST", "/api/notifications", body)
 	if rec.Code != 200 || len(rg.notifyA.patches) != 1 {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 	p := rg.notifyA.patches[0]
 	if !*p.Enabled || *p.URL != "https://ntfy.example.com" || *p.Topic != "approvers" || *p.Tags != "eyes" || *p.Auth != "token" || *p.Token != "tk_x" ||
-		*p.Priority != 4 || !*p.EmbedPoster || !reflect.DeepEqual(*p.Types, []string{"pending", "declined"}) || *p.AppURL != "http://albumreq.example" {
+		*p.Priority != 4 || !*p.EmbedPoster || !reflect.DeepEqual(*p.Types, []string{"pending", "declined"}) || *p.AppURL != "http://albumarr.example" {
 		t.Errorf("%+v", p)
 	}
 	if p.Username != nil || p.Password != nil {
@@ -80,12 +80,12 @@ func TestNotificationErrorsMapToTheRightStatusWithoutLeaking(t *testing.T) {
 	}{
 		"a validation message":  {&settings.ValidationError{Message: "A topic is letters, digits, - and _."}, 400, "A topic is letters"},
 		"the page is read-only": {settings.ErrReadOnly, 403, "read-only"},
-		"a database error":      {errors.New("open /app/data/albumreq.db: disk full"), 500, "Could not save"},
+		"a database error":      {errors.New("open /app/data/albumarr.db: disk full"), 500, "Could not save"},
 	} {
 		rg := notifyRig(auth.Admin)
 		rg.notifyA.err = tc.err
 		rec := call(rg, "POST", "/api/notifications", `{"ntfy":{"topic":"x"}}`)
-		if rec.Code != tc.want || !strings.Contains(rec.Body.String(), tc.body) || strings.Contains(rec.Body.String(), "albumreq.db") {
+		if rec.Code != tc.want || !strings.Contains(rec.Body.String(), tc.body) || strings.Contains(rec.Body.String(), "albumarr.db") {
 			t.Errorf("%s: %d %q", name, rec.Code, rec.Body)
 		}
 	}
@@ -158,7 +158,7 @@ func TestEveryNotificationWriteNeedsTheCSRFHeader(t *testing.T) {
 		{"/api/me/notifications/test", `{}`, auth.User},
 	} {
 		rg := notifyRig(tc.role)
-		for name, hdr := range map[string]map[string]string{"no header": nil, "cross-site": {"X-Albumreq": "1", "Sec-Fetch-Site": "cross-site"}} {
+		for name, hdr := range map[string]map[string]string{"no header": nil, "cross-site": {"X-Albumarr": "1", "Sec-Fetch-Site": "cross-site"}} {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", tc.path, strings.NewReader(tc.body))
 			for k, v := range hdr {
@@ -180,7 +180,7 @@ func TestWithoutNotificationsWiredTheRoutesAreNotThere(t *testing.T) {
 		{"GET", "/api/me/notifications"}, {"POST", "/api/me/notifications"}, {"POST", "/api/me/notifications/test"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
-		req.Header.Set("X-Albumreq", "1")
+		req.Header.Set("X-Albumarr", "1")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != 404 {

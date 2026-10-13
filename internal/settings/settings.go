@@ -1,18 +1,18 @@
 // Package settings implements the env-var override convention reaparr uses:
-// every field is pinned by exactly one env var, ALBUMREQ_SETTING_<KEY> (see
+// every field is pinned by exactly one env var, ALBUMARR_SETTING_<KEY> (see
 // EnvVar), derived from the field's key, for example "lidarr.api_key" ->
-// ALBUMREQ_SETTING_LIDARR_API_KEY. If that env var is set and not empty it wins
+// ALBUMARR_SETTING_LIDARR_API_KEY. If that env var is set and not empty it wins
 // over the persisted store and the field is reported as managed, so the UI can
 // render it read-only with the env var's name. Otherwise the persisted value
 // applies and can be edited from the settings page.
 //
-// albumreq has no login, so on top of reaparr's convention there are two extra
+// albumarr has no login, so on top of reaparr's convention there are two extra
 // locks, both about not handing a secret to somewhere it should not go:
 //
 //   - The Lidarr URL and API key move together. If either is pinned by the
 //     environment, both are locked, because a pinned key must never be sendable
 //     to an editable URL.
-//   - ALBUMREQ_SETTINGS_READONLY=true locks every field, for a deployment whose
+//   - ALBUMARR_SETTINGS_READONLY=true locks every field, for a deployment whose
 //     port anyone can reach.
 package settings
 
@@ -22,12 +22,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Miista/albumreq/internal/store"
+	"github.com/Miista/albumarr/internal/store"
 )
 
 const (
-	envPrefix   = "ALBUMREQ_SETTING_"
-	readOnlyEnv = "ALBUMREQ_SETTINGS_READONLY"
+	envPrefix   = "ALBUMARR_SETTING_"
+	readOnlyEnv = "ALBUMARR_SETTINGS_READONLY"
 )
 
 // The setting keys.
@@ -73,7 +73,7 @@ type Resolved struct {
 	Problems []string
 }
 
-// Resolve merges persisted settings with any active ALBUMREQ_SETTING_* env
+// Resolve merges persisted settings with any active ALBUMARR_SETTING_* env
 // overrides. The persisted value passed in is never changed.
 func Resolve(persisted store.Lidarr) Resolved {
 	r := Resolved{Lidarr: persisted, Locks: map[string]Lock{}}
@@ -151,7 +151,7 @@ func (r Resolved) RequestsEnabled() bool {
 }
 
 // MaskSecret stands in for a secret in anything sent to a browser. It reveals
-// nothing, not even the last characters or the length: albumreq has no login,
+// nothing, not even the last characters or the length: albumarr has no login,
 // so whoever can reach the page must learn nothing about the key.
 func MaskSecret(value string) string {
 	if value == "" {

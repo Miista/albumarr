@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
 func openStore(t *testing.T) (*Store, *db.DB) {
@@ -39,8 +39,8 @@ func TestAFreshStoreIsOffWithSensibleDefaults(t *testing.T) {
 func TestUpdatePersistsAcrossReopening(t *testing.T) {
 	s, d := openStore(t)
 	err := s.Update(func(c *Config) {
-		c.Enabled, c.URL, c.Topic, c.Tags, c.Auth = true, "https://ntfy.example.com", "albumreq", "eyes,warning", AuthToken
-		c.Token, c.Priority, c.EmbedPoster, c.AppURL = "tk_secret", 4, true, "http://albumreq.example"
+		c.Enabled, c.URL, c.Topic, c.Tags, c.Auth = true, "https://ntfy.example.com", "albumarr", "eyes,warning", AuthToken
+		c.Token, c.Priority, c.EmbedPoster, c.AppURL = "tk_secret", 4, true, "http://albumarr.example"
 		c.Types = []Type{Pending, Declined}
 	})
 	if err != nil {
@@ -51,8 +51,8 @@ func TestUpdatePersistsAcrossReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := again.Config()
-	if !c.Enabled || c.URL != "https://ntfy.example.com" || c.Topic != "albumreq" || c.Tags != "eyes,warning" || c.Auth != AuthToken || c.Token != "tk_secret" ||
-		c.Priority != 4 || !c.EmbedPoster || c.AppURL != "http://albumreq.example" || !reflect.DeepEqual(c.Types, []Type{Pending, Declined}) {
+	if !c.Enabled || c.URL != "https://ntfy.example.com" || c.Topic != "albumarr" || c.Tags != "eyes,warning" || c.Auth != AuthToken || c.Token != "tk_secret" ||
+		c.Priority != 4 || !c.EmbedPoster || c.AppURL != "http://albumarr.example" || !reflect.DeepEqual(c.Types, []Type{Pending, Declined}) {
 		t.Errorf("%+v", c)
 	}
 }

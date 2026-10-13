@@ -10,12 +10,12 @@ RUN mkdir -p /out/app/data && chown 65532:65532 /out/app/data && chmod 1777 /out
 FROM gcr.io/distroless/static-debian12:nonroot
 
 ARG TARGETARCH
-COPY dist/linux/${TARGETARCH}/albumreq /albumreq
+COPY dist/linux/${TARGETARCH}/albumarr /albumarr
 
 # The container runs as the image's unprivileged user (65532), or as any user you choose with
 # --user / `user:` (1000:1000, say). /app/data is world-writable with the sticky bit, like
 # /tmp, so a fresh named volume (which copies this directory's permissions) is writable by
-# whoever runs the container; what albumreq writes inside it is private to that user (files
+# whoever runs the container; what albumarr writes inside it is private to that user (files
 # 0600, directories 0700). A bind-mounted directory must be writable by the user it runs as.
 COPY --from=data /out/ /
 WORKDIR /app/data
@@ -23,14 +23,14 @@ VOLUME /app/data
 
 # Beyond loopback on purpose: inside the container the port is reached through the
 # container network. A fresh install has no login yet: the FIRST visitor creates the admin
-# account (or set the ALBUMREQ_OIDC_* variables to use your identity provider, which keeps
+# account (or set the ALBUMARR_OIDC_* variables to use your identity provider, which keeps
 # that closed). Put it behind your proxy or on a private network before anyone can reach it.
-ENV ALBUMREQ_ADDR=:8768 \
-    ALBUMREQ_DATA_DIR=/app/data
+ENV ALBUMARR_ADDR=:8768 \
+    ALBUMARR_DATA_DIR=/app/data
 EXPOSE 8768
 
 # There is no shell or curl in the image: the binary checks itself.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD ["/albumreq", "healthcheck"]
+    CMD ["/albumarr", "healthcheck"]
 
-ENTRYPOINT ["/albumreq"]
+ENTRYPOINT ["/albumarr"]

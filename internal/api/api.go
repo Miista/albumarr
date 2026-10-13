@@ -1,4 +1,4 @@
-// Package api implements albumreq's HTTP handlers: album search, one album's
+// Package api implements albumarr's HTTP handlers: album search, one album's
 // detail, requesting, settings, users, the cover-art proxy, and a health probe.
 // Signing in is authy's, wrapped around the whole server in main.go; what a
 // signed-in person may do is decided here, per route, from their role (see
@@ -18,16 +18,16 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/coverart"
-	"github.com/Miista/albumreq/internal/httplog"
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/notify"
-	"github.com/Miista/albumreq/internal/requests"
-	"github.com/Miista/albumreq/internal/settings"
-	"github.com/Miista/albumreq/internal/users"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/coverart"
+	"github.com/Miista/albumarr/internal/httplog"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/notify"
+	"github.com/Miista/albumarr/internal/requests"
+	"github.com/Miista/albumarr/internal/settings"
+	"github.com/Miista/albumarr/internal/users"
 )
 
 const (
@@ -426,14 +426,14 @@ func (s *Server) handleAlbum(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeGuard refuses a write that a browser sent on behalf of another site.
-// albumreq has no login, so anything that can reach the port can write; what
+// albumarr has no login, so anything that can reach the port can write; what
 // this prevents is a web page you merely visit making your browser do it. A
 // custom header cannot be sent cross-origin without a CORS preflight, which
 // this server never grants, and Sec-Fetch-Site says outright where a modern
 // browser's request came from.
 func writeGuard(w http.ResponseWriter, r *http.Request) bool {
-	if r.Header.Get("X-Albumreq") != "1" {
-		http.Error(w, "missing X-Albumreq header", http.StatusForbidden)
+	if r.Header.Get("X-Albumarr") != "1" {
+		http.Error(w, "missing X-Albumarr header", http.StatusForbidden)
 		return false
 	}
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
@@ -512,7 +512,7 @@ func (s *Server) requestFailed(w http.ResponseWriter, r *http.Request, err error
 		s.log.Warn().Err(err).Msg(what + " failed: a service is unavailable")
 		http.Error(w, "The library service is unavailable, try again later", http.StatusServiceUnavailable)
 	case errors.Is(err, lidarr.ErrBadSettings):
-		// Lidarr lacks something albumreq needs (the "None" metadata profile). The
+		// Lidarr lacks something albumarr needs (the "None" metadata profile). The
 		// details are on the Issues page, for an admin; a visitor is only told it is
 		// not their doing.
 		s.log.Error().Msg(fmt.Sprintf("%s: %s", what, err))

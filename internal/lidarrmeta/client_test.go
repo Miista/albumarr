@@ -95,8 +95,8 @@ func TestInvalidIDsNeverReachTheService(t *testing.T) {
 func TestRequestsCarryNoContact(t *testing.T) {
 	c, _ := newTest(t, func(w http.ResponseWriter, r *http.Request) {
 		ua := r.Header.Get("User-Agent")
-		if !strings.HasPrefix(ua, "albumreq/") || strings.ContainsAny(ua, "()@") {
-			t.Errorf("User-Agent = %q: it must identify albumreq and carry no contact", ua)
+		if !strings.HasPrefix(ua, "albumarr/") || strings.ContainsAny(ua, "()@") {
+			t.Errorf("User-Agent = %q: it must identify albumarr and carry no contact", ua)
 		}
 		fmt.Fprint(w, fixture)
 	})

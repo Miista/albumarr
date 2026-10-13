@@ -13,13 +13,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/db"
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/lidarrmeta"
-	"github.com/Miista/albumreq/internal/musicbrainz"
-	"github.com/Miista/albumreq/internal/store"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/db"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/lidarrmeta"
+	"github.com/Miista/albumarr/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/store"
 )
 
 const (
@@ -545,7 +545,7 @@ func TestNoIssueEverContainsTheAPIKey(t *testing.T) {
 
 func TestTheOldMetadataProfileVariableIsIgnored(t *testing.T) {
 	e := newEnv(t)
-	t.Setenv("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID", "1")
+	t.Setenv("ALBUMARR_SETTING_LIDARR_METADATA_PROFILE_ID", "1")
 	f := newFakeLidarr(t)
 	e.svc.Patch(context.Background(), Patch{URL: sp(f.URL), APIKey: sp(goodKey), RootFolder: sp("/music"), QualityProfileID: ip(5)})
 	if v := e.svc.View(); len(v.Problems) != 0 || !v.RequestsEnabled {

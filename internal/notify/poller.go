@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 // Records is what the availability check needs of the request records.
@@ -32,7 +32,7 @@ const (
 )
 
 // Poller tells requesters when an approved album has arrived. Nothing tells
-// albumreq when a download finishes, so it asks Lidarr now and then about the
+// albumarr when a download finishes, so it asks Lidarr now and then about the
 // requests that are approved and not yet announced.
 type Poller struct {
 	records  Records

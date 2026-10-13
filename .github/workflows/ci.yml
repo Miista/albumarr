@@ -78,7 +78,7 @@ jobs:
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
               go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
-              -o dist/linux/$arch/albumreq .
+              -o dist/linux/$arch/albumarr .
           done
 
       - uses: docker/setup-buildx-action@v3
@@ -88,9 +88,9 @@ jobs:
       # version it was built as.
       - name: Smoke test the image
         run: |
-          docker build --platform linux/amd64 --build-arg TARGETARCH=amd64 -t albumreq:smoke .
-          [ "$(docker run --rm albumreq:smoke version)" = "albumreq $VERSION" ] || { echo "wrong version"; exit 1; }
-          docker run -d --name smoke -e ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/ci albumreq:smoke
+          docker build --platform linux/amd64 --build-arg TARGETARCH=amd64 -t albumarr:smoke .
+          [ "$(docker run --rm albumarr:smoke version)" = "albumarr $VERSION" ] || { echo "wrong version"; exit 1; }
+          docker run -d --name smoke -e ALBUMARR_SETTING_MUSICBRAINZ_CONTACT=https://example.org/ci albumarr:smoke
           for _ in $(seq 1 30); do
             status=$(docker inspect --format '{{.State.Health.Status}}' smoke)
             [ "$status" = healthy ] && break
@@ -103,7 +103,7 @@ jobs:
           # The same image as the user someone usually runs a container as, on a fresh named
           # volume, which only works if the data directory is writable by any user.
           docker run -d --name smoke1000 --user 1000:1000 -v smoke-data:/app/data \
-            -e ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/ci albumreq:smoke
+            -e ALBUMARR_SETTING_MUSICBRAINZ_CONTACT=https://example.org/ci albumarr:smoke
           for _ in $(seq 1 30); do
             status=$(docker inspect --format '{{.State.Health.Status}}' smoke1000)
             [ "$status" = healthy ] && break

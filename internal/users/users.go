@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
 // User is a person who has signed in.

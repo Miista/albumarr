@@ -1,7 +1,7 @@
 // Package coverart fetches album cover images by release-group ID. By default
 // it asks Lidarr's image CDN, a cache in front of the Cover Art Archive (the
 // MetaBrainz project whose covers MusicBrainz's own pages show), which is far
-// more dependable than archive.org's storage nodes. albumreq serves the
+// more dependable than archive.org's storage nodes. albumarr serves the
 // images itself, so the browser never talks to either, and keeps them in
 // memory.
 package coverart
@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/musicbrainz"
 )
 
 const (
@@ -64,7 +64,7 @@ type entry struct {
 }
 
 // New returns a Client for DefaultBase, or for base when it is not empty. The
-// User-Agent identifies albumreq without any contact, since neither the CDN
+// User-Agent identifies albumarr without any contact, since neither the CDN
 // nor the archive asks for one.
 func New(base string) *Client {
 	if base == "" {
@@ -248,7 +248,7 @@ const (
 // re-encoded as JPEG, for the image at rawURL. Fetching either size keeps both, so
 // the thumbnail in a search and the page it leads to cost one download. The URL comes from a third party's JSON, so it is fetched
 // only if it points at the same host as this client's base (the image CDN): a
-// hostile response cannot make albumreq fetch anything else. The picture is
+// hostile response cannot make albumarr fetch anything else. The picture is
 // decoded here, so only something that really is an image is ever passed on.
 func (c *Client) Photo(ctx context.Context, artistID, rawURL string, width int) ([]byte, string, error) {
 	if !musicbrainz.ValidID(artistID) || (width != thumbWidth && width != photoWidth) {

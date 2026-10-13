@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 type rig struct {
@@ -33,7 +33,7 @@ func newRig(t *testing.T) *rig {
 	set := NewSettings(st, fs, log)
 	if _, err := set.Patch(context.Background(), Patch{
 		Enabled: bp(true), URL: sp("https://ntfy.example.com"), Topic: sp("approvers"), Auth: sp("token"), Token: sp("tk_secret_value"),
-		Priority: ip(4), Tags: sp("eyes"), AppURL: sp("http://albumreq.example:8768"),
+		Priority: ip(4), Tags: sp("eyes"), AppURL: sp("http://albumarr.example:8768"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestMessagesCarryTheAgentsPriorityTagsLinksAndCredentials(t *testing.T) {
 	if !strings.Contains(shared.Body, "anna declined alice's request") || !strings.Contains(mine.Body, "anna declined it") || !strings.Contains(mine.Body, "Reason: Already own it") {
 		t.Errorf("each reads for its audience:\n%q\n%q", shared.Body, mine.Body)
 	}
-	if mine.Click != "http://albumreq.example:8768/#/requests" {
+	if mine.Click != "http://albumarr.example:8768/#/requests" {
 		t.Errorf("click %q", mine.Click)
 	}
 }

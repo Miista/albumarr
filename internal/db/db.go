@@ -1,9 +1,9 @@
-// Package db opens albumreq's one SQLite database, albumreq.db in the data
+// Package db opens albumarr's one SQLite database, albumarr.db in the data
 // directory, and keeps its schema up to date. Settings, users and requests all
 // live in it, so there is one file to back up and one place their consistency
 // is decided.
 //
-// The driver is modernc.org/sqlite, pure Go, because albumreq is cross-compiled
+// The driver is modernc.org/sqlite, pure Go, because albumarr is cross-compiled
 // with CGO disabled into a distroless static image.
 package db
 
@@ -20,7 +20,7 @@ import (
 )
 
 // File is the database's name inside the data directory.
-const File = "albumreq.db"
+const File = "albumarr.db"
 
 // DB is the open database.
 type DB struct {
@@ -28,9 +28,9 @@ type DB struct {
 	path string
 }
 
-// Open opens (creating if need be) dataDir/albumreq.db and migrates it to the
+// Open opens (creating if need be) dataDir/albumarr.db and migrates it to the
 // current schema. The directory is 0700 and the file 0600: it holds the Lidarr
-// API key. A database written by a newer albumreq is refused rather than
+// API key. A database written by a newer albumarr is refused rather than
 // guessed at.
 func Open(dataDir string) (*DB, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
@@ -133,9 +133,9 @@ var migrations = []string{
 	// could never be approved, so it is closed with a reason that says to ask again.
 	`ALTER TABLE requests ADD COLUMN artist_id TEXT NOT NULL DEFAULT '';
 	UPDATE requests
-	   SET state = 'declined', decided_by_sub = 'albumreq', decided_by_name = 'albumreq',
+	   SET state = 'declined', decided_by_sub = 'albumarr', decided_by_name = 'albumarr',
 	       decided_at = CAST(strftime('%s', 'now') AS INTEGER),
-	       decline_reason = 'This was requested before albumreq recorded the artist, so it cannot be approved. Please request it again.'
+	       decline_reason = 'This was requested before albumarr recorded the artist, so it cannot be approved. Please request it again.'
 	 WHERE state = 'pending';`,
 
 	// 3: notifications. One row for the ntfy server (the shared channel, and where
@@ -175,7 +175,7 @@ var migrations = []string{
 	CREATE UNIQUE INDEX user_notifications_topic ON user_notifications (topic COLLATE NOCASE);`,
 
 	// 4: the address Lidarr is opened at in a browser, for the admin's "Open in
-	// Lidarr" link. It is not the address albumreq talks to (that one is usually
+	// Lidarr" link. It is not the address albumarr talks to (that one is usually
 	// only reachable from the server), so it is its own optional setting.
 	`ALTER TABLE lidarr ADD COLUMN web_url TEXT NOT NULL DEFAULT '';`,
 }
@@ -186,7 +186,7 @@ func (d *DB) migrate() error {
 		return fmt.Errorf("reading the schema version: %w", err)
 	}
 	if have > len(migrations) {
-		return fmt.Errorf("%s is from a newer albumreq (schema %d, this one knows %d): refusing to open it", d.path, have, len(migrations))
+		return fmt.Errorf("%s is from a newer albumarr (schema %d, this one knows %d): refusing to open it", d.path, have, len(migrations))
 	}
 	for i := have; i < len(migrations); i++ {
 		tx, err := d.Begin()

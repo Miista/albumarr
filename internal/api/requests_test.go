@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumarr/internal/coverart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,9 +12,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 const (
@@ -52,7 +52,7 @@ func TestDecisionsNeedTheCSRFHeaderToo(t *testing.T) {
 		rq := &fakeRequests{}
 		for name, hdr := range map[string]map[string]string{
 			"no header":  nil,
-			"cross-site": {"X-Albumreq": "1", "Sec-Fetch-Site": "cross-site"},
+			"cross-site": {"X-Albumarr": "1", "Sec-Fetch-Site": "cross-site"},
 		} {
 			if rec := postBody(muxWith(rq, adminAuth()), tc.path, tc.body, hdr); rec.Code != 403 || rq.calls != 0 {
 				t.Errorf("%s %s: %d calls=%d: an approver's browser tricked by another site must not decide", tc.path, name, rec.Code, rq.calls)
@@ -340,7 +340,7 @@ func TestDeletingARequestNeedsTheHeaderAndMapsTheServicesAnswers(t *testing.T) {
 		rq := &fakeRequests{err: c.err}
 		mux := muxWith(rq, as(auth.User))
 		req := httptest.NewRequest("DELETE", "/api/requests/7", nil)
-		req.Header.Set("X-Albumreq", "1")
+		req.Header.Set("X-Albumarr", "1")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != c.want || rq.deleted != 7 {
@@ -349,13 +349,13 @@ func TestDeletingARequestNeedsTheHeaderAndMapsTheServicesAnswers(t *testing.T) {
 	}
 	rq := &fakeRequests{}
 	rec := httptest.NewRecorder()
-	muxWith(rq, as(auth.Admin)).ServeHTTP(rec, httptest.NewRequest("DELETE", "/api/requests/7", nil)) // no X-Albumreq
+	muxWith(rq, as(auth.Admin)).ServeHTTP(rec, httptest.NewRequest("DELETE", "/api/requests/7", nil)) // no X-Albumarr
 	if rec.Code != http.StatusForbidden || rq.deleted != 0 {
 		t.Errorf("without the header: %d, deleted %d", rec.Code, rq.deleted)
 	}
 	rec = httptest.NewRecorder()
 	req := httptest.NewRequest("DELETE", "/api/requests/abc", nil)
-	req.Header.Set("X-Albumreq", "1")
+	req.Header.Set("X-Albumarr", "1")
 	muxWith(rq, as(auth.Admin)).ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("a bad id: %d", rec.Code)

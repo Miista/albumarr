@@ -32,7 +32,7 @@ func newTest(t *testing.T, allow func(string) bool, h http.HandlerFunc) (*Client
 		h(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	c := NewWithBase(srv.URL, "albumreq/0.1 ( test )", allow)
+	c := NewWithBase(srv.URL, "albumarr/0.1 ( test )", allow)
 	c.retry = time.Millisecond
 	return c, &calls
 }
@@ -47,7 +47,7 @@ func TestFrontFetchesAndSendsTheUserAgent(t *testing.T) {
 		if r.URL.Path != "/release-group/"+id1+"/front-250" {
 			t.Errorf("path = %s", r.URL.Path)
 		}
-		if r.Header.Get("User-Agent") != "albumreq/0.1 ( test )" {
+		if r.Header.Get("User-Agent") != "albumarr/0.1 ( test )" {
 			t.Errorf("User-Agent = %q", r.Header.Get("User-Agent"))
 		}
 		jpeg(w, "pixels")
@@ -302,7 +302,7 @@ func TestPhotoIsShrunkReencodedAsJPEGAndCached(t *testing.T) {
 	for _, asPNG := range []bool{false, true} {
 		src := picture(t, 1000, 600, asPNG)
 		c, calls := newTest(t, allowAll, func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/cache/ed.jpg" || r.Header.Get("User-Agent") != "albumreq/0.1 ( test )" {
+			if r.URL.Path != "/cache/ed.jpg" || r.Header.Get("User-Agent") != "albumarr/0.1 ( test )" {
 				t.Errorf("request %s, UA %q", r.URL, r.Header.Get("User-Agent"))
 			}
 			serve(w, "image/jpeg", src)

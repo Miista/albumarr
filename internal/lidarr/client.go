@@ -1,4 +1,4 @@
-// Package lidarr is a minimal client for the slice of Lidarr's v1 API albumreq
+// Package lidarr is a minimal client for the slice of Lidarr's v1 API albumarr
 // needs: whether an album (by MusicBrainz release-group ID) is in the library,
 // the download queue, and a library album's tracks, all reads, plus exactly one
 // write: AddAlbum, which adds an artist and an album to the library without
@@ -220,7 +220,7 @@ var ErrNotConfigured = errors.New("lidarr: not configured")
 var ErrAlreadyAdded = errors.New("lidarr: album already added")
 
 // ErrAlbumNotFound means Lidarr's own metadata does not know the album (a very new
-// MusicBrainz entry, say), so it cannot be added yet. It is how albumreq finds
+// MusicBrainz entry, say), so it cannot be added yet. It is how albumarr finds
 // out: Lidarr answers 400 "An album with this ID was not found".
 var ErrAlbumNotFound = errors.New("lidarr: album not found in its metadata")
 
@@ -229,7 +229,7 @@ var ErrAlbumNotFound = errors.New("lidarr: album not found in its metadata")
 var ErrUnavailable = errors.New("lidarr: unavailable")
 
 // RejectedError is Lidarr refusing an add with validation messages, which
-// almost always means albumreq's own settings (root folder, profiles) are
+// almost always means albumarr's own settings (root folder, profiles) are
 // wrong, or the album is unknown to Lidarr's metadata.
 type RejectedError struct{ Messages []string }
 
@@ -237,7 +237,7 @@ func (e *RejectedError) Error() string {
 	return "lidarr rejected the request: " + strings.Join(e.Messages, "; ")
 }
 
-// ErrBadSettings means albumreq's settings do not match what Lidarr has: a
+// ErrBadSettings means albumarr's settings do not match what Lidarr has: a
 // missing root folder or profile. Unlike an unreachable Lidarr it will not fix
 // itself.
 var ErrBadSettings = errors.New("lidarr: settings do not match Lidarr")
@@ -296,7 +296,7 @@ func (c *Client) AddAlbum(ctx context.Context, a NewAlbum) error {
 
 // MonitorAlbum marks one album as wanted. AddAlbum already asks for that, but
 // for a new artist Lidarr applies the artist's own "monitor: none" afterwards
-// and unmonitors the album again, so albumreq checks and sets it explicitly.
+// and unmonitors the album again, so albumarr checks and sets it explicitly.
 func (c *Client) MonitorAlbum(ctx context.Context, albumID int) error {
 	return c.send(ctx, http.MethodPut, "/api/v1/album/monitor", map[string]any{"albumIds": []int{albumID}, "monitored": true})
 }
@@ -334,7 +334,7 @@ func (c *Client) MetadataProfileByName(ctx context.Context, name string) (int, e
 }
 
 // CheckSettings verifies that the root folder and the quality profile exist in
-// Lidarr, so a typo in albumreq's settings is found at startup, not at the first
+// Lidarr, so a typo in albumarr's settings is found at startup, not at the first
 // request. Whether Lidarr has the metadata profile requests need is a separate
 // question (MetadataProfileByName): it is not something a typo in a setting causes,
 // and it is reported on the Issues page, not by refusing to save.

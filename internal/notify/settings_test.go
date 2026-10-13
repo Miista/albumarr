@@ -12,8 +12,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/settings"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/settings"
 )
 
 type sent struct {
@@ -48,7 +48,7 @@ func clearEnv(t *testing.T) {
 	for _, k := range allKeys {
 		t.Setenv(settings.EnvVar(k), "")
 	}
-	t.Setenv("ALBUMREQ_SETTINGS_READONLY", "")
+	t.Setenv("ALBUMARR_SETTINGS_READONLY", "")
 }
 
 func newSettings(t *testing.T) (*Settings, *Store, *fakeSender) {
@@ -74,14 +74,14 @@ func TestEnvPinsEveryFieldAndLocksIt(t *testing.T) {
 	clearEnv(t)
 	for k, v := range map[string]string{
 		KeyEnabled: "true", KeyURL: "https://ntfy.example.com", KeyTopic: "approvers", KeyTags: "eyes", KeyAuth: "token",
-		KeyToken: "tk_x", KeyPriority: "4", KeyEmbedPoster: "true", KeyTypes: "pending,declined", KeyAppURL: "http://albumreq.example",
+		KeyToken: "tk_x", KeyPriority: "4", KeyEmbedPoster: "true", KeyTypes: "pending,declined", KeyAppURL: "http://albumarr.example",
 	} {
 		t.Setenv(settings.EnvVar(k), v)
 	}
 	r := Resolve(Config{Topic: "stored", Types: All})
 	c := r.Config
 	if !c.Enabled || c.URL != "https://ntfy.example.com" || c.Topic != "approvers" || c.Tags != "eyes" || c.Auth != AuthToken || c.Token != "tk_x" ||
-		c.Priority != 4 || !c.EmbedPoster || !reflect.DeepEqual(c.Types, []Type{Pending, Declined}) || c.AppURL != "http://albumreq.example" {
+		c.Priority != 4 || !c.EmbedPoster || !reflect.DeepEqual(c.Types, []Type{Pending, Declined}) || c.AppURL != "http://albumarr.example" {
 		t.Errorf("%+v", c)
 	}
 	for _, k := range []string{KeyEnabled, KeyURL, KeyTopic, KeyTags, KeyAuth, KeyToken, KeyPriority, KeyEmbedPoster, KeyTypes, KeyAppURL} {
@@ -121,7 +121,7 @@ func TestPinningAnyCredentialLocksTheWholeGroup(t *testing.T) {
 
 func TestReadOnlyLocksEverythingAndEnvKeepsItsOwnReason(t *testing.T) {
 	clearEnv(t)
-	t.Setenv("ALBUMREQ_SETTINGS_READONLY", "true")
+	t.Setenv("ALBUMARR_SETTINGS_READONLY", "true")
 	t.Setenv(settings.EnvVar(KeyTopic), "pinned")
 	r := Resolve(Config{})
 	for _, k := range allKeys {
@@ -171,16 +171,16 @@ func TestResolveNeverChangesWhatWasPassedIn(t *testing.T) {
 func TestPatchSavesAndTheViewHidesSecrets(t *testing.T) {
 	s, st, _ := newSettings(t)
 	v, err := s.Patch(context.Background(), Patch{
-		Enabled: bp(true), URL: sp("https://ntfy.example.com/"), Topic: sp("albumreq-approvers"), Tags: sp(" eyes , warning "),
+		Enabled: bp(true), URL: sp("https://ntfy.example.com/"), Topic: sp("albumarr-approvers"), Tags: sp(" eyes , warning "),
 		Auth: sp("basic"), Username: sp("alice"), Password: sp("hunter2 hunter2"), Priority: ip(4), EmbedPoster: bp(true),
-		Types: &[]string{"declined", "pending"}, AppURL: sp("http://albumreq.example:8768/"),
+		Types: &[]string{"declined", "pending"}, AppURL: sp("http://albumarr.example:8768/"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := st.Config()
-	if !c.Enabled || c.URL != "https://ntfy.example.com" || c.Topic != "albumreq-approvers" || c.Tags != "eyes,warning" || c.Auth != AuthBasic || c.Username != "alice" ||
-		c.Password != "hunter2 hunter2" || c.Priority != 4 || !c.EmbedPoster || !reflect.DeepEqual(c.Types, []Type{Pending, Declined}) || c.AppURL != "http://albumreq.example:8768" || c.EnabledSince == 0 {
+	if !c.Enabled || c.URL != "https://ntfy.example.com" || c.Topic != "albumarr-approvers" || c.Tags != "eyes,warning" || c.Auth != AuthBasic || c.Username != "alice" ||
+		c.Password != "hunter2 hunter2" || c.Priority != 4 || !c.EmbedPoster || !reflect.DeepEqual(c.Types, []Type{Pending, Declined}) || c.AppURL != "http://albumarr.example:8768" || c.EnabledSince == 0 {
 		t.Errorf("%+v", c)
 	}
 	raw, _ := json.Marshal(v)
@@ -303,7 +303,7 @@ func TestPinnedCredentialsLockTheAddressSoItCannotBeRedirected(t *testing.T) {
 
 func TestReadOnlyRefusesEveryChange(t *testing.T) {
 	s, st, _ := newSettings(t)
-	t.Setenv("ALBUMREQ_SETTINGS_READONLY", "true")
+	t.Setenv("ALBUMARR_SETTINGS_READONLY", "true")
 	if _, err := s.Patch(context.Background(), Patch{Topic: sp("x")}); !errors.Is(err, settings.ErrReadOnly) {
 		t.Errorf("err = %v", err)
 	}

@@ -1,7 +1,7 @@
 // Package lidarrmeta is a read-only client for Lidarr's hosted metadata
 // service, the cached MusicBrainz mirror every Lidarr uses. One request returns
 // an album with all of its editions and their tracks, from a Cloudflare cache,
-// which is why albumreq asks it — not MusicBrainz — for everything except
+// which is why albumarr asks it — not MusicBrainz — for everything except
 // search. IDs are MusicBrainz release-group IDs, the same as everywhere else.
 //
 // The service has no documented API for third parties, so the base URL is
@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/musicbrainz"
 )
 
 const (

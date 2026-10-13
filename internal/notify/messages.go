@@ -3,8 +3,8 @@ package notify
 import (
 	"strings"
 
-	"github.com/Miista/albumreq/internal/coverart"
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/coverart"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 // Event is something that happened to a request.
@@ -27,7 +27,7 @@ const (
 )
 
 // Compose writes the notification for an event: a title, a body, and where a tap
-// should lead. appURL, when set, is where albumreq is reached.
+// should lead. appURL, when set, is where albumarr is reached.
 func Compose(e Event, who Audience, appURL string, poster bool) Message {
 	r := e.Request
 	m := Message{}

@@ -75,12 +75,12 @@ func TestCommandRunsTheHealthcheckAgainstTheConfiguredAddress(t *testing.T) {
 	defer srv.Close()
 	addr := strings.TrimPrefix(srv.URL, "http://")
 	var out, errOut bytes.Buffer
-	if handled, code := command([]string{"healthcheck"}, func(k string) string { return map[string]string{"ALBUMREQ_ADDR": addr}[k] }, &out, &errOut); !handled || code != 0 {
+	if handled, code := command([]string{"healthcheck"}, func(k string) string { return map[string]string{"ALBUMARR_ADDR": addr}[k] }, &out, &errOut); !handled || code != 0 {
 		t.Errorf("healthy: handled %v, code %d, %q", handled, code, errOut.String())
 	}
 	srv.Close()
 	errOut.Reset()
-	if handled, code := command([]string{"healthcheck"}, func(k string) string { return map[string]string{"ALBUMREQ_ADDR": addr}[k] }, &out, &errOut); !handled || code != 1 || !strings.Contains(errOut.String(), "unhealthy") {
+	if handled, code := command([]string{"healthcheck"}, func(k string) string { return map[string]string{"ALBUMARR_ADDR": addr}[k] }, &out, &errOut); !handled || code != 1 || !strings.Contains(errOut.String(), "unhealthy") {
 		t.Errorf("down: handled %v, code %d, %q", handled, code, errOut.String())
 	}
 }
@@ -93,7 +93,7 @@ func TestCommandVersionAndUnknownWords(t *testing.T) {
 	}
 	for _, v := range []string{"version", "--version", "-version"} {
 		out.Reset()
-		if handled, code := command([]string{v}, none, &out, &errOut); !handled || code != 0 || !strings.HasPrefix(out.String(), "albumreq ") || !strings.Contains(out.String(), version) {
+		if handled, code := command([]string{v}, none, &out, &errOut); !handled || code != 0 || !strings.HasPrefix(out.String(), "albumarr ") || !strings.Contains(out.String(), version) {
 			t.Errorf("%s: %v %d %q", v, handled, code, out.String())
 		}
 	}
@@ -104,7 +104,7 @@ func TestCommandVersionAndUnknownWords(t *testing.T) {
 }
 
 func TestPermissionHintOnlyForPermissionErrors(t *testing.T) {
-	denied := fmt.Errorf("creating /app/data/albumreq.db: %w", &fs.PathError{Op: "open", Path: "/app/data/albumreq.db", Err: os.ErrPermission})
+	denied := fmt.Errorf("creating /app/data/albumarr.db: %w", &fs.PathError{Op: "open", Path: "/app/data/albumarr.db", Err: os.ErrPermission})
 	if h := permissionHint(denied); !strings.Contains(h, "65532") || !strings.Contains(h, "--user") || !strings.Contains(h, "owned by that user") {
 		t.Errorf("hint = %q", h)
 	}

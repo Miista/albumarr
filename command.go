@@ -18,8 +18,8 @@ var version = "dev"
 // command handles the few words the binary understands besides starting the server.
 // The image has no shell and no curl, so its HEALTHCHECK is the binary itself:
 //
-//	albumreq healthcheck   exit 0 if the running server answers /healthz, else 1
-//	albumreq version       print the version
+//	albumarr healthcheck   exit 0 if the running server answers /healthz, else 1
+//	albumarr version       print the version
 //
 // handled is false when there is nothing to do here and the server should start; an
 // unknown word is handled with exit code 2, rather than starting the server on a typo.
@@ -29,7 +29,7 @@ func command(args []string, env func(string) string, out, errOut io.Writer) (han
 	}
 	switch args[0] {
 	case "healthcheck":
-		addr := env("ALBUMREQ_ADDR")
+		addr := env("ALBUMARR_ADDR")
 		if addr == "" {
 			addr = defaultAddr
 		}
@@ -39,10 +39,10 @@ func command(args []string, env func(string) string, out, errOut io.Writer) (han
 		}
 		return true, 0
 	case "version", "--version", "-version":
-		fmt.Fprintln(out, "albumreq", version)
+		fmt.Fprintln(out, "albumarr", version)
 		return true, 0
 	}
-	fmt.Fprintln(errOut, "unknown command", fmt.Sprintf("%q", args[0])+": albumreq takes no arguments except healthcheck and version; it is configured by environment variables")
+	fmt.Fprintln(errOut, "unknown command", fmt.Sprintf("%q", args[0])+": albumarr takes no arguments except healthcheck and version; it is configured by environment variables")
 	return true, 2
 }
 
@@ -86,5 +86,5 @@ func permissionHint(err error) string {
 	if !errors.Is(err, fs.ErrPermission) {
 		return ""
 	}
-	return ": the directory must be writable by the user albumreq runs as (65532 unless you set --user or `user:`). Make the directory (a bind mount's source) owned by that user, or start the container with --user set to the directory's owner"
+	return ": the directory must be writable by the user albumarr runs as (65532 unless you set --user or `user:`). Make the directory (a bind mount's source) owned by that user, or start the container with --user set to the directory's owner"
 }

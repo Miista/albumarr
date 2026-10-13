@@ -1,4 +1,4 @@
-module github.com/Miista/albumreq
+module github.com/Miista/albumarr
 
 go 1.26.5
 

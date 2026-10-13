@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/musicbrainz"
 )
 
 // Fulfiller is the part of the catalog the flow uses: whether asking would change

@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 type fakeRecords struct {

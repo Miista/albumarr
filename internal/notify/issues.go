@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Miista/albumreq/internal/issues"
+	"github.com/Miista/albumarr/internal/issues"
 )
 
 // deliveryStale is how long a failure counts as current. After that, with nothing
@@ -21,7 +21,7 @@ func (s *Settings) Issues(context.Context) []issues.Issue {
 	for _, p := range r.Problems {
 		out = append(out, issues.Issue{
 			ID: "notifications-env-invalid", Severity: issues.Error, Title: "A notification setting from the environment cannot be used",
-			Detail: p + ". It is ignored until it is corrected.", Fix: "Correct the variable and restart albumreq.",
+			Detail: p + ". It is ignored until it is corrected.", Fix: "Correct the variable and restart albumarr.",
 		})
 	}
 	c := r.Config
@@ -58,7 +58,7 @@ func (s *Settings) Issues(context.Context) []issues.Issue {
 	if c.AppURL == "" {
 		out = append(out, issues.Issue{
 			ID: "notifications-no-app-url", Severity: issues.Info, Title: "Notifications have no links",
-			Detail: "Tapping a notification cannot open albumreq, because it does not know its own address.",
+			Detail: "Tapping a notification cannot open albumarr, because it does not know its own address.",
 			Fix:    "Enter the application address under Settings, Notifications.", Link: where,
 		})
 	}

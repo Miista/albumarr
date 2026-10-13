@@ -10,12 +10,12 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/notify"
-	"github.com/Miista/albumreq/internal/requests"
-	"github.com/Miista/albumreq/internal/users"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/notify"
+	"github.com/Miista/albumarr/internal/requests"
+	"github.com/Miista/albumarr/internal/users"
 )
 
 type fakeAuth struct {
@@ -259,7 +259,7 @@ func (r *rig) touched() bool {
 
 func call(r *rig, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	req.Header.Set("X-Albumreq", "1") // the CSRF guard is not what is under test here
+	req.Header.Set("X-Albumarr", "1") // the CSRF guard is not what is under test here
 	rec := httptest.NewRecorder()
 	r.mux.ServeHTTP(rec, req)
 	return rec
@@ -401,9 +401,9 @@ func TestApproverEndpointAnswersWithTheUpdatedList(t *testing.T) {
 
 func TestAFailedUsersReadIsA500NotAnEmptyList(t *testing.T) {
 	rg := newRig(adminAuth())
-	rg.users.listErr = errors.New("database is locked: /app/data/albumreq.db")
+	rg.users.listErr = errors.New("database is locked: /app/data/albumarr.db")
 	rec := call(rg, "GET", "/api/users", "")
-	if rec.Code != 500 || strings.Contains(rec.Body.String(), "albumreq.db") {
+	if rec.Code != 500 || strings.Contains(rec.Body.String(), "albumarr.db") {
 		t.Errorf("%d %s: an outage must not read as 'nobody has signed in', nor leak a path", rec.Code, rec.Body)
 	}
 }

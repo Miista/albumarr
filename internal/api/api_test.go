@@ -13,11 +13,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/coverart"
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/coverart"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 const id1 = "b1392450-e666-3926-a536-22c65f834433"
@@ -288,7 +288,7 @@ func post(mux http.Handler, target string, headers map[string]string) *httptest.
 	return rec
 }
 
-var sameOrigin = map[string]string{"X-Albumreq": "1"}
+var sameOrigin = map[string]string{"X-Albumarr": "1"}
 
 // muxWith serves the API over a fake approval flow, as the given person.
 func muxWith(rq *fakeRequests, a Authenticator) *http.ServeMux {
@@ -327,12 +327,12 @@ func TestRequestAnswerCarriesTheRecordWhenThereIsOne(t *testing.T) {
 func TestRequestIsRefusedWithoutProofItCameFromThisPage(t *testing.T) {
 	for name, headers := range map[string]map[string]string{
 		"no header":                 nil,
-		"a wrong header value":      {"X-Albumreq": "0"},
-		"an empty header value":     {"X-Albumreq": ""},
+		"a wrong header value":      {"X-Albumarr": "0"},
+		"an empty header value":     {"X-Albumarr": ""},
 		"a form-style cross-site":   {"Content-Type": "application/x-www-form-urlencoded"},
-		"the header but cross-site": {"X-Albumreq": "1", "Sec-Fetch-Site": "cross-site"},
-		"the header but same-site":  {"X-Albumreq": "1", "Sec-Fetch-Site": "same-site"},
-		"the header, an odd site":   {"X-Albumreq": "1", "Sec-Fetch-Site": "whatever"},
+		"the header but cross-site": {"X-Albumarr": "1", "Sec-Fetch-Site": "cross-site"},
+		"the header but same-site":  {"X-Albumarr": "1", "Sec-Fetch-Site": "same-site"},
+		"the header, an odd site":   {"X-Albumarr": "1", "Sec-Fetch-Site": "whatever"},
 	} {
 		rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
 		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", requestBody, headers)
@@ -343,7 +343,7 @@ func TestRequestIsRefusedWithoutProofItCameFromThisPage(t *testing.T) {
 	// ...and what a real same-origin fetch looks like is accepted.
 	for _, site := range []string{"same-origin", "none", ""} {
 		rq := &fakeRequests{out: requests.Outcome{Result: "added"}}
-		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", requestBody, map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": site})
+		rec := postBody(muxWith(rq, adminAuth()), "/api/album/"+id1+"/request", requestBody, map[string]string{"X-Albumarr": "1", "Sec-Fetch-Site": site})
 		if rec.Code != http.StatusCreated {
 			t.Errorf("Sec-Fetch-Site=%q: status = %d, want 201", site, rec.Code)
 		}
@@ -365,14 +365,14 @@ func TestRequestErrorMapping(t *testing.T) {
 		{"rejected by Lidarr", rejected, http.StatusBadGateway},
 		{"Lidarr lacks the None profile", fmt.Errorf("%w: Lidarr has no metadata profile named %q", lidarr.ErrBadSettings, "None"), http.StatusBadGateway},
 		{"something else", errors.New("lidarr /api/v1/album returned 401 Unauthorized"), http.StatusBadGateway},
-		{"a database error", errors.New("database is locked: /app/data/albumreq.db"), http.StatusBadGateway},
+		{"a database error", errors.New("database is locked: /app/data/albumarr.db"), http.StatusBadGateway},
 	}
 	for _, c := range cases {
 		rec := postBody(muxWith(&fakeRequests{err: c.err}, adminAuth()), "/api/album/"+id1+"/request", requestBody, sameOrigin)
 		if rec.Code != c.want {
 			t.Errorf("%s: status = %d, want %d", c.name, rec.Code, c.want)
 		}
-		for _, leaked := range []string{"/secret/place", "192.0.2.10", "401 Unauthorized", "dial tcp", "albumreq.db"} {
+		for _, leaked := range []string{"/secret/place", "192.0.2.10", "401 Unauthorized", "dial tcp", "albumarr.db"} {
 			if strings.Contains(rec.Body.String(), leaked) {
 				t.Errorf("%s: %q leaked to the client: %s", c.name, leaked, rec.Body)
 			}
@@ -385,7 +385,7 @@ func TestRequestOnlyAcceptsPost(t *testing.T) {
 	mux := muxWith(rq, adminAuth())
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		req := httptest.NewRequest(method, "/api/album/"+id1+"/request", nil)
-		req.Header.Set("X-Albumreq", "1")
+		req.Header.Set("X-Albumarr", "1")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusMethodNotAllowed {

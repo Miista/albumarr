@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
 func open(t *testing.T) (*Directory, string) {

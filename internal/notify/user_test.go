@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 func userRig(t *testing.T) (*UserSettings, *rig) {
@@ -45,7 +45,7 @@ func TestSuggestedTopicsCannotBeGuessed(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 50; i++ {
 		s := SuggestTopic()
-		if !ValidTopic(s) || !strings.HasPrefix(s, "albumreq-") || len(s) < 20 || seen[s] {
+		if !ValidTopic(s) || !strings.HasPrefix(s, "albumarr-") || len(s) < 20 || seen[s] {
 			t.Fatalf("%q", s)
 		}
 		seen[s] = true

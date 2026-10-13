@@ -24,7 +24,7 @@ func newTest(t *testing.T, gap time.Duration, h http.HandlerFunc) (*Client, *ato
 		h(w, r)
 	}))
 	t.Cleanup(srv.Close)
-	c, err := NewWithBase(srv.URL, "https://example.org/albumreq", gap)
+	c, err := NewWithBase(srv.URL, "https://example.org/albumarr", gap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestNewRequiresASaneContact(t *testing.T) {
 			t.Errorf("New(%q) accepted a bad contact", bad)
 		}
 	}
-	for _, good := range []string{"https://example.org/albumreq", "someone@example.org"} {
+	for _, good := range []string{"https://example.org/albumarr", "someone@example.org"} {
 		if _, err := New(good); err != nil {
 			t.Errorf("New(%q) rejected a good contact: %v", good, err)
 		}
@@ -45,18 +45,18 @@ func TestNewRequiresASaneContact(t *testing.T) {
 }
 
 func TestUserAgents(t *testing.T) {
-	ua, err := UserAgent("https://example.org/albumreq")
-	if err != nil || ua != "albumreq/0.1 ( https://example.org/albumreq )" {
+	ua, err := UserAgent("https://example.org/albumarr")
+	if err != nil || ua != "albumarr/0.1 ( https://example.org/albumarr )" {
 		t.Errorf("UserAgent = %q, %v", ua, err)
 	}
-	if strings.ContainsAny(AnonymousUserAgent, "()@") || !strings.HasPrefix(AnonymousUserAgent, "albumreq/") {
+	if strings.ContainsAny(AnonymousUserAgent, "()@") || !strings.HasPrefix(AnonymousUserAgent, "albumarr/") {
 		t.Errorf("AnonymousUserAgent must carry no contact: %q", AnonymousUserAgent)
 	}
 }
 
 func TestRequestsCarryTheUserAgentAndAskForJSON(t *testing.T) {
 	c, _ := newTest(t, 0, func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("User-Agent"), "albumreq/0.1 ( https://example.org/albumreq )"; got != want {
+		if got, want := r.Header.Get("User-Agent"), "albumarr/0.1 ( https://example.org/albumarr )"; got != want {
 			t.Errorf("User-Agent = %q, want %q", got, want)
 		}
 		if r.URL.Query().Get("fmt") != "json" {

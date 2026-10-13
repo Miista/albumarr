@@ -8,7 +8,7 @@
 //	admin     everything, including settings and who the approvers are
 //
 // Admin and user come from groups at the identity provider, so who is who stays
-// there. Approver is the one role albumreq keeps itself, set by an admin.
+// there. Approver is the one role albumarr keeps itself, set by an admin.
 package auth
 
 import (
@@ -20,8 +20,8 @@ import (
 	"github.com/miista/authy"
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/users"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/users"
 )
 
 // Role is what someone may do. A higher role may do everything a lower one may.
@@ -66,16 +66,16 @@ type Config struct {
 	// person in neither gets role None. Empty: anyone the identity provider lets
 	// sign in is a user.
 	UserGroup string
-	// GateOn is false when there is no login at all (ALBUMREQ_AUTH_DISABLED): the
+	// GateOn is false when there is no login at all (ALBUMARR_AUTH_DISABLED): the
 	// app is then behind something else, or on loopback, and everyone is an admin.
 	GateOn bool
 }
 
-// ConfigFromEnv reads ALBUMREQ_ROLE_ADMIN_GROUP and ALBUMREQ_ROLE_USER_GROUP.
+// ConfigFromEnv reads ALBUMARR_ROLE_ADMIN_GROUP and ALBUMARR_ROLE_USER_GROUP.
 func ConfigFromEnv(gateOn bool) Config {
 	return Config{
-		AdminGroup: strings.TrimSpace(os.Getenv("ALBUMREQ_ROLE_ADMIN_GROUP")),
-		UserGroup:  strings.TrimSpace(os.Getenv("ALBUMREQ_ROLE_USER_GROUP")),
+		AdminGroup: strings.TrimSpace(os.Getenv("ALBUMARR_ROLE_ADMIN_GROUP")),
+		UserGroup:  strings.TrimSpace(os.Getenv("ALBUMARR_ROLE_USER_GROUP")),
 		GateOn:     gateOn,
 	}
 }
@@ -132,14 +132,14 @@ func (a *Auth) Issues(context.Context) []issues.Issue {
 	case !a.cfg.GateOn:
 		out = append(out, issues.Issue{
 			ID: "login-off", Severity: issues.Warning, Title: "The login is off",
-			Detail: "Everyone who can reach albumreq is an admin: they can change the settings and request albums. That is fine on a machine only you can reach.",
-			Fix:    "Remove ALBUMREQ_AUTH_DISABLED to turn the login on.",
+			Detail: "Everyone who can reach albumarr is an admin: they can change the settings and request albums. That is fine on a machine only you can reach.",
+			Fix:    "Remove ALBUMARR_AUTH_DISABLED to turn the login on.",
 		})
 	case a.cfg.AdminGroup == "":
 		out = append(out, issues.Issue{
 			ID: "no-admin-group", Severity: issues.Warning, Title: "No admin group is set",
 			Detail: "Nobody who signs in through single sign-on is an admin: only the local account, if it is enabled, can open Settings, and only an admin can choose approvers.",
-			Fix:    "Set ALBUMREQ_ROLE_ADMIN_GROUP to the identity provider group whose members should be admins.",
+			Fix:    "Set ALBUMARR_ROLE_ADMIN_GROUP to the identity provider group whose members should be admins.",
 		})
 	}
 	return out

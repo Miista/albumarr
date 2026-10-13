@@ -10,8 +10,8 @@ import (
 	"github.com/miista/authy"
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/users"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/users"
 )
 
 type fakeDir struct {

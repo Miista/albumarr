@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
 // How the ntfy server is told who is publishing.
@@ -35,7 +35,7 @@ type Config struct {
 	Priority     int    // 1 (min) to 5 (urgent); 3 is ntfy's default
 	EmbedPoster  bool   // attach the album cover
 	Types        []Type // the events the shared channel is sent
-	AppURL       string // where albumreq is reached, for links in messages
+	AppURL       string // where albumarr is reached, for links in messages
 }
 
 func (c Config) clone() Config {

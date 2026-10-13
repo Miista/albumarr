@@ -74,11 +74,11 @@ func TestReopeningKeepsDataAndDoesNotRemigrate(t *testing.T) {
 	}
 }
 
-func TestADatabaseFromANewerAlbumreqIsRefused(t *testing.T) {
+func TestADatabaseFromANewerAlbumarrIsRefused(t *testing.T) {
 	d, dir := open(t)
 	d.Exec(`PRAGMA user_version = 999`)
 	d.Close()
-	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "newer albumreq") {
+	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "newer albumarr") {
 		t.Errorf("err = %v, want a refusal", err)
 	}
 }
@@ -108,7 +108,7 @@ func TestOnlyOneLidarrRowCanExist(t *testing.T) {
 func TestBackupIsAConsistentOwnerOnlyCopy(t *testing.T) {
 	d, dir := open(t)
 	d.Exec(`UPDATE lidarr SET url = 'http://lidarr:8686', api_key = 'k' WHERE id = 1`)
-	dest := filepath.Join(dir, "backup", "albumreq.db")
+	dest := filepath.Join(dir, "backup", "albumarr.db")
 	if err := d.Backup(context.Background(), dest); err != nil {
 		t.Fatal(err)
 	}

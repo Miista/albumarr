@@ -13,17 +13,17 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/store"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/store"
 )
 
 const (
 	probeTimeout = 8 * time.Second
 
 	// staleMetadataProfileEnv was the variable for a setting that no longer exists.
-	staleMetadataProfileEnv = "ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID"
+	staleMetadataProfileEnv = "ALBUMARR_SETTING_LIDARR_METADATA_PROFILE_ID"
 	maxField                = 300
 )
 
@@ -303,7 +303,7 @@ func (s *Service) Issues(ctx context.Context) []issues.Issue {
 	for _, p := range r.Problems {
 		out = append(out, issues.Issue{
 			ID: "env-invalid", Severity: issues.Error, Title: "A setting from the environment cannot be used",
-			Detail: p + ". It is ignored until it is corrected.", Fix: "Correct the variable and restart albumreq.",
+			Detail: p + ". It is ignored until it is corrected.", Fix: "Correct the variable and restart albumarr.",
 		})
 	}
 	if _, set := os.LookupEnv(staleMetadataProfileEnv); set {
@@ -317,7 +317,7 @@ func (s *Service) Issues(ctx context.Context) []issues.Issue {
 	if !r.Configured() {
 		return append(out, issues.Issue{
 			ID: "lidarr-not-configured", Severity: issues.Error, Title: "Lidarr is not set up",
-			Detail: "Without Lidarr albumreq cannot show what you already have or add albums.",
+			Detail: "Without Lidarr albumarr cannot show what you already have or add albums.",
 			Fix:    "Enter Lidarr's URL and API key on the Settings page.", Link: "#/settings",
 		})
 	}
@@ -335,13 +335,13 @@ func (s *Service) Issues(ctx context.Context) []issues.Issue {
 		if errors.Is(err, lidarr.ErrUnauthorized) {
 			return append(out, issues.Issue{
 				ID: "lidarr-key-rejected", Severity: issues.Error, Title: "Lidarr rejected the API key",
-				Detail: "albumreq reached " + r.Lidarr.URL + ", but it did not accept the key.",
-				Fix:    "Copy the key from Lidarr (Settings, General) into albumreq's settings.", Link: "#/settings",
+				Detail: "albumarr reached " + r.Lidarr.URL + ", but it did not accept the key.",
+				Fix:    "Copy the key from Lidarr (Settings, General) into albumarr's settings.", Link: "#/settings",
 			})
 		}
 		return append(out, issues.Issue{
 			ID: "lidarr-unreachable", Severity: issues.Error, Title: "Lidarr cannot be reached",
-			Detail: "albumreq could not connect to " + r.Lidarr.URL + ". Lidarr may be down or restarting, the address may be wrong, or the network may be blocking it.",
+			Detail: "albumarr could not connect to " + r.Lidarr.URL + ". Lidarr may be down or restarting, the address may be wrong, or the network may be blocking it.",
 			Fix:    "Check that Lidarr is running and that the address is right, then check again.", Link: "#/settings",
 		})
 	}

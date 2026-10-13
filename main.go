@@ -1,4 +1,4 @@
-// albumreq: a small request frontend for Lidarr. Search for an album, see at a
+// albumarr: a small request frontend for Lidarr. Search for an album, see at a
 // glance whether it is already in the library, being downloaded, requested, or
 // could not be found, and open it for details and a track list. Its one write
 // is requesting an album: Lidarr adds it (and its artist, unmonitored),
@@ -32,21 +32,21 @@ import (
 	"github.com/miista/authy"
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/api"
-	"github.com/Miista/albumreq/internal/auth"
-	"github.com/Miista/albumreq/internal/catalog"
-	"github.com/Miista/albumreq/internal/coverart"
-	"github.com/Miista/albumreq/internal/db"
-	"github.com/Miista/albumreq/internal/httplog"
-	"github.com/Miista/albumreq/internal/issues"
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/lidarrmeta"
-	"github.com/Miista/albumreq/internal/musicbrainz"
-	"github.com/Miista/albumreq/internal/notify"
-	"github.com/Miista/albumreq/internal/requests"
-	"github.com/Miista/albumreq/internal/settings"
-	"github.com/Miista/albumreq/internal/store"
-	"github.com/Miista/albumreq/internal/users"
+	"github.com/Miista/albumarr/internal/api"
+	"github.com/Miista/albumarr/internal/auth"
+	"github.com/Miista/albumarr/internal/catalog"
+	"github.com/Miista/albumarr/internal/coverart"
+	"github.com/Miista/albumarr/internal/db"
+	"github.com/Miista/albumarr/internal/httplog"
+	"github.com/Miista/albumarr/internal/issues"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/lidarrmeta"
+	"github.com/Miista/albumarr/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/notify"
+	"github.com/Miista/albumarr/internal/requests"
+	"github.com/Miista/albumarr/internal/settings"
+	"github.com/Miista/albumarr/internal/store"
+	"github.com/Miista/albumarr/internal/users"
 )
 
 // defaultAddr is loopback on purpose: until a login is set up (the first visitor to a
@@ -54,7 +54,7 @@ import (
 // reach the app unless the operator opts in.
 const defaultAddr = "127.0.0.1:8768"
 
-// defaultDataDir holds albumreq.db (settings, users, requests), its backup copy and the
+// defaultDataDir holds albumarr.db (settings, users, requests), its backup copy and the
 // login's state (auth/).
 const defaultDataDir = "/app/data"
 
@@ -63,7 +63,7 @@ const defaultDataDir = "/app/data"
 const sessionTTL = 12 * time.Hour
 
 // staticFiles is the frontend (HTML, JS, CSS), compiled into the binary so
-// albumreq ships as a single file.
+// albumarr ships as a single file.
 //
 //go:embed web/static
 var staticFiles embed.FS
@@ -72,8 +72,8 @@ func main() {
 	if handled, code := command(os.Args[1:], os.Getenv, os.Stdout, os.Stderr); handled {
 		os.Exit(code)
 	}
-	logger := newLogger(os.Getenv("ALBUMREQ_SETTING_LOG_LEVEL"))
-	// Every request albumreq makes (MusicBrainz, the metadata service, the cover CDN,
+	logger := newLogger(os.Getenv("ALBUMARR_SETTING_LOG_LEVEL"))
+	// Every request albumarr makes (MusicBrainz, the metadata service, the cover CDN,
 	// Lidarr, ntfy, the identity provider) goes through the default transport, so one
 	// wrapper writes them all down.
 	http.DefaultTransport = httplog.Transport(http.DefaultTransport, logger)
@@ -83,42 +83,42 @@ func main() {
 	// MusicBrainz requires a contact in the User-Agent. There is deliberately
 	// no default: it is the operator's to choose, and it is only ever sent to
 	// MusicBrainz.
-	contact := os.Getenv("ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT")
-	mbURL := os.Getenv("ALBUMREQ_SETTING_MUSICBRAINZ_URL") // default: the public MusicBrainz
+	contact := os.Getenv("ALBUMARR_SETTING_MUSICBRAINZ_CONTACT")
+	mbURL := os.Getenv("ALBUMARR_SETTING_MUSICBRAINZ_URL") // default: the public MusicBrainz
 	var (
 		mb  *musicbrainz.Client
 		err error
 	)
 	if mbURL != "" {
-		requireHTTPURL(logger, "ALBUMREQ_SETTING_MUSICBRAINZ_URL", mbURL)
+		requireHTTPURL(logger, "ALBUMARR_SETTING_MUSICBRAINZ_URL", mbURL)
 		mb, err = musicbrainz.NewAt(mbURL, contact)
 	} else {
 		mb, err = musicbrainz.New(contact)
 	}
 	if err != nil {
-		logger.Fatal().Msg("ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT must be set to an email address or a project URL: MusicBrainz requires a way to contact whoever runs an application")
+		logger.Fatal().Msg("ALBUMARR_SETTING_MUSICBRAINZ_CONTACT must be set to an email address or a project URL: MusicBrainz requires a way to contact whoever runs an application")
 	}
 
-	metaURL := os.Getenv("ALBUMREQ_SETTING_METADATA_URL") // default: Lidarr's hosted metadata service
+	metaURL := os.Getenv("ALBUMARR_SETTING_METADATA_URL") // default: Lidarr's hosted metadata service
 	if metaURL != "" {
-		requireHTTPURL(logger, "ALBUMREQ_SETTING_METADATA_URL", metaURL)
+		requireHTTPURL(logger, "ALBUMARR_SETTING_METADATA_URL", metaURL)
 	}
-	coverURL := os.Getenv("ALBUMREQ_SETTING_COVER_URL") // default: Lidarr's image CDN
+	coverURL := os.Getenv("ALBUMARR_SETTING_COVER_URL") // default: Lidarr's image CDN
 	if coverURL != "" {
-		requireHTTPURL(logger, "ALBUMREQ_SETTING_COVER_URL", coverURL)
+		requireHTTPURL(logger, "ALBUMARR_SETTING_COVER_URL", coverURL)
 	}
 
-	addr := os.Getenv("ALBUMREQ_ADDR")
+	addr := os.Getenv("ALBUMARR_ADDR")
 	if addr == "" {
 		addr = defaultAddr
 	}
 
-	dataDir := os.Getenv("ALBUMREQ_DATA_DIR")
+	dataDir := os.Getenv("ALBUMARR_DATA_DIR")
 	if dataDir == "" {
 		dataDir = defaultDataDir
 	}
-	if _, set := os.LookupEnv("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID"); set {
-		logger.Warn().Msg("ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID is no longer used: requested artists always get the metadata profile named \"None\", looked up in Lidarr")
+	if _, set := os.LookupEnv("ALBUMARR_SETTING_LIDARR_METADATA_PROFILE_ID"); set {
+		logger.Warn().Msg("ALBUMARR_SETTING_LIDARR_METADATA_PROFILE_ID is no longer used: requested artists always get the metadata profile named \"None\", looked up in Lidarr")
 	}
 	database, err := db.Open(dataDir)
 	if err != nil {
@@ -131,15 +131,15 @@ func main() {
 	}
 	go backupLoop(ctx, logger, database, dataDir)
 
-	// Login. authy is on unless ALBUMREQ_AUTH_DISABLED=true: with no ALBUMREQ_OIDC_*
+	// Login. authy is on unless ALBUMARR_AUTH_DISABLED=true: with no ALBUMARR_OIDC_*
 	// the first visitor creates a local account (the admin); with them the identity
-	// provider signs people in, and ALBUMREQ_LOCAL_ENABLED=true keeps the local
+	// provider signs people in, and ALBUMARR_LOCAL_ENABLED=true keeps the local
 	// account next to it as a way in when the provider is down.
-	// albumreq asks the provider for groups, which is how admin and user are told
+	// albumarr asks the provider for groups, which is how admin and user are told
 	// apart. Sessions are shorter than authy's week because a person's groups
-	// are only read when they sign in: a change at the provider reaches albumreq
+	// are only read when they sign in: a change at the provider reaches albumarr
 	// at the next sign-in, so this is also how long a demotion can take.
-	gate, err := authy.FromEnv(ctx, "albumreq",
+	gate, err := authy.FromEnv(ctx, "albumarr",
 		authy.WithScopes("openid", "profile", "email", "groups"),
 		authy.WithSessionTTL(sessionTTL),
 		authy.WithDataDir(filepath.Join(dataDir, "auth")))
@@ -150,9 +150,9 @@ func main() {
 	roles := auth.ConfigFromEnv(gate != nil)
 	switch {
 	case gate == nil:
-		logger.Warn().Msg("login is OFF (ALBUMREQ_AUTH_DISABLED): everyone who can reach this port is an admin")
+		logger.Warn().Msg("login is OFF (ALBUMARR_AUTH_DISABLED): everyone who can reach this port is an admin")
 	case roles.AdminGroup == "":
-		logger.Warn().Msg("ALBUMREQ_ROLE_ADMIN_GROUP is not set: no one signing in through OIDC is an admin, only the local account (if enabled)")
+		logger.Warn().Msg("ALBUMARR_ROLE_ADMIN_GROUP is not set: no one signing in through OIDC is an admin, only the local account (if enabled)")
 	}
 
 	library := &lidarr.Live{}
@@ -179,10 +179,10 @@ func main() {
 	flow.SetObserver(dispatcher)
 	go dispatcher.Run(ctx)
 	poller := notify.NewPoller(flow.Store(), cat, notifySettings, dispatcher, logger)
-	if raw := os.Getenv("ALBUMREQ_NOTIFICATIONS_CHECK_EVERY"); raw != "" {
+	if raw := os.Getenv("ALBUMARR_NOTIFICATIONS_CHECK_EVERY"); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil {
-			logger.Fatal().Msg("ALBUMREQ_NOTIFICATIONS_CHECK_EVERY must be a duration like 5m or 90s")
+			logger.Fatal().Msg("ALBUMARR_NOTIFICATIONS_CHECK_EVERY must be a duration like 5m or 90s")
 		}
 		poller.SetEvery(d)
 	}
@@ -221,7 +221,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info().Msg(fmt.Sprintf("starting albumreq %s on %s, settings in %s", version, addr, dataDir))
+		logger.Info().Msg(fmt.Sprintf("starting albumarr %s on %s, settings in %s", version, addr, dataDir))
 		if gate == nil && !isLoopback(addr) {
 			logger.Warn().Msg("listening beyond loopback with no login: anyone who can reach this port can search your Lidarr, request albums and change its settings" + readOnlyHint())
 		}
@@ -243,15 +243,15 @@ func readOnlyHint() string {
 	if settings.ReadOnly() {
 		return ""
 	}
-	return " (set ALBUMREQ_SETTINGS_READONLY=true to lock the settings page)"
+	return " (set ALBUMARR_SETTINGS_READONLY=true to lock the settings page)"
 }
 
 // backupEvery is how often a consistent copy of the database is written for the
 // backup job to pick up. A file-level copy of the live database can catch it
-// mid-write, so restic should cover backup/, not albumreq.db.
+// mid-write, so restic should cover backup/, not albumarr.db.
 const backupEvery = 6 * time.Hour
 
-// backupLoop writes dataDir/backup/albumreq.db now and then every backupEvery,
+// backupLoop writes dataDir/backup/albumarr.db now and then every backupEvery,
 // until ctx ends. A failed copy is logged and tried again next time.
 func backupLoop(ctx context.Context, logger zerolog.Logger, database *db.DB, dataDir string) {
 	dest := filepath.Join(dataDir, "backup", db.File)

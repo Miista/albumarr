@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Miista/albumreq/internal/coverart"
+	"github.com/Miista/albumarr/internal/coverart"
 	"reflect"
 	"sync/atomic"
 	"testing"
 
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/lidarrmeta"
-	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/lidarrmeta"
+	"github.com/Miista/albumarr/internal/musicbrainz"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/settings"
+	"github.com/Miista/albumarr/internal/settings"
 )
 
 type fakeSettings struct {
@@ -50,7 +50,7 @@ func postBody(mux http.Handler, target, body string, hdr map[string]string) *htt
 	return rec
 }
 
-var guard = map[string]string{"X-Albumreq": "1"}
+var guard = map[string]string{"X-Albumarr": "1"}
 
 func TestSettingsWritesNeedTheGuard(t *testing.T) {
 	f := &fakeSettings{}
@@ -60,7 +60,7 @@ func TestSettingsWritesNeedTheGuard(t *testing.T) {
 		if rec := postBody(mux, target, body, nil); rec.Code != http.StatusForbidden {
 			t.Errorf("%s without the header: %d", target, rec.Code)
 		}
-		if rec := postBody(mux, target, body, map[string]string{"X-Albumreq": "1", "Sec-Fetch-Site": "cross-site"}); rec.Code != http.StatusForbidden {
+		if rec := postBody(mux, target, body, map[string]string{"X-Albumarr": "1", "Sec-Fetch-Site": "cross-site"}); rec.Code != http.StatusForbidden {
 			t.Errorf("%s from another site: %d", target, rec.Code)
 		}
 	}

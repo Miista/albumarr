@@ -61,7 +61,7 @@ func (f *fakeNtfy) count() int {
 
 func TestSendPublishesJSONToTheServersRoot(t *testing.T) {
 	f := newFakeNtfy(t)
-	m := Message{Topic: "albumreq-approvers", Title: "New request: OK Computer", Body: "Radiohead", Click: "http://a/#/approvals", Attach: "https://img/x.jpg", Priority: 4, Tags: []string{"eyes", "warning"}}
+	m := Message{Topic: "albumarr-approvers", Title: "New request: OK Computer", Body: "Radiohead", Click: "http://a/#/approvals", Attach: "https://img/x.jpg", Priority: 4, Tags: []string{"eyes", "warning"}}
 	if err := NewClient().Send(context.Background(), Server{URL: f.URL, Auth: AuthNone}, m); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestSendPublishesJSONToTheServersRoot(t *testing.T) {
 	if g.method != "POST" || g.path != "/" || g.ctype != "application/json" || g.auth != "" {
 		t.Errorf("%s %s %s auth=%q", g.method, g.path, g.ctype, g.auth)
 	}
-	for k, want := range map[string]any{"topic": "albumreq-approvers", "title": "New request: OK Computer", "message": "Radiohead", "priority": float64(4), "click": "http://a/#/approvals", "attach": "https://img/x.jpg"} {
+	for k, want := range map[string]any{"topic": "albumarr-approvers", "title": "New request: OK Computer", "message": "Radiohead", "priority": float64(4), "click": "http://a/#/approvals", "attach": "https://img/x.jpg"} {
 		if g.body[k] != want {
 			t.Errorf("%s = %v, want %v", k, g.body[k], want)
 		}
@@ -77,7 +77,7 @@ func TestSendPublishesJSONToTheServersRoot(t *testing.T) {
 	if tags, _ := g.body["tags"].([]any); len(tags) != 2 || tags[0] != "eyes" {
 		t.Errorf("tags = %v", g.body["tags"])
 	}
-	if strings.Contains(g.path, "albumreq-approvers") {
+	if strings.Contains(g.path, "albumarr-approvers") {
 		t.Error("the topic must travel in the body, not the address")
 	}
 }

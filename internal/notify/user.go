@@ -51,7 +51,7 @@ func SuggestTopic() string {
 	if _, err := rand.Read(b); err != nil {
 		panic("notify: no entropy: " + err.Error())
 	}
-	return "albumreq-" + hex.EncodeToString(b)
+	return "albumarr-" + hex.EncodeToString(b)
 }
 
 func requesterEventTypes() []EventType {
@@ -162,7 +162,7 @@ func (u *UserSettings) Test(ctx context.Context, sub string) (TestResult, error)
 	u.lastTest[sub] = u.now()
 	u.mu.Unlock()
 
-	msg := Message{Topic: p.Topic, Title: "albumreq test notification", Body: "If you can read this, you will hear about your requests here.", Priority: cfg.Priority, Tags: splitTags(cfg.Tags)}
+	msg := Message{Topic: p.Topic, Title: "albumarr test notification", Body: "If you can read this, you will hear about your requests here.", Priority: cfg.Priority, Tags: splitTags(cfg.Tags)}
 	cctx, cancel := context.WithTimeout(ctx, sendTimeout+2*time.Second)
 	defer cancel()
 	if err := u.sender.Send(cctx, cfg.Server(), msg); err != nil {

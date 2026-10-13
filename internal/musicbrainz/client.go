@@ -1,12 +1,12 @@
 // Package musicbrainz is a small read-only client for MusicBrainz's release-
-// group search — the one thing albumreq asks MusicBrainz itself, because its
+// group search — the one thing albumarr asks MusicBrainz itself, because its
 // ranking is the best available. Album details, track lists and covers come
 // from Lidarr's metadata service instead (see package lidarrmeta).
 //
 // It follows MusicBrainz's usage policy: a User-Agent with a contact the
 // operator chooses, at most one request per second (requests are queued, not
 // dropped), and caching. Every ID that reaches an upstream URL elsewhere in
-// albumreq is validated with ValidID.
+// albumarr is validated with ValidID.
 package musicbrainz
 
 import (
@@ -55,10 +55,10 @@ func UserAgent(contact string) (string, error) {
 	return fmt.Sprintf("%s ( %s )", AnonymousUserAgent, contact), nil
 }
 
-// AnonymousUserAgent identifies albumreq without any contact. It is what goes
+// AnonymousUserAgent identifies albumarr without any contact. It is what goes
 // to services that do not ask for one, so the operator's contact is only ever
 // sent to MusicBrainz.
-const AnonymousUserAgent = "albumreq/" + version
+const AnonymousUserAgent = "albumarr/" + version
 
 // Client talks to MusicBrainz.
 type Client struct {

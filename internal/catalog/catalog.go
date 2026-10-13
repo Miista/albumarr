@@ -1,4 +1,4 @@
-// Package catalog is albumreq's model of an album. What exists comes from two
+// Package catalog is albumarr's model of an album. What exists comes from two
 // places: MusicBrainz answers searches (its ranking is the best), and Lidarr's
 // hosted metadata service gives an album's details and track list in one
 // cached call. What you have comes from your own Lidarr: library state, the
@@ -17,10 +17,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Miista/albumreq/internal/coverart"
-	"github.com/Miista/albumreq/internal/lidarr"
-	"github.com/Miista/albumreq/internal/lidarrmeta"
-	"github.com/Miista/albumreq/internal/musicbrainz"
+	"github.com/Miista/albumarr/internal/coverart"
+	"github.com/Miista/albumarr/internal/lidarr"
+	"github.com/Miista/albumarr/internal/lidarrmeta"
+	"github.com/Miista/albumarr/internal/musicbrainz"
 )
 
 // ErrInvalidID is returned for an album ID that is not a MusicBrainz UUID.
@@ -29,7 +29,7 @@ var ErrInvalidID = errors.New("catalog: invalid album id")
 // ErrInvalidOffset is returned for a search offset outside 0..MaxOffset.
 var ErrInvalidOffset = errors.New("catalog: invalid search offset")
 
-// ErrRequestsDisabled is returned when albumreq has not been told where to put
+// ErrRequestsDisabled is returned when albumarr has not been told where to put
 // requested albums in Lidarr, which is what switches requesting on.
 var ErrRequestsDisabled = errors.New("catalog: requests are not enabled")
 

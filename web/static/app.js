@@ -31,7 +31,7 @@ const HASH_OF_TAB = { users: '#/settings/users', notifications: '#/settings/noti
 // The theme: 'auto' follows the device, 'light' and 'dark' are a choice. <html data-theme> always
 // holds what is shown (light or dark); the head sets it before the first paint, and this keeps
 // it in step with the choice and, on Auto, with the device.
-const THEME_KEY = 'albumreq-theme';
+const THEME_KEY = 'albumarr-theme';
 
 function storedTheme() {
   try {
@@ -305,7 +305,7 @@ function App() {
       try {
         const res = await api('/api/settings/test', {
           method: 'POST',
-          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: this.form.url, api_key: this.form.api_key }),
         });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
@@ -481,7 +481,7 @@ function App() {
       try {
         const res = await api('/api/notifications', {
           method: 'POST',
-          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ ntfy: body }),
         });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
@@ -508,7 +508,7 @@ function App() {
       try {
         const res = await api('/api/notifications/test', {
           method: 'POST',
-          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({
             url: f.url.trim(), topic: f.topic.trim(), auth: f.auth, username: f.username.trim(),
             password: f.password, token: f.token, priority: Number(f.priority), tags: f.tags.trim(),
@@ -566,7 +566,7 @@ function App() {
       try {
         const res = await api('/api/me/notifications', {
           method: 'POST',
-          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ topic: this.aform.topic.trim(), types: this.aform.types }),
         });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
@@ -588,7 +588,7 @@ function App() {
       this.atesting = true;
       this.atest = null;
       try {
-        const res = await api('/api/me/notifications/test', { method: 'POST', headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' }, body: '{}' });
+        const res = await api('/api/me/notifications/test', { method: 'POST', headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' }, body: '{}' });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
         this.atest = await res.json();
       } catch (e) {
@@ -607,7 +607,7 @@ function App() {
       try {
         const res = await api('/api/settings', {
           method: 'POST',
-          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ lidarr: body }),
         });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
@@ -938,7 +938,7 @@ function App() {
         const v = this.view();
         const res = await api('/api/album/' + id + '/request', {
           method: 'POST',
-          headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+          headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
           body: JSON.stringify({ artistId: v.artistId, title: v.title, artist: v.artist }),
         });
         if (!res.ok) throw new Error((await res.text()).trim() || res.statusText);
@@ -1096,7 +1096,7 @@ function App() {
     async send(url, body) {
       const res = await api(url, {
         method: 'POST',
-        headers: { 'X-Albumreq': '1', 'Content-Type': 'application/json' },
+        headers: { 'X-Albumarr': '1', 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (!res.ok) {
@@ -1250,7 +1250,7 @@ function App() {
       this.rowError[r.id] = '';
       this.notice = '';
       try {
-        const res = await api('/api/requests/' + r.id, { method: 'DELETE', headers: { 'X-Albumreq': '1' } });
+        const res = await api('/api/requests/' + r.id, { method: 'DELETE', headers: { 'X-Albumarr': '1' } });
         if (!res.ok && res.status !== 404) throw new Error((await res.text()).trim() || res.statusText);
         this.deleting = null;
         await this.loadRequests();

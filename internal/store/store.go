@@ -1,4 +1,4 @@
-// Package store persists albumreq's user-configurable settings in the database
+// Package store persists albumarr's user-configurable settings in the database
 // (the lidarr table, one row). Reads come from a copy kept in memory, loaded at
 // start and replaced only after a write succeeds, so a read can never fail or
 // disagree with the disk; all writes go through Update.
@@ -10,10 +10,10 @@ package store
 import (
 	"sync"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
-// Lidarr is everything albumreq needs to know about your Lidarr.
+// Lidarr is everything albumarr needs to know about your Lidarr.
 type Lidarr struct {
 	URL    string `json:"url"`
 	APIKey string `json:"api_key"`

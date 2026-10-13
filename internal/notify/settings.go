@@ -15,10 +15,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/Miista/albumreq/internal/settings"
+	"github.com/Miista/albumarr/internal/settings"
 )
 
-// The setting keys. The env var that pins one is ALBUMREQ_SETTING_<KEY>, upper-cased
+// The setting keys. The env var that pins one is ALBUMARR_SETTING_<KEY>, upper-cased
 // with dots as underscores, like every other setting (see settings.EnvVar).
 const (
 	KeyEnabled     = "notifications.enabled"
@@ -56,7 +56,7 @@ func (r Resolved) Editable(key string) bool {
 	return !locked
 }
 
-// Resolve applies ALBUMREQ_SETTING_NOTIFICATIONS_* over the stored settings. An
+// Resolve applies ALBUMARR_SETTING_NOTIFICATIONS_* over the stored settings. An
 // unusable value is reported and ignored, and it fails safe: a bad "enabled" means
 // off, never on.
 func Resolve(stored Config) Resolved {
@@ -150,7 +150,7 @@ func Resolve(stored Config) Resolved {
 	if settings.ReadOnly() {
 		for _, k := range allKeys {
 			if _, ok := r.Locks[k]; !ok {
-				r.Locks[k] = settings.Lock{Reason: settings.LockReadOnly, EnvVar: "ALBUMREQ_SETTINGS_READONLY"}
+				r.Locks[k] = settings.Lock{Reason: settings.LockReadOnly, EnvVar: "ALBUMARR_SETTINGS_READONLY"}
 			}
 		}
 	}
@@ -579,7 +579,7 @@ func (s *Settings) Test(ctx context.Context, in TestInput) (TestResult, error) {
 		tags = t
 	}
 
-	msg := Message{Topic: topic, Title: "albumreq test notification", Body: "If you can read this, notifications are working.", Priority: priority, Tags: splitTags(tags)}
+	msg := Message{Topic: topic, Title: "albumarr test notification", Body: "If you can read this, notifications are working.", Priority: priority, Tags: splitTags(tags)}
 	cctx, cancel := context.WithTimeout(ctx, sendTimeout+2*time.Second)
 	defer cancel()
 	if err := s.sender.Send(cctx, srv, msg); err != nil {

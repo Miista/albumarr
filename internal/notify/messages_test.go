@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Miista/albumreq/internal/requests"
+	"github.com/Miista/albumarr/internal/requests"
 )
 
 func rec() requests.Record {
@@ -33,7 +33,7 @@ func TestEveryEventReadsRightForEachAudience(t *testing.T) {
 		{"available on the shared channel", Event{Type: Available, Request: rec()}, Shared, "Available: OK Computer", []string{"Requested by alice"}},
 		{"failed", Event{Type: Failed, Request: rec()}, Requester, "Approved, but it could not be started: OK Computer", []string{"starting it failed"}},
 	} {
-		m := Compose(tc.e, tc.who, "http://albumreq.example:8768", false)
+		m := Compose(tc.e, tc.who, "http://albumarr.example:8768", false)
 		if m.Title != tc.title {
 			t.Errorf("%s: title %q, want %q", tc.name, m.Title, tc.title)
 		}
@@ -51,12 +51,12 @@ func TestEveryEventReadsRightForEachAudience(t *testing.T) {
 func withReason(s string) requests.Record { r := rec(); r.DeclineReason = s; return r }
 
 func TestLinksPointWhereTheEventIsAndAreLeftOutWithoutAnAppAddress(t *testing.T) {
-	const app = "http://albumreq.example:8768/"
+	const app = "http://albumarr.example:8768/"
 	for typ, want := range map[Type]string{
-		Pending:   "http://albumreq.example:8768/#/approvals",
-		Approved:  "http://albumreq.example:8768/#album=b1392450-e666-3926-a536-22c65f834433",
-		Available: "http://albumreq.example:8768/#album=b1392450-e666-3926-a536-22c65f834433",
-		Declined:  "http://albumreq.example:8768/#/requests",
+		Pending:   "http://albumarr.example:8768/#/approvals",
+		Approved:  "http://albumarr.example:8768/#album=b1392450-e666-3926-a536-22c65f834433",
+		Available: "http://albumarr.example:8768/#album=b1392450-e666-3926-a536-22c65f834433",
+		Declined:  "http://albumarr.example:8768/#/requests",
 	} {
 		if got := Compose(Event{Type: typ, Request: rec()}, Shared, app, false).Click; got != want {
 			t.Errorf("%s: click %q, want %q", typ, got, want)

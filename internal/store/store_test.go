@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
 func open(t *testing.T) (*Store, string) {

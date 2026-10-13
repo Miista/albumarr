@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Miista/albumreq/internal/store"
+	"github.com/Miista/albumarr/internal/store"
 )
 
 func clearEnv(t *testing.T) {
@@ -17,10 +17,10 @@ func clearEnv(t *testing.T) {
 
 func TestEnvVarNames(t *testing.T) {
 	for key, want := range map[string]string{
-		KeyURL:              "ALBUMREQ_SETTING_LIDARR_URL",
-		KeyAPIKey:           "ALBUMREQ_SETTING_LIDARR_API_KEY",
-		KeyRootFolder:       "ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER",
-		KeyQualityProfileID: "ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID",
+		KeyURL:              "ALBUMARR_SETTING_LIDARR_URL",
+		KeyAPIKey:           "ALBUMARR_SETTING_LIDARR_API_KEY",
+		KeyRootFolder:       "ALBUMARR_SETTING_LIDARR_ROOT_FOLDER",
+		KeyQualityProfileID: "ALBUMARR_SETTING_LIDARR_QUALITY_PROFILE_ID",
 	} {
 		if got := EnvVar(key); got != want {
 			t.Errorf("EnvVar(%q) = %q, want %q (the names existing deployments already use)", key, got, want)
@@ -52,7 +52,7 @@ func TestEnvWinsAndIsLocked(t *testing.T) {
 	if r.Lidarr.RootFolder != "/from-env" || r.Lidarr.QualityProfileID != 7 {
 		t.Errorf("env should win per field and only for the fields it sets: %+v", r.Lidarr)
 	}
-	if l := r.Locks[KeyRootFolder]; l.Reason != LockEnv || l.EnvVar != "ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER" {
+	if l := r.Locks[KeyRootFolder]; l.Reason != LockEnv || l.EnvVar != "ALBUMARR_SETTING_LIDARR_ROOT_FOLDER" {
 		t.Errorf("root folder lock = %+v", l)
 	}
 	if r.Editable(KeyRootFolder) || r.Editable(KeyQualityProfileID) {
@@ -98,7 +98,7 @@ func TestTheURLAndKeyAreLockedTogether(t *testing.T) {
 
 	t.Setenv(EnvVar(KeyAPIKey), "pinned-key")
 	r := Resolve(store.Lidarr{URL: "http://stored"})
-	if l := r.Locks[KeyURL]; l.Reason != LockPaired || l.EnvVar != "ALBUMREQ_SETTING_LIDARR_API_KEY" {
+	if l := r.Locks[KeyURL]; l.Reason != LockPaired || l.EnvVar != "ALBUMARR_SETTING_LIDARR_API_KEY" {
 		t.Errorf("a pinned key must lock the URL: %+v", l)
 	}
 	if r.Editable(KeyURL) || r.Editable(KeyAPIKey) {
@@ -108,7 +108,7 @@ func TestTheURLAndKeyAreLockedTogether(t *testing.T) {
 	t.Setenv(EnvVar(KeyAPIKey), "")
 	t.Setenv(EnvVar(KeyURL), "http://pinned")
 	r = Resolve(store.Lidarr{APIKey: "stored-key"})
-	if l := r.Locks[KeyAPIKey]; l.Reason != LockPaired || l.EnvVar != "ALBUMREQ_SETTING_LIDARR_URL" {
+	if l := r.Locks[KeyAPIKey]; l.Reason != LockPaired || l.EnvVar != "ALBUMARR_SETTING_LIDARR_URL" {
 		t.Errorf("a pinned URL must lock the key: %+v", l)
 	}
 
@@ -143,7 +143,7 @@ func TestReadOnlyOnlyForClearlyTrueValues(t *testing.T) {
 	for v, want := range map[string]bool{"true": true, "1": true, "TRUE": true, "false": false, "0": false, "": false, "yes please": false, "maybe": false} {
 		t.Setenv(readOnlyEnv, v)
 		if got := ReadOnly(); got != want {
-			t.Errorf("ALBUMREQ_SETTINGS_READONLY=%q -> %v, want %v", v, got, want)
+			t.Errorf("ALBUMARR_SETTINGS_READONLY=%q -> %v, want %v", v, got, want)
 		}
 	}
 }

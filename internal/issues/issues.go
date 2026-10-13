@@ -15,7 +15,7 @@ import (
 type Severity string
 
 const (
-	// Error: something albumreq needs does not work. A feature is off or will fail.
+	// Error: something albumarr needs does not work. A feature is off or will fail.
 	Error Severity = "error"
 	// Warning: it works, but something is not as it should be.
 	Warning Severity = "warning"

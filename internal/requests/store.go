@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Miista/albumreq/internal/db"
+	"github.com/Miista/albumarr/internal/db"
 )
 
 // State of a request.

@@ -1,4 +1,4 @@
-// Package httplog writes down every HTTP request albumreq serves and every one it
+// Package httplog writes down every HTTP request albumarr serves and every one it
 // makes, so a failure that happened once can still be explained later.
 //
 // What it records is the method, the address, the status and how long it took;

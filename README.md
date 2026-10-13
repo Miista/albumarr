@@ -1,8 +1,8 @@
-# albumreq
+# albumarr
 
 *Search for an album. See at a glance whether you already have it.*
 
-albumreq is a small request frontend for [Lidarr](https://lidarr.audio), in the
+albumarr is a small request frontend for [Lidarr](https://lidarr.audio), in the
 spirit of Seerr for movies and TV. It searches, shows what you already have,
 opens an album's details and track list, and can **add an album and its artist
 to Lidarr** (see "Requesting"). Everything except that one write is a `GET`,
@@ -100,11 +100,11 @@ longer monitoring it. Asking again records a new request next to the old one.
 
 ### Open in Lidarr
 
-Admins get an **Open in Lidarr** link on an album's page, when Lidarr has the album and an optional **Web address** is set under Settings → Lidarr (where you open Lidarr in a browser, which is not the address albumreq talks to; it opens `<address>/album/<MusicBrainz id>`). Nobody else is sent the address or shown the link.
+Admins get an **Open in Lidarr** link on an album's page, when Lidarr has the album and an optional **Web address** is set under Settings → Lidarr (where you open Lidarr in a browser, which is not the address albumarr talks to; it opens `<address>/album/<MusicBrainz id>`). Nobody else is sent the address or shown the link.
 
 ### Logging
 
-albumreq logs to stdout, and the container runs at `debug` level (`ALBUMREQ_SETTING_LOG_LEVEL`), so
+albumarr logs to stdout, and the container runs at `debug` level (`ALBUMARR_SETTING_LOG_LEVEL`), so
 nothing is left out:
 
 - **Every request it serves** (`request`: method, path, status, bytes, time taken, the signed-in
@@ -120,7 +120,7 @@ nothing is left out:
   was sent to.
 
 In this stack Promtail ships every container's log to Loki (kept seven days), so an error is still
-there after the container is replaced; read it in Grafana with `{container="albumreq"}`. MusicBrainz
+there after the container is replaced; read it in Grafana with `{container="albumarr"}`. MusicBrainz
 is asked again once, after two seconds or what it asks for (at most five), when a request fails in a
 way that often passes by itself (a dropped connection, a 429 or a 5xx).
 
@@ -155,8 +155,8 @@ more) show as chips under the search box; the album results come first and do no
 them. A chip opens the artist's page (`#artist=<MusicBrainz ID>`, so it can be linked and the
 Back button works): every release group Lidarr's metadata service lists for them, newest first,
 in tabs for **Albums** (studio albums), **EPs**, **Singles** and **More** (live albums,
-compilations, broadcasts). The header shows the artist's photo as a round picture when the metadata service has a poster (else a fanart picture): the artist answer already lists them, so nothing extra is asked. albumreq fetches it itself, only from the image CDN's host, refuses anything that does not decode as an image, shrinks it (480 pixels wide, or 96 for `?size=96`) and serves it as JPEG with a day's caching (`GET /api/artist/{id}/photo`); both sizes come from one download, so the browser never talks to the CDN. Without a photo the header is just the name. The artist chips in a search show the 96-pixel thumbnail over their letter circle; an artist with no photo keeps the letter. Each card carries Lidarr's usual chip, and opening one shows the
-same album page as from a search, so **requesting is unchanged**. For the chips, albumreq asks
+compilations, broadcasts). The header shows the artist's photo as a round picture when the metadata service has a poster (else a fanart picture): the artist answer already lists them, so nothing extra is asked. albumarr fetches it itself, only from the image CDN's host, refuses anything that does not decode as an image, shrinks it (480 pixels wide, or 96 for `?size=96`) and serves it as JPEG with a day's caching (`GET /api/artist/{id}/photo`); both sizes come from one download, so the browser never talks to the CDN. Without a photo the header is just the name. The artist chips in a search show the 96-pixel thumbnail over their letter circle; an artist with no photo keeps the letter. Each card carries Lidarr's usual chip, and opening one shows the
+same album page as from a search, so **requesting is unchanged**. For the chips, albumarr asks
 Lidarr for the artist's albums in one go (nothing is asked for an artist Lidarr does not
 have); if Lidarr cannot be reached the albums are listed without chips.
 
@@ -200,7 +200,7 @@ data, never against a real library):
   not a setting. It allows no album types, so Lidarr imports none of the artist's
   other albums and a request adds only the album asked for. (For comparison, the
   restrictive Standard profile imported 4 albums for one artist, and an all-types
-  profile 575 for another.) albumreq looks the profile up by name, ignoring case,
+  profile 575 for another.) albumarr looks the profile up by name, ignoring case,
   when it adds an album. If Lidarr has none by that name, a request is refused
   before anything is written, and the **Issues** page says what to create: a
   profile named None that allows no album types.
@@ -208,7 +208,7 @@ data, never against a real library):
   type (a live album, a soundtrack): Lidarr keeps manually added albums.
 - Requesting is idempotent. An album Lidarr is already looking for (monitored),
   or already has in full, is reported as such and is not searched again, so a
-  second click never re-grabs. albumreq never writes unless it could first ask
+  second click never re-grabs. albumarr never writes unless it could first ask
   Lidarr what it has.
 - If the album is added but the search cannot be started, the page says so: the
   album is in Lidarr and monitored, but Lidarr will not look for it by itself.
@@ -236,13 +236,13 @@ release-group ID.
 |---|---|---|
 | **MusicBrainz** | Search | Its ranking is the best available. About one request per second is allowed, so searches are queued, cached, and typing is debounced. |
 | **Lidarr's hosted metadata service** (`api.lidarr.audio`) | Album details and tracks, all editions in one call | Cached at the edge, no practical rate limit. It has no documented API for third parties, so the base URL is configurable and a failure only means "details unavailable". |
-| **Lidarr's image CDN** (`images.lidarr.audio`) | Covers, a cache in front of the Cover Art Archive | More dependable than archive.org's storage nodes. Covers are re-served by albumreq and cached in memory, so the browser never talks to anyone else. |
+| **Lidarr's image CDN** (`images.lidarr.audio`) | Covers, a cache in front of the Cover Art Archive | More dependable than archive.org's storage nodes. Covers are re-served by albumarr and cached in memory, so the browser never talks to anyone else. |
 | **Your Lidarr** | Library status, download queue, the tracks of albums you own | It is where your library lives. If it is unreachable the page still works, just without chips. |
 
 ## Issues
 
 An admin-only **Issues** page (a count shows in the nav) lists what is wrong with
-albumreq's own setup, each with what it means and what to do. The checks ask Lidarr
+albumarr's own setup, each with what it means and what to do. The checks ask Lidarr
 live, so **Check again** shows the result of a fix at once; the nav count is
 remembered for 30 seconds. It checks:
 
@@ -257,7 +257,7 @@ remembered for 30 seconds. It checks:
 | A setting from the environment cannot be used (a bad number, say) | error |
 | Requesting is off (no root folder or quality profile chosen) | warning |
 | The login is off, or no admin group is set | warning |
-| A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` | warning |
+| A leftover `ALBUMARR_SETTING_LIDARR_METADATA_PROFILE_ID` | warning |
 
 When Lidarr cannot be reached or rejects the key, the later questions are not asked.
 An issue never contains the API key or a bad value from the environment. Warnings
@@ -288,14 +288,14 @@ Two kinds of recipient:
 | An approved album is available (all tracks in Lidarr) | yes | yes |
 | An approved album could not be searched for | yes | yes |
 
-Nobody is told about their own action. Nothing tells albumreq when a download finishes, so it
-asks Lidarr every five minutes (`ALBUMREQ_NOTIFICATIONS_CHECK_EVERY`, at least 10 seconds)
+Nobody is told about their own action. Nothing tells albumarr when a download finishes, so it
+asks Lidarr every five minutes (`ALBUMARR_NOTIFICATIONS_CHECK_EVERY`, at least 10 seconds)
 about approved requests not yet announced, and gives up on a request after 90 days. Turning
 notifications on never replays old events. Sending is asynchronous and never holds up a
 request; a full queue drops messages rather than waiting. Errors shown are fixed phrases that
 never contain an address or a secret, and a failing server shows up on the Issues page.
 
-Settings pin like Lidarr's: `ALBUMREQ_SETTING_NOTIFICATIONS_<ENABLED|URL|TOPIC|TAGS|AUTH|USERNAME|PASSWORD|TOKEN|PRIORITY|EMBED_POSTER|TYPES|APP_URL>`.
+Settings pin like Lidarr's: `ALBUMARR_SETTING_NOTIFICATIONS_<ENABLED|URL|TOPIC|TAGS|AUTH|USERNAME|PASSWORD|TOKEN|PRIORITY|EMBED_POSTER|TYPES|APP_URL>`.
 The server address and credentials lock together, so a pinned token can never be sent to an
 address typed into the page.
 
@@ -321,13 +321,13 @@ saving:
   connection** cannot be pointed at another address to probe it with the saved
   key.
 
-Settings are saved in the database (`albumreq.db` under `ALBUMREQ_DATA_DIR`,
+Settings are saved in the database (`albumarr.db` under `ALBUMARR_DATA_DIR`,
 default `/app/data`, mode 0600), so that directory needs a volume. Only admins can
 open the page.
 
 ### Pinning a setting with an environment variable
 
-Any setting can instead be set by `ALBUMREQ_SETTING_<NAME>`. A non-empty
+Any setting can instead be set by `ALBUMARR_SETTING_<NAME>`. A non-empty
 variable wins over what is saved, the field shows **Managed by `<VAR>`** and is
 read-only, and the value is never written to the database. As in Reaparr, a note
 under the title explains the lock chip, a pinned field carries a lock and the name
@@ -338,16 +338,16 @@ sent to an address typed into the page.
 
 | Setting | Variable |
 |---|---|
-| Lidarr URL | `ALBUMREQ_SETTING_LIDARR_URL` |
-| Lidarr API key | `ALBUMREQ_SETTING_LIDARR_API_KEY` |
-| Root folder | `ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER` |
-| Quality profile ID | `ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID` |
-| Web address (optional) | `ALBUMREQ_SETTING_LIDARR_WEB_URL` |
+| Lidarr URL | `ALBUMARR_SETTING_LIDARR_URL` |
+| Lidarr API key | `ALBUMARR_SETTING_LIDARR_API_KEY` |
+| Root folder | `ALBUMARR_SETTING_LIDARR_ROOT_FOLDER` |
+| Quality profile ID | `ALBUMARR_SETTING_LIDARR_QUALITY_PROFILE_ID` |
+| Web address (optional) | `ALBUMARR_SETTING_LIDARR_WEB_URL` |
 
-`ALBUMREQ_SETTINGS_READONLY=true` locks every setting and refuses all changes
+`ALBUMARR_SETTINGS_READONLY=true` locks every setting and refuses all changes
 from the page, for whoever is signed in. With the login off it is the only thing
 standing between anyone who can reach the port and the page that can repoint
-albumreq at another Lidarr.
+albumarr at another Lidarr.
 
 An environment value Lidarr cannot use (a profile that does not exist, an ID
 that is not a number) leaves requesting off, says why on the Settings page, and
@@ -356,41 +356,41 @@ does not stop the process.
 ## Running the image
 
 ```sh
-docker run -d --name albumreq --restart unless-stopped \
+docker run -d --name albumarr --restart unless-stopped \
   -p 127.0.0.1:8768:8768 \
-  -e ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/you \
-  -v albumreq-data:/app/data \
-  ghcr.io/miista/albumreq:latest
+  -e ALBUMARR_SETTING_MUSICBRAINZ_CONTACT=https://example.org/you \
+  -v albumarr-data:/app/data \
+  ghcr.io/miista/albumarr:latest
 ```
 
 or in a compose file:
 
 ```yaml
 services:
-  albumreq:
-    image: ghcr.io/miista/albumreq:latest
+  albumarr:
+    image: ghcr.io/miista/albumarr:latest
     restart: unless-stopped
     user: "1000:1000"                # optional: any user; the default is 65532
     ports: ["127.0.0.1:8768:8768"]   # or put it behind your reverse proxy instead
     environment:
-      ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT: https://example.org/you   # required: see Configuration
+      ALBUMARR_SETTING_MUSICBRAINZ_CONTACT: https://example.org/you   # required: see Configuration
     volumes:
-      - albumreq-data:/app/data
+      - albumarr-data:/app/data
 volumes:
-  albumreq-data:
+  albumarr-data:
 ```
 
-Then open it and set up Lidarr on the Settings page (or pin it with the `ALBUMREQ_SETTING_LIDARR_*`
+Then open it and set up Lidarr on the Settings page (or pin it with the `ALBUMARR_SETTING_LIDARR_*`
 variables, see below).
 
 - **Platforms and tags.** `linux/amd64` and `linux/arm64`. `latest` follows the main branch, `1.2.3` and `1.2`
   follow releases, and a short commit id pins an exact build. Each image carries a build provenance
-  attestation and an SBOM (`docker buildx imagetools inspect ghcr.io/miista/albumreq:1.2.3`).
+  attestation and an SBOM (`docker buildx imagetools inspect ghcr.io/miista/albumarr:1.2.3`).
 - **What is in it.** The static binary and nothing else (a distroless base: no shell, no package manager).
-  `albumreq version` prints the version.
+  `albumarr version` prints the version.
 - **Who it runs as.** An unprivileged user, uid 65532, unless you choose another: `--user 1000:1000` (compose:
   `user: "1000:1000"`) works the same. A fresh named volume is writable by whoever runs the container (the data
-  directory in the image is world-writable with the sticky bit, like `/tmp`; what albumreq writes inside it is
+  directory in the image is world-writable with the sticky bit, like `/tmp`; what albumarr writes inside it is
   private to that user: files `0600`, directories `0700`). A **bind mount** must be writable by the user it
   runs as: `chown 1000:1000 /path` for the example above, or the default `chown 65532:65532`. The root
   filesystem can be read-only (`read_only: true`). When the data directory cannot be written the log says so and
@@ -399,9 +399,9 @@ variables, see below).
   `healthy` and an orchestrator can restart it.
 - **Before anyone can reach it.** A fresh install has no login: **the first visitor creates the admin
   account**. Either keep the port on a private network or loopback until you have done that, or set the
-  `ALBUMREQ_OIDC_*` variables first, which keeps setup closed (see Login and roles).
+  `ALBUMARR_OIDC_*` variables first, which keeps setup closed (see Login and roles).
 - **Updating and backing up.** Pull the new image and recreate the container: the database migrates itself at
-  start, and an older build refuses a database from a newer schema, so keep `backup/albumreq.db` (written
+  start, and an older build refuses a database from a newer schema, so keep `backup/albumarr.db` (written
   every six hours) before an upgrade you may want to undo.
 
 ## Configuration
@@ -410,51 +410,51 @@ Environment variables:
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `ALBUMREQ_SETTING_LIDARR_*` | no | | The Lidarr settings above (URL, API key, root folder, quality profile, and the optional web address). Not needed when you use the Settings page. A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` is ignored, with a warning. |
-| `ALBUMREQ_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
-| `ALBUMREQ_SETTING_NOTIFICATIONS_*` | no | | The ntfy settings (see Notifications). Not needed when you use the Settings page. |
-| `ALBUMREQ_NOTIFICATIONS_CHECK_EVERY` | no | `5m` | How often approved requests are checked for arrival (a duration, minimum `10s`) |
-| `ALBUMREQ_DATA_DIR` | no | `/app/data` | Where `albumreq.db` (settings, users; holds the Lidarr key), `backup/` and `auth/` (the local account and session key) are kept |
-| `ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT` | yes | | An email address or a project URL. MusicBrainz requires a way to contact whoever runs an application, in the User-Agent. **There is no default:** it is yours to choose, and it is sent to MusicBrainz only, never to Lidarr's services. |
-| `ALBUMREQ_SETTING_MUSICBRAINZ_URL` | no | public MusicBrainz | Another MusicBrainz web service (WS/2), e.g. a self-hosted mirror |
-| `ALBUMREQ_SETTING_METADATA_URL` | no | `https://api.lidarr.audio/api/v0.4` | Another metadata service |
-| `ALBUMREQ_SETTING_COVER_URL` | no | Lidarr's image CDN | Another cover source with the Cover Art Archive's paths (`/release-group/<id>/front-250`) |
-| `ALBUMREQ_SETTING_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
-| `ALBUMREQ_ADDR` | no | `127.0.0.1:8768` | Listen address. The container image sets `:8768`. |
+| `ALBUMARR_SETTING_LIDARR_*` | no | | The Lidarr settings above (URL, API key, root folder, quality profile, and the optional web address). Not needed when you use the Settings page. A leftover `ALBUMARR_SETTING_LIDARR_METADATA_PROFILE_ID` is ignored, with a warning. |
+| `ALBUMARR_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
+| `ALBUMARR_SETTING_NOTIFICATIONS_*` | no | | The ntfy settings (see Notifications). Not needed when you use the Settings page. |
+| `ALBUMARR_NOTIFICATIONS_CHECK_EVERY` | no | `5m` | How often approved requests are checked for arrival (a duration, minimum `10s`) |
+| `ALBUMARR_DATA_DIR` | no | `/app/data` | Where `albumarr.db` (settings, users; holds the Lidarr key), `backup/` and `auth/` (the local account and session key) are kept |
+| `ALBUMARR_SETTING_MUSICBRAINZ_CONTACT` | yes | | An email address or a project URL. MusicBrainz requires a way to contact whoever runs an application, in the User-Agent. **There is no default:** it is yours to choose, and it is sent to MusicBrainz only, never to Lidarr's services. |
+| `ALBUMARR_SETTING_MUSICBRAINZ_URL` | no | public MusicBrainz | Another MusicBrainz web service (WS/2), e.g. a self-hosted mirror |
+| `ALBUMARR_SETTING_METADATA_URL` | no | `https://api.lidarr.audio/api/v0.4` | Another metadata service |
+| `ALBUMARR_SETTING_COVER_URL` | no | Lidarr's image CDN | Another cover source with the Cover Art Archive's paths (`/release-group/<id>/front-250`) |
+| `ALBUMARR_SETTING_LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
+| `ALBUMARR_ADDR` | no | `127.0.0.1:8768` | Listen address. The container image sets `:8768`. |
 
 ## Storage
 
-Everything albumreq keeps lives in one SQLite database, `albumreq.db` in the data
+Everything albumarr keeps lives in one SQLite database, `albumarr.db` in the data
 directory (pure-Go driver, `modernc.org/sqlite`, so the image stays a static
 binary): the Lidarr settings, the users, and later the request records. The file
 is 0600 and so is its write-ahead log, because it holds the Lidarr API key. The
 schema is versioned in `PRAGMA user_version` and migrated at start; a database
-written by a newer albumreq is refused, and a file that is not a database is an
+written by a newer albumarr is refused, and a file that is not a database is an
 error, never overwritten.
 
-**Back up `backup/albumreq.db`, not `albumreq.db`.** Copying a live SQLite file can
-capture the database and its write-ahead log from two different moments. albumreq
+**Back up `backup/albumarr.db`, not `albumarr.db`.** Copying a live SQLite file can
+capture the database and its write-ahead log from two different moments. albumarr
 writes a consistent copy (`VACUUM INTO`, renamed into place) at start and every
 six hours. The login's own state, `auth/`, is separate and is authy's (`auth.json` signs the sessions, `local.json` holds the local account).
 
 ## Login and roles
 
 The login is [authy](https://github.com/Miista/authy) (formerly oidcgate), the same as
-Reaparr: on by default. With no `ALBUMREQ_OIDC_*` set, the first visitor creates a local
+Reaparr: on by default. With no `ALBUMARR_OIDC_*` set, the first visitor creates a local
 account (the owner, an admin). With them set, the identity provider signs people in and
-**setup stays closed**, so nobody can claim albumreq by getting there first;
-`ALBUMREQ_LOCAL_ENABLED=true` keeps the local account next to it as a way in when the
+**setup stays closed**, so nobody can claim albumarr by getting there first;
+`ALBUMARR_LOCAL_ENABLED=true` keeps the local account next to it as a way in when the
 provider is down or turns someone away. `/healthz` is open; everything
 else, including the API, needs a sign-in (a page load is redirected, an API call
 gets `401`). Sessions last 12 hours.
 
 | Variable | Meaning |
 |---|---|
-| `ALBUMREQ_AUTH_DISABLED` | `true`: no login at all, and **everyone who can reach the port is an admin**. For loopback or a proxy that authenticates for it. |
-| `ALBUMREQ_OIDC_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_BASE_URL` | Single sign-on, all four together; see authy's README. Register the client with redirect URI `<BASE_URL>/auth/callback` and scopes `openid profile email groups`. |
-| `ALBUMREQ_LOCAL_ENABLED` | Default: the local account is on exactly when OIDC is off. `true` keeps it next to OIDC as an escape hatch; `false` without OIDC refuses to start. |
-| `ALBUMREQ_ROLE_ADMIN_GROUP` | The provider group whose members are **admins** |
-| `ALBUMREQ_ROLE_USER_GROUP` | If set, the only way in besides the admin group: a signed-in person in neither group is turned away. Unset: anyone the provider lets sign in is a user. |
+| `ALBUMARR_AUTH_DISABLED` | `true`: no login at all, and **everyone who can reach the port is an admin**. For loopback or a proxy that authenticates for it. |
+| `ALBUMARR_OIDC_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_BASE_URL` | Single sign-on, all four together; see authy's README. Register the client with redirect URI `<BASE_URL>/auth/callback` and scopes `openid profile email groups`. |
+| `ALBUMARR_LOCAL_ENABLED` | Default: the local account is on exactly when OIDC is off. `true` keeps it next to OIDC as an escape hatch; `false` without OIDC refuses to start. |
+| `ALBUMARR_ROLE_ADMIN_GROUP` | The provider group whose members are **admins** |
+| `ALBUMARR_ROLE_USER_GROUP` | If set, the only way in besides the admin group: a signed-in person in neither group is turned away. Unset: anyone the provider lets sign in is a user. |
 
 Four roles; a higher one may do all a lower one may:
 
@@ -469,13 +469,13 @@ Roles are enforced on the server for every route, never by hiding buttons.
 Group names are the provider's: they are read when someone signs in, so **a change
 of group takes effect at their next sign-in** (within 12 hours).
 
-Approvers are the one role albumreq keeps itself. The `users` table in the
+Approvers are the one role albumarr keeps itself. The `users` table in the
 database remembers everyone who has signed in (only people who were let in), and
 an admin marks approvers in it, on Settings → Users (`POST /api/users/approver`).
 
-Hardening that stays: every write refuses a call without an `X-Albumreq` header
+Hardening that stays: every write refuses a call without an `X-Albumarr` header
 and any browser request marked cross-site, and requesting and the settings keep
-their own switches. Lidarr has no scoped API keys, so the key albumreq holds can
+their own switches. Lidarr has no scoped API keys, so the key albumarr holds can
 do everything the Lidarr UI can; the code only ever adds an album, monitors it,
 and searches for it.
 
@@ -487,8 +487,8 @@ lowercase UUIDs, cover sizes are 250 or 500, and a cover redirect may only go to
 
 ```sh
 go test ./... -race
-ALBUMREQ_DATA_DIR=/tmp/albumreq \
-ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/you \
+ALBUMARR_DATA_DIR=/tmp/albumarr \
+ALBUMARR_SETTING_MUSICBRAINZ_CONTACT=https://example.org/you \
 go run .          # http://127.0.0.1:8768, then open Settings
 ```
 
@@ -529,9 +529,9 @@ anything is published:
 VERSION=0.0.0-local
 for arch in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-    -ldflags "-s -w -X main.version=$VERSION" -o dist/linux/$arch/albumreq .
+    -ldflags "-s -w -X main.version=$VERSION" -o dist/linux/$arch/albumarr .
 done
-docker build --build-arg TARGETARCH=arm64 -t albumreq:local .   # arm64, or amd64
+docker build --build-arg TARGETARCH=arm64 -t albumarr:local .   # arm64, or amd64
 ```
 
 The CI workflow also runs `govulncheck`, and Dependabot proposes updates to the Go modules, the actions and
