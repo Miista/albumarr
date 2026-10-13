@@ -682,3 +682,7 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 /* A title block's heading and its line under it are spaced the same on every page, including
    the ones where they sit in a wrapper next to a control (Requests, with its filter menu). */
 .title-row > div:first-child { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+/* On the Users tab the note about locked fields has nothing to say, but it keeps its place, so the
+   tabs under it do not jump up when you switch to Users. */
+.env-note.is-hidden { visibility: hidden; }

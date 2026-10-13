@@ -169,7 +169,7 @@
   <main class="settings" v-if="page === 'settings' && me && me.role === 'admin'">
     <div class="title-block">
       <h1>Settings</h1>
-      <p class="env-note" v-if="settingsTab !== 'users'">
+      <p class="env-note" :class="{ 'is-hidden': settingsTab === 'users' }" :aria-hidden="settingsTab === 'users'">
         Fields locked with
         <span class="env-chip">ENV</span>
         are pinned by an environment variable and cannot be changed here.
