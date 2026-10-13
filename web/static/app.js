@@ -22,23 +22,6 @@ function api(url, opts) {
   });
 }
 
-// lockScroll stops the page behind a popup from scrolling. The page always has its
-// scrollbar track (see style.css), and hiding it would widen the page by the track's
-// width (with classic scrollbars, as on Windows or a Mac with a mouse), so the content
-// behind would jump sideways: the width is padded back instead.
-function lockScroll() {
-  const bar = window.innerWidth - document.documentElement.clientWidth;
-  if (bar > 0) document.body.style.paddingRight = bar + 'px';
-  document.documentElement.style.overflow = 'hidden';
-  document.body.style.overflow = 'hidden';
-}
-
-function unlockScroll() {
-  document.documentElement.style.overflow = '';
-  document.body.style.overflow = '';
-  document.body.style.paddingRight = '';
-}
-
 // The pages other than search have their own hash; search keeps the query string.
 const HASHES = { requests: '#/requests', issues: '#/issues', settings: '#/settings', account: '#/account' };
 const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'requests', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings', '#/settings/notifications': 'settings', '#/account': 'account' };
@@ -74,7 +57,9 @@ function App() {
     artistError: '',
     artistGroup: 'albums', // albums | eps | singles | more
 
-    selected: null, // the card (or just { id }) behind the open sheet
+    selected: null, // the card (or just { id }) of the album page that is open
+    albumFrom: 'Search', // what the album page's back link says
+    albumScroll: 0, // where the page it was opened from was scrolled to
     detail: null,
     detailLoading: false,
     detailError: '',
@@ -793,9 +778,18 @@ function App() {
       history.replaceState(history.state, '', location.pathname + search + location.hash);
     },
 
-    // --- album sheet ---
+    // --- album page ---
+
+    // restoreScroll puts the page back where it was before the album was opened.
+    restoreScroll() {
+      const y = this.albumScroll;
+      PetiteVue.nextTick(() => window.scrollTo(0, y));
+    },
 
     open(card) {
+      // Where Back goes, so the link can say so; and the scroll position to return to.
+      this.albumFrom = this.page === 'requests' ? 'Requests' : this.artist ? this.artist.name || 'Artist' : 'Search';
+      this.albumScroll = window.scrollY;
       history.pushState({ album: card.id }, '', location.pathname + location.search + '#album=' + card.id);
       this.show(card);
     },
@@ -815,7 +809,7 @@ function App() {
       this.requesting = false;
       this.detailLoading = true;
       this.selected = card;
-      lockScroll();
+      window.scrollTo(0, 0);
       this.loadDetail(card.id);
     },
 
@@ -877,7 +871,7 @@ function App() {
       // re-evaluate the sheet's expressions before it removes the sheet. It is
       // reset when the next album opens, while the sheet is not rendered.
       this.selected = null;
-      unlockScroll();
+      this.restoreScroll();
       // Back to the search URL; if the sheet was opened from a pasted link
       // there is no history entry to pop, so rewrite it instead.
       if (history.state && history.state.album) history.back();
@@ -897,7 +891,7 @@ function App() {
         if (this.selected) {
           detailSeq++;
           this.selected = null;
-          unlockScroll();
+          this.restoreScroll();
         }
         if (page !== this.page) this.showPage(page);
         return;
@@ -909,7 +903,7 @@ function App() {
         if (this.selected) {
           detailSeq++;
           this.selected = null;
-          unlockScroll();
+          this.restoreScroll();
         }
         if (this.page !== 'search') this.showPage('search');
         if (!this.artist || this.artist.id !== am[1]) this.showArtist(am[1]);
@@ -927,7 +921,7 @@ function App() {
       } else if (this.selected) {
         detailSeq++;
         this.selected = null;
-        unlockScroll();
+        this.restoreScroll();
       }
     },
 

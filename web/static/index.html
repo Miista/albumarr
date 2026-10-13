@@ -12,7 +12,7 @@
 </head>
 <body>
 
-<div id="app" class="page" v-scope="App()" @vue:mounted="mounted" v-cloak>
+<div id="app" class="page" :class="{ 'on-album': selected }" v-scope="App()" @vue:mounted="mounted" v-cloak>
 
   <header class="topbar">
     <div class="brand">
@@ -539,10 +539,11 @@
   </main>
 
   <!-- Album sheet -->
-  <div class="sheet-backdrop" v-if="selected" @click.self="close">
-    <div class="sheet" role="dialog" aria-modal="true" :aria-label="view().title || 'Album'">
-      <button type="button" class="sheet-close" @click="close" aria-label="Close">
-        <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"></path></svg>
+  <!-- An album is a page of its own, like an artist: a back link, and the browser's Back works too. -->
+  <main class="album-page" v-if="selected" :aria-label="view().title || 'Album'">
+      <button type="button" class="back-link" @click="close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+        {{ albumFrom }}
       </button>
 
       <div class="sheet-top">
@@ -635,8 +636,7 @@
         </div>
         <p class="note-text" v-if="!tracks().length">No track list is available for this album.</p>
       </div>
-    </div>
-  </div>
+  </main>
 
 </div>
 

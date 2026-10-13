@@ -32,7 +32,7 @@ Clicking a card opens the album: a large cover, release date, rating, genres,
 your library state, a link to MusicBrainz, and the **track list**. For an album
 you own the tracks come from Lidarr, with a check mark per track that is on
 disk. For any other album they come from the most representative edition (the
-most common track count among its editions, earliest first), and the sheet says
+most common track count among its editions, earliest first), and the album page says
 which edition that is. An open album has its own URL (`#album=<id>`), so it can
 be linked and the browser's Back button closes it.
 
@@ -76,7 +76,7 @@ The pages for it:
 - **Requests** (everyone): one page. A user sees their own; an approver also sees what
   waits on them; an admin sees everyone's. Each request shows who asked (to approvers
   and admins), what happened, the decline reason and who decided. Approve, or decline
-  with an optional reason, from the row or from the album's sheet. The menu at the top
+  with an optional reason, from the row or from the album's page. The menu at the top
   sorts (*Most recent*, *Last modified*) and filters: *All*, *Pending*, *Approved*
   (approved, Lidarr still searching), *Processing* (in the download queue), *Failed*
   (a stalled download or import, or the search could not start), *Declined*,
@@ -94,13 +94,13 @@ Settings sub-tabs floating just above it.
 
 **Asking again.** Lidarr's own state decides whether an album can be requested, not the
 records: an approved request does not block a new one. If an album that was approved is
-later unmonitored or removed in Lidarr, its sheet shows **Request again**, with a note that
+later unmonitored or removed in Lidarr, its page shows **Request again**, with a note that
 it was approved before (by you, or "requested", never naming anyone else) and Lidarr is no
 longer monitoring it. Asking again records a new request next to the old one.
 
 ### Open in Lidarr
 
-Admins get an **Open in Lidarr** link on an album's sheet, when Lidarr has the album and an optional **Web address** is set under Settings → Lidarr (where you open Lidarr in a browser, which is not the address albumreq talks to; it opens `<address>/album/<MusicBrainz id>`). Nobody else is sent the address or shown the link.
+Admins get an **Open in Lidarr** link on an album's page, when Lidarr has the album and an optional **Web address** is set under Settings → Lidarr (where you open Lidarr in a browser, which is not the address albumreq talks to; it opens `<address>/album/<MusicBrainz id>`). Nobody else is sent the address or shown the link.
 
 ### Logging
 
@@ -126,7 +126,14 @@ way that often passes by itself (a dropped connection, a 429 or a 5xx).
 
 ### Loading states
 
-While data loads, a page shows grey skeleton shapes laid out like the real content (search results, artist chips and pages, the album sheet's details and tracks, Requests, Account, Issues and the Settings tabs), so nothing jumps when it arrives. Spinners are kept only inside a button whose action is under way.
+While data loads, a page shows grey skeleton shapes laid out like the real content (search results, artist chips and pages, the album page's details and tracks, Requests, Account, Issues and the Settings tabs), so nothing jumps when it arrives. Spinners are kept only inside a button whose action is under way.
+
+### Album pages
+
+An album opens as a page of its own (`#album=<MusicBrainz id>`), not a popup: a back link at the top
+says where it goes (**Search**, **Requests**, or the artist's name when you came from an artist's
+page), and the browser's Back button and Escape do the same. The page you came from is kept, so you
+return to the same results at the same scroll position. An album link can be pasted into a new tab.
 
 ### Browsing by artist
 
@@ -136,7 +143,7 @@ them. A chip opens the artist's page (`#artist=<MusicBrainz ID>`, so it can be l
 Back button works): every release group Lidarr's metadata service lists for them, newest first,
 in tabs for **Albums** (studio albums), **EPs**, **Singles** and **More** (live albums,
 compilations, broadcasts). The header shows the artist's photo as a round picture when the metadata service has a poster (else a fanart picture): the artist answer already lists them, so nothing extra is asked. albumreq fetches it itself, only from the image CDN's host, refuses anything that does not decode as an image, shrinks it (480 pixels wide, or 96 for `?size=96`) and serves it as JPEG with a day's caching (`GET /api/artist/{id}/photo`); both sizes come from one download, so the browser never talks to the CDN. Without a photo the header is just the name. The artist chips in a search show the 96-pixel thumbnail over their letter circle; an artist with no photo keeps the letter. Each card carries Lidarr's usual chip, and opening one shows the
-same sheet as from a search, so **requesting is unchanged**. For the chips, albumreq asks
+same album page as from a search, so **requesting is unchanged**. For the chips, albumreq asks
 Lidarr for the artist's albums in one go (nothing is asked for an artist Lidarr does not
 have); if Lidarr cannot be reached the albums are listed without chips.
 
@@ -152,7 +159,7 @@ asked, the request simply shows *Approved*.
 ## Requesting
 
 When it is turned on, an album that Lidarr does not have, or has but is not
-looking for (status `inlidarr`, shown without a chip), shows a **Request** button in its sheet. A
+looking for (status `inlidarr`, shown without a chip), shows a **Request** button on its page. A
 request does three things in Lidarr, as three calls:
 
 1. **Adds** the album, monitored, and its artist if Lidarr lacks it, with the
