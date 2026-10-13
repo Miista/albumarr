@@ -98,6 +98,10 @@ later unmonitored or removed in Lidarr, its sheet shows **Request again**, with 
 it was approved before (by you, or "requested", never naming anyone else) and Lidarr is no
 longer monitoring it. Asking again records a new request next to the old one.
 
+### Loading states
+
+While data loads, a page shows grey skeleton shapes laid out like the real content (search results, artist chips and pages, the album sheet's details and tracks, Requests, Account, Issues and the Settings tabs), so nothing jumps when it arrives. Spinners are kept only inside a button whose action is under way.
+
 ### Browsing by artist
 
 Searching also looks for artists. The strongest matches (at most six, MusicBrainz score 50 or

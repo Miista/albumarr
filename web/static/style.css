@@ -527,3 +527,30 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .sk-track .sk-line { margin-top: 0; height: 12px; width: 100%; }
 .sk-track .sk-line.w30 { width: 16px; } .sk-track .sk-line.w10 { width: 36px; }
 .sk-line.w10 { width: 10%; }
+
+/* more skeletons: cards (settings, account), user rows, issues, request rows */
+.sk-card { gap: 18px; pointer-events: none; }
+.sk-card-head { display: flex; align-items: center; gap: 12px; }
+.sk-icon { flex: none; width: 36px; height: 36px; border-radius: 10px; }
+.sk-card-title { display: flex; flex-direction: column; flex: 1; }
+.sk-card-title .sk-line { margin-top: 0; }
+.sk-card-title .sk-line + .sk-line { margin-top: 8px; }
+.sk-field { display: flex; flex-direction: column; }
+.sk-field .sk-line { margin-top: 0; margin-bottom: 8px; width: 90px; height: 10px; }
+.sk-input { height: 44px; border-radius: 10px; }
+.sk-checks { display: flex; flex-direction: column; gap: 14px; }
+.sk-checks .sk-line { margin-top: 0; height: 12px; }
+.sk-user { pointer-events: none; }
+.sk-user-text { display: flex; flex-direction: column; flex: 1; }
+.sk-user-text .sk-line { margin-top: 0; }
+.sk-user-text .sk-line + .sk-line { margin-top: 8px; }
+.sk-toggle { width: 90px; height: 22px; border-radius: 8px; }
+.sk-issue { pointer-events: none; }
+.sk-issue .sk-line { margin-top: 0; }
+.sk-req { pointer-events: none; align-items: center; }
+.sk-req-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.sk-req-text .sk-line { margin-top: 0; }
+.sk-req-text .sk-line + .sk-line { margin-top: 8px; }
+.req-cover.sk-block { display: block; width: 56px; height: 56px; border-radius: 8px; flex: none; }
+.sk-pill { flex: none; width: 92px; height: 26px; border-radius: 999px; }
+.sk-title .sk-line { height: 22px; margin-top: 4px; }

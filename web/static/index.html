@@ -167,7 +167,21 @@
     </nav>
 
     <p class="error-text" v-if="cfgError && settingsTab !== 'notifications'" role="alert">{{ cfgError }}</p>
-    <div class="searching" v-if="!cfg && !cfgError && settingsTab !== 'notifications'"><span class="spinner"></span>Loading…</div>
+    <div class="cards" v-if="!cfg && !cfgError && settingsTab === 'lidarr'" role="status" aria-label="Loading">
+      <section class="card sk-card" v-for="i in 2" :key="i" aria-hidden="true">
+        <div class="sk-card-head"><span class="sk-block sk-icon"></span><span class="sk-card-title"><span class="sk-line w30"></span><span class="sk-line w55"></span></span></div>
+        <div class="sk-field" v-for="j in 3" :key="j"><span class="sk-line w30"></span><span class="sk-block sk-input"></span></div>
+      </section>
+    </div>
+    <div class="cards" v-if="!ncfg && !nerror && settingsTab === 'notifications'" role="status" aria-label="Loading">
+      <section class="card sk-card" v-for="i in 2" :key="i" aria-hidden="true">
+        <div class="sk-card-head"><span class="sk-block sk-icon"></span><span class="sk-card-title"><span class="sk-line w30"></span><span class="sk-line w55"></span></span></div>
+        <div class="sk-field" v-for="j in 3" :key="j"><span class="sk-line w30"></span><span class="sk-block sk-input"></span></div>
+      </section>
+    </div>
+    <ul class="user-list" v-if="settingsTab === 'users' && (!cfg || !usersLoaded) && !usersError && !cfgError" role="status" aria-label="Loading">
+      <li class="user-row sk-user" v-for="i in 4" :key="i" aria-hidden="true"><span class="sk-user-text"><span class="sk-line w30"></span><span class="sk-line w55"></span></span><span class="sk-block sk-toggle"></span></li>
+    </ul>
 
     <p class="banner" v-if="cfg && settingsTab === 'lidarr' && cfg.read_only">Settings are read-only (<code>ALBUMREQ_SETTINGS_READONLY</code>). Nothing here can be changed from the page.</p>
 
@@ -338,7 +352,6 @@
         <div class="card-text"><h2 id="users-h">Users</h2><p>Who has signed in. Approvers can approve and decline requests; admins (by group) always can.</p></div>
       </div>
       <p class="error-text" v-if="usersError" role="alert">{{ usersError }}</p>
-      <div class="searching" v-if="!usersLoaded && !usersError"><span class="spinner"></span>Loading…</div>
       <p class="note-text" v-if="usersLoaded && !users.length">Nobody has signed in yet.</p>
       <ul class="user-list" v-if="users.length">
         <li class="user-row" v-for="u in users" :key="u.sub">
@@ -362,7 +375,13 @@
       <p class="lede">{{ me.email || 'Signed in' }} · {{ me.role }}</p>
     </div>
     <p class="error-text" v-if="acctError" role="alert">{{ acctError }}</p>
-    <div class="searching" v-if="!acct && !acctError"><span class="spinner"></span>Loading…</div>
+    <div class="cards" v-if="!acct && !acctError" role="status" aria-label="Loading">
+      <section class="card sk-card" aria-hidden="true">
+        <div class="sk-card-head"><span class="sk-block sk-icon"></span><span class="sk-card-title"><span class="sk-line w30"></span><span class="sk-line w55"></span></span></div>
+        <div class="sk-field"><span class="sk-line w30"></span><span class="sk-block sk-input"></span></div>
+        <div class="sk-checks"><span class="sk-line w45"></span><span class="sk-line w55"></span><span class="sk-line w45"></span></div>
+      </section>
+    </div>
     <form class="cards with-bar" v-if="acct" @submit.prevent="saveAccount" autocomplete="off">
       <section class="card">
         <div class="card-head">
@@ -414,7 +433,9 @@
       <button type="button" class="btn" @click="loadIssues(true)" :disabled="issuesChecking"><span class="spinner" v-if="issuesChecking"></span>{{ issuesChecking ? 'Checking…' : 'Check again' }}</button>
     </div>
     <p class="error-text" v-if="issuesError" role="alert">{{ issuesError }}</p>
-    <div class="searching" v-if="!issuesLoaded && !issuesError"><span class="spinner"></span>Checking…</div>
+    <ul class="issue-list" v-if="!issuesLoaded && !issuesError" role="status" aria-label="Checking">
+      <li class="issue sk-issue" v-for="i in 2" :key="i" aria-hidden="true"><span class="sk-line w30"></span><span class="sk-line w80"></span><span class="sk-line w55"></span></li>
+    </ul>
     <div class="empty" v-if="issuesLoaded && !issues.length">
       <span class="title">No issues</span>
       <span class="sub">Lidarr answers, the profiles requests need are there, and the settings match. Everything albumreq checks looks fine.</span>
@@ -455,7 +476,15 @@
     </div>
     <p class="ok-text" v-if="notice" role="status">{{ notice }}</p>
     <p class="error-text" v-if="reqsError" role="alert">{{ reqsError }}</p>
-    <div class="searching" v-if="!reqsLoaded && !reqsError"><span class="spinner"></span>Loading…</div>
+    <ul class="req-list" v-if="!reqsLoaded && !reqsError" role="status" aria-label="Loading">
+      <li class="req-item" v-for="i in 4" :key="i" aria-hidden="true">
+        <div class="req-row sk-req">
+          <span class="req-cover sk-block"></span>
+          <span class="sk-req-text"><span class="sk-line w55"></span><span class="sk-line w30"></span><span class="sk-line w45"></span></span>
+          <span class="sk-block sk-pill"></span>
+        </div>
+      </li>
+    </ul>
     <div class="empty" v-if="reqsLoaded && !shown().length">
       <span class="title">{{ reqs.length ? 'Nothing matches' : 'Nothing requested yet' }}</span>
       <span class="sub">{{ reqs.length ? 'No request is ' + filterLabel().toLowerCase() + '. Choose another filter.' : 'Search for an album and press Request.' }}</span>
@@ -520,7 +549,8 @@
             <span class="status-pill" v-if="shownStatus(view().status)" :class="view().status"><span class="dot"></span>{{ statusLabel(view().status) }}</span>
             <span class="tag" v-for="t in view().secondaryTypes">{{ t }}</span>
           </div>
-          <h2>{{ view().title || (detailLoading ? 'Loading…' : 'Album') }}</h2>
+          <h2 v-if="view().title || !detailLoading">{{ view().title || 'Album' }}</h2>
+          <div class="sk-title" v-else aria-label="Loading"><span class="sk-line w80"></span></div>
           <div class="sheet-artist">{{ view().artist }}</div>
 
           <!-- A real element, not <template v-if>: petite-vue cannot place a v-if that is a direct child of template content. -->
