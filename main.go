@@ -142,6 +142,9 @@ func main() {
 	gate, err := authy.FromEnv(ctx, "albumarr",
 		authy.WithScopes("openid", "profile", "email", "groups"),
 		authy.WithSessionTTL(sessionTTL),
+		// Browsers fetch these without the session (Safari for the tab icon, iOS for
+		// the home screen), so behind the login they would get a 401 and no icon.
+		authy.WithPublicPaths("/favicon.png", "/apple-touch-icon.png"),
 		authy.WithDataDir(filepath.Join(dataDir, "auth")))
 	if err != nil {
 		logger.Fatal().Err(err).Msg("login is misconfigured")
