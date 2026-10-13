@@ -122,7 +122,7 @@ func main() {
 	}
 	database, err := db.Open(dataDir)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("cannot open the database in " + dataDir)
+		logger.Fatal().Err(err).Msg("cannot open the database in " + dataDir + permissionHint(err))
 	}
 	defer database.Close()
 	st, err := store.New(database)
