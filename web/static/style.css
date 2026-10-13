@@ -245,6 +245,8 @@ h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.03em; }
 }
 .poster-card:hover .cover { transform: translateY(-2px); }
 .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover-full { opacity: 0; transition: opacity .2s; }
+.cover-full.loaded { opacity: 1; }
 .cover-fallback {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px;
   text-align: center; font-weight: 600; font-size: 14px; color: oklch(var(--cover-text-l) 0.1 var(--hue)); overflow-wrap: anywhere;

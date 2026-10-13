@@ -80,6 +80,7 @@ function App() {
 
     theme: storedTheme(), // auto | light | dark
     selected: null, // the card (or just { id }) of the album page that is open
+    coverLoaded: false, // the album page's larger cover has arrived
     tabURL: {}, // page -> the address you left it at (query and hash), to return to
     albumCtx: { from: 'search', artist: '' }, // where the album page was opened from; it is in the address too, so a reload or a pasted link keeps it
     albumScroll: 0, // where the page it was opened from was scrolled to
@@ -901,6 +902,7 @@ function App() {
       this.requestError = '';
       this.requesting = false;
       this.detailLoading = true;
+      this.coverLoaded = false;
       this.selected = card;
       window.scrollTo(0, 0);
       this.loadDetail(card.id);
@@ -1055,6 +1057,11 @@ function App() {
 
     // coverSrc is empty (no request) while no album is open, so the sheet's
     // image never asks for /api/cover/undefined as the sheet is torn down.
+    // thumbSrc is the small cover the lists already loaded (so it comes from the
+    // browser's cache); it shows under the larger one until that has arrived.
+    thumbSrc() {
+      return this.selected ? '/api/cover/' + this.selected.id : '';
+    },
     coverSrc() {
       return this.selected ? '/api/cover/' + this.selected.id + '?size=500' : '';
     },

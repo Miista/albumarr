@@ -576,7 +576,8 @@
       <div class="sheet-top">
         <div class="sheet-cover cover" :style="{ '--hue': hueFor(view().title || view().id) }">
           <span class="cover-fallback">{{ view().title }}</span>
-          <img :src="coverSrc()" alt="" @error="$event.target.remove()">
+          <img class="cover-thumb" :src="thumbSrc()" alt="" @error="$event.target.remove()">
+          <img class="cover-full" :class="{ loaded: coverLoaded }" :src="coverSrc()" alt="" @load="coverLoaded = true" @error="$event.target.remove()">
         </div>
 
         <div class="sheet-info">
