@@ -165,6 +165,7 @@ button { font: inherit; }
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   padding: 18px 32px; border-bottom: 1px solid var(--topbar-line); backdrop-filter: blur(8px);
+  position: sticky; top: 0; z-index: 30; background: var(--chrome-nav);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
 .brand-icon { width: 38px; height: 38px; object-fit: contain; }
@@ -480,8 +481,8 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .tab-icon { display: none; }
 @media (max-width: 640px) {
   /* A backdrop-filter makes its element the containing block of fixed descendants,
-     which would pin the tab bar to the top bar. The top bar is not sticky, so the
-     blur shows nothing here anyway. */
+     which would pin the tab bar to the top bar. So no blur here; the top bar's own
+     background is nearly opaque. */
   .topbar { padding: 14px 16px; backdrop-filter: none; }
   main { padding: 28px 16px calc(96px + env(safe-area-inset-bottom)); }
   h1 { font-size: 26px; }
