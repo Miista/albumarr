@@ -51,6 +51,7 @@ function App() {
 
     // artists: matches for the search, and the artist page being browsed
     artistHits: [],
+    artistHitsLoading: false, // the artist row is still being fetched: show placeholders
     artist: null, // { id, name, disambiguation, type, albums, libraryOk } once loading starts
     artistLoading: false,
     artistError: '',
@@ -629,6 +630,7 @@ function App() {
 
       if (q.length < MIN_QUERY) {
         this.artistHits = [];
+        this.artistHitsLoading = false;
         this.albums = [];
         this.hasMore = false;
         this.searched = false;
@@ -665,6 +667,7 @@ function App() {
     },
 
     async searchArtists(q, mine) {
+      this.artistHitsLoading = true;
       try {
         const res = await api('/api/artists?q=' + encodeURIComponent(q));
         if (!res.ok) throw new Error(res.statusText);
@@ -672,6 +675,8 @@ function App() {
         if (mine === seq) this.artistHits = data.artists || [];
       } catch (e) {
         if (mine === seq) this.artistHits = [];
+      } finally {
+        if (mine === seq) this.artistHitsLoading = false;
       }
     },
 

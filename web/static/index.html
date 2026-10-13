@@ -73,7 +73,10 @@
       </button>
     </form>
 
-    <div class="artist-strip" v-if="!artist && artistHits.length" aria-label="Artists">
+    <div class="artist-strip" v-if="!artist && artistHitsLoading && !artistHits.length" aria-hidden="true">
+      <span class="artist-chip sk-chip" v-for="i in 3" :key="i"><span class="avatar sk-block"></span><span class="sk-chip-text"><span class="sk-line w70"></span><span class="sk-line w45"></span></span></span>
+    </div>
+    <div class="artist-strip" v-else-if="!artist && artistHits.length" aria-label="Artists">
       <button type="button" class="artist-chip" v-for="h in artistHits" :key="h.id" @click="openArtist(h)" :aria-label="'Show albums by ' + h.name">
         <span class="avatar" :style="{ '--hue': hueFor(h.name) }" aria-hidden="true">{{ h.name.trim().charAt(0).toUpperCase() }}<img class="avatar-img" :src="'/api/artist/' + h.id + '/photo?size=96'" alt="" loading="lazy" @error="$event.target.remove()"></span>
         <span class="artist-chip-text"><span class="name">{{ h.name }}</span><span class="sub" v-if="h.disambiguation || h.type">{{ h.disambiguation || h.type }}</span></span>
@@ -83,7 +86,6 @@
 
     <div class="contents" v-if="artist">
       <p class="error-text" v-if="artistError" role="alert">{{ artistError }}</p>
-      <div class="searching" v-if="artistLoading"><span class="spinner"></span>Loading…</div>
       <div class="tabs group-tabs" role="tablist" v-if="artistGroups().length > 1">
         <button type="button" role="tab" v-for="g in artistGroups()" :key="g.id" :aria-selected="artistGroup === g.id" :class="{ active: artistGroup === g.id }" @click="artistGroup = g.id">{{ g.label }}<span class="count">{{ g.n }}</span></button>
       </div>
@@ -96,10 +98,16 @@
     <div class="contents" v-else>
       <p class="error-text" v-if="error" role="alert">{{ error }}</p>
       <p class="note-text" v-if="albums.length && !libraryOk">The library could not be checked, so availability is not shown.</p>
-      <div class="searching" v-if="loading"><span class="spinner"></span>Searching…</div>
     </div>
 
-    <div class="poster-grid" v-if="gridAlbums().length">
+    <div class="poster-grid" v-if="(loading && !artist) || (artistLoading && artist && !artist.albums.length)" role="status" aria-label="Loading">
+      <div class="poster-card sk" v-for="i in 8" :key="i" aria-hidden="true">
+        <div class="sk-cover sk-block"></div>
+        <div class="meta"><div class="sk-line w80"></div><div class="sk-line w55"></div><div class="sk-line w30"></div></div>
+      </div>
+    </div>
+
+    <div class="poster-grid" v-else-if="gridAlbums().length">
       <div class="poster-card" v-for="a in gridAlbums()" :key="a.id" :title="a.title + (a.year ? ' (' + a.year + ')' : '')"
            role="button" tabindex="0" :aria-label="'Open ' + a.title + ' by ' + a.artist"
            @click="open(a)" @keydown.enter.prevent="open(a)" @keydown.space.prevent="open(a)">

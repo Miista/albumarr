@@ -499,3 +499,20 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .account-signout { display: flex; margin-top: 8px; }
 .account-signout .btn { text-decoration: none; }
 @media (max-width: 640px) { .account-signout .btn { flex: 1; justify-content: center; } }
+
+/* skeletons: grey shapes where results will be, while they load */
+.sk-block, .sk-line {
+  background: linear-gradient(90deg, oklch(0.2 0.012 270) 25%, oklch(0.26 0.014 270) 50%, oklch(0.2 0.012 270) 75%);
+  background-size: 200% 100%; animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk-block, .sk-line { animation: none; } }
+.poster-card.sk { cursor: default; pointer-events: none; }
+.sk-cover { aspect-ratio: 1 / 1; border-radius: 12px; border: 1px solid rgba(255,255,255,.04); }
+.sk-line { display: block; height: 11px; border-radius: 6px; margin-top: 8px; }
+.sk-line.w80 { width: 80%; } .sk-line.w70 { width: 70%; } .sk-line.w55 { width: 55%; } .sk-line.w45 { width: 45%; } .sk-line.w30 { width: 30%; }
+.artist-chip.sk-chip { cursor: default; pointer-events: none; min-width: 190px; }
+.sk-chip-text { display: flex; flex-direction: column; flex: 1; gap: 0; }
+.sk-chip .sk-line { margin-top: 0; height: 9px; }
+.sk-chip .sk-line + .sk-line { margin-top: 6px; }
+.avatar.sk-block { background-size: 200% 100%; }
