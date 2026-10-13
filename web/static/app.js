@@ -22,6 +22,21 @@ function api(url, opts) {
   });
 }
 
+// lockScroll stops the page behind a popup from scrolling. Hiding the page's scrollbar
+// would widen the page by the scrollbar's width (with classic scrollbars, as on Windows
+// or a Mac with a mouse), so the content behind would jump sideways: the width is padded
+// back, so the page behind stays exactly where it was.
+function lockScroll() {
+  const bar = window.innerWidth - document.documentElement.clientWidth;
+  if (bar > 0) document.body.style.paddingRight = bar + 'px';
+  document.body.style.overflow = 'hidden';
+}
+
+function unlockScroll() {
+  document.body.style.overflow = '';
+  document.body.style.paddingRight = '';
+}
+
 // The pages other than search have their own hash; search keeps the query string.
 const HASHES = { requests: '#/requests', issues: '#/issues', settings: '#/settings', account: '#/account' };
 const PAGE_OF_HASH = { '#/requests': 'requests', '#/approvals': 'requests', '#/issues': 'issues', '#/settings': 'settings', '#/settings/users': 'settings', '#/settings/notifications': 'settings', '#/account': 'account' };
@@ -798,7 +813,7 @@ function App() {
       this.requesting = false;
       this.detailLoading = true;
       this.selected = card;
-      document.body.style.overflow = 'hidden';
+      lockScroll();
       this.loadDetail(card.id);
     },
 
@@ -860,7 +875,7 @@ function App() {
       // re-evaluate the sheet's expressions before it removes the sheet. It is
       // reset when the next album opens, while the sheet is not rendered.
       this.selected = null;
-      document.body.style.overflow = '';
+      unlockScroll();
       // Back to the search URL; if the sheet was opened from a pasted link
       // there is no history entry to pop, so rewrite it instead.
       if (history.state && history.state.album) history.back();
@@ -880,7 +895,7 @@ function App() {
         if (this.selected) {
           detailSeq++;
           this.selected = null;
-          document.body.style.overflow = '';
+          unlockScroll();
         }
         if (page !== this.page) this.showPage(page);
         return;
@@ -892,7 +907,7 @@ function App() {
         if (this.selected) {
           detailSeq++;
           this.selected = null;
-          document.body.style.overflow = '';
+          unlockScroll();
         }
         if (this.page !== 'search') this.showPage('search');
         if (!this.artist || this.artist.id !== am[1]) this.showArtist(am[1]);
@@ -910,7 +925,7 @@ function App() {
       } else if (this.selected) {
         detailSeq++;
         this.selected = null;
-        document.body.style.overflow = '';
+        unlockScroll();
       }
     },
 
