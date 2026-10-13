@@ -452,3 +452,18 @@ func TestIssuesAreNeverShownToANonAdmin(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyAnAdminIsToldWhereLidarrIsOpened(t *testing.T) {
+	for role, want := range map[auth.Role]bool{auth.User: false, auth.Approver: false, auth.Admin: true} {
+		rg := newRig(as(role))
+		rg.settings.view.Values.WebURL = "https://lidarr.example.com"
+		body := call(rg, "GET", "/api/me", "").Body.String()
+		if got := strings.Contains(body, "lidarr_web_url") && strings.Contains(body, "https://lidarr.example.com"); got != want {
+			t.Errorf("%v: %s", role, body)
+		}
+	}
+	rg := newRig(adminAuth())
+	if body := call(rg, "GET", "/api/me", "").Body.String(); strings.Contains(body, "lidarr_web_url") {
+		t.Errorf("no address set, so none is sent: %s", body)
+	}
+}

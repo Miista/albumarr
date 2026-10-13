@@ -173,6 +173,11 @@ var migrations = []string{
 		updated_at INTEGER NOT NULL
 	);
 	CREATE UNIQUE INDEX user_notifications_topic ON user_notifications (topic COLLATE NOCASE);`,
+
+	// 4: the address Lidarr is opened at in a browser, for the admin's "Open in
+	// Lidarr" link. It is not the address albumreq talks to (that one is usually
+	// only reachable from the server), so it is its own optional setting.
+	`ALTER TABLE lidarr ADD COLUMN web_url TEXT NOT NULL DEFAULT '';`,
 }
 
 func (d *DB) migrate() error {

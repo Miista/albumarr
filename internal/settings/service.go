@@ -126,6 +126,7 @@ type ViewValues struct {
 	APIKeySet        bool   `json:"api_key_set"`
 	RootFolder       string `json:"root_folder"`
 	QualityProfileID int    `json:"quality_profile_id"`
+	WebURL           string `json:"web_url"`
 }
 
 // View renders the effective settings for a browser.
@@ -144,7 +145,7 @@ func viewOf(r Resolved) View {
 	return View{
 		Values: ViewValues{
 			URL: l.URL, APIKey: MaskSecret(l.APIKey), APIKeySet: l.APIKey != "",
-			RootFolder: l.RootFolder, QualityProfileID: l.QualityProfileID,
+			RootFolder: l.RootFolder, QualityProfileID: l.QualityProfileID, WebURL: l.WebURL,
 		},
 		Locks: locks, ReadOnly: ReadOnly(), Configured: r.Configured(), RequestsEnabled: r.RequestsEnabled(), Problems: problems,
 	}
@@ -158,6 +159,7 @@ type Patch struct {
 	APIKey           *string
 	RootFolder       *string
 	QualityProfileID *int
+	WebURL           *string
 }
 
 // PatchResult is the outcome of a saved change.
@@ -235,6 +237,19 @@ func (s *Service) Patch(ctx context.Context, p Patch) (PatchResult, error) {
 		if *p.QualityProfileID != next.QualityProfileID {
 			next.QualityProfileID = *p.QualityProfileID
 			changed = append(changed, KeyQualityProfileID)
+		}
+	}
+	if p.WebURL != nil && res.Editable(KeyWebURL) {
+		w := strings.TrimSpace(*p.WebURL)
+		if w != "" {
+			var err error
+			if w, err = ValidateURL(w); err != nil {
+				return PatchResult{}, invalid("The web address must start with http:// or https:// and have no credentials or query, like https://lidarr.example.com.")
+			}
+		}
+		if w != res.Lidarr.WebURL {
+			next.WebURL = w
+			changed = append(changed, KeyWebURL)
 		}
 	}
 	var warning string

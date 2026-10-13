@@ -201,6 +201,11 @@
             <label class="field-label" for="f-key">API key <span class="lock-label" v-if="lock('lidarr.api_key')">{{ lockText('lidarr.api_key') }}</span></label>
             <input id="f-key" class="input plain" :class="{ locked: lock('lidarr.api_key') }" type="password" v-model="form.api_key" :readonly="lock('lidarr.api_key') ? true : null" :placeholder="cfg.values.api_key_set ? cfg.values.api_key + ' (saved, type to replace)' : 'Lidarr → Settings → General'" autocomplete="new-password" autocapitalize="off" spellcheck="false">
           </div>
+          <div class="field">
+            <label class="field-label" for="f-web">Web address (optional) <span class="lock-label" v-if="lock('lidarr.web_url')">{{ lockText('lidarr.web_url') }}</span></label>
+            <input id="f-web" class="input plain" :class="{ locked: lock('lidarr.web_url') }" type="url" inputmode="url" v-model="form.web_url" :readonly="lock('lidarr.web_url') ? true : null" placeholder="https://lidarr.example.com" autocapitalize="off" autocorrect="off" spellcheck="false">
+            <p class="hint">Where you open Lidarr in a browser. Admins get an "Open in Lidarr" link on an album when it is set.</p>
+          </div>
         </div>
         <div class="card-foot">
           <button type="button" class="btn btn-test" @click="runTest(true)" :disabled="testing">
@@ -591,6 +596,7 @@
               <p class="error-text" v-if="requestError" role="alert">{{ requestError }}</p>
             </div>
             <a class="ext-link" :href="detail.musicbrainzUrl" target="_blank" rel="noopener noreferrer">View on MusicBrainz &#8599;</a>
+            <a class="ext-link" v-if="me?.lidarr_web_url && detail.library" :href="me.lidarr_web_url + '/album/' + view().id" target="_blank" rel="noopener noreferrer">Open in Lidarr &#8599;</a>
           </div>
           <div class="sheet-details" v-if="!detail && detailLoading" role="status" aria-label="Loading details">
             <div class="sk-facts" aria-hidden="true">

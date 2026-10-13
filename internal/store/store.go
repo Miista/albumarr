@@ -22,6 +22,9 @@ type Lidarr struct {
 	// profile is not here: it is always the one named "None".
 	RootFolder       string `json:"root_folder"`
 	QualityProfileID int    `json:"quality_profile_id"`
+	// WebURL is where people open Lidarr in a browser (optional): it only makes
+	// the admin's "Open in Lidarr" link.
+	WebURL string `json:"web_url"`
 }
 
 // State is the full persisted document.
@@ -40,8 +43,8 @@ type Store struct {
 func New(d *db.DB) (*Store, error) {
 	s := &Store{db: d}
 	l := &s.state.Lidarr
-	err := d.QueryRow(`SELECT url, api_key, root_folder, quality_profile_id FROM lidarr WHERE id = 1`).
-		Scan(&l.URL, &l.APIKey, &l.RootFolder, &l.QualityProfileID)
+	err := d.QueryRow(`SELECT url, api_key, root_folder, quality_profile_id, web_url FROM lidarr WHERE id = 1`).
+		Scan(&l.URL, &l.APIKey, &l.RootFolder, &l.QualityProfileID, &l.WebURL)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +68,8 @@ func (s *Store) Update(fn func(*State)) error {
 	fn(&next)
 	l := next.Lidarr
 	if _, err := s.db.Exec(
-		`UPDATE lidarr SET url = ?, api_key = ?, root_folder = ?, quality_profile_id = ? WHERE id = 1`,
-		l.URL, l.APIKey, l.RootFolder, l.QualityProfileID); err != nil {
+		`UPDATE lidarr SET url = ?, api_key = ?, root_folder = ?, quality_profile_id = ?, web_url = ? WHERE id = 1`,
+		l.URL, l.APIKey, l.RootFolder, l.QualityProfileID, l.WebURL); err != nil {
 		return err
 	}
 	s.state = next

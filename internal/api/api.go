@@ -231,6 +231,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		v := s.settings.View()
 		me["lidarr_configured"] = v.Configured
 		me["requests_enabled"] = v.RequestsEnabled
+		if p.Role == auth.Admin && v.Values.WebURL != "" {
+			me["lidarr_web_url"] = v.Values.WebURL // only admins are shown Lidarr at all
+		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, me)
@@ -667,6 +670,7 @@ type settingsBody struct {
 		APIKey           *string `json:"api_key"`
 		RootFolder       *string `json:"root_folder"`
 		QualityProfileID *int    `json:"quality_profile_id"`
+		WebURL           *string `json:"web_url"`
 	} `json:"lidarr"`
 }
 
@@ -682,7 +686,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	s.log.Info().Str("by", who(r).Sub).Msg(who(r).Name + " is changing the settings")
 	res, err := s.settings.Patch(r.Context(), settings.Patch{
 		URL: l.URL, APIKey: l.APIKey, RootFolder: l.RootFolder,
-		QualityProfileID: l.QualityProfileID,
+		QualityProfileID: l.QualityProfileID, WebURL: l.WebURL,
 	})
 	if err != nil {
 		s.settingsFailure(w, r, err)

@@ -554,3 +554,5 @@ main.account { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
 .req-cover.sk-block { display: block; width: 56px; height: 56px; border-radius: 8px; flex: none; }
 .sk-pill { flex: none; width: 92px; height: 26px; border-radius: 999px; }
 .sk-title .sk-line { height: 22px; margin-top: 4px; }
+.card-grid .hint { margin: 2px 0 0; }
+.sheet-details .ext-link + .ext-link { margin-top: -4px; }

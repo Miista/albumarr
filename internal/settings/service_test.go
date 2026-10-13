@@ -117,7 +117,7 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID} {
+	for _, k := range []string{KeyURL, KeyAPIKey, KeyRootFolder, KeyQualityProfileID, KeyWebURL} {
 		t.Setenv(EnvVar(k), "")
 	}
 	t.Setenv(readOnlyEnv, "")
@@ -768,5 +768,66 @@ func TestConcurrentChangesAreSerialised(t *testing.T) {
 	var n int
 	if err := e.db.QueryRow(`SELECT COUNT(*) FROM lidarr`).Scan(&n); err != nil || n != 1 {
 		t.Errorf("the settings row: %d %v", n, err)
+	}
+}
+
+func TestTheWebAddressIsOptionalNormalisedAndNeedsNoLidarr(t *testing.T) {
+	e := newEnv(t) // nothing is set up: the web address does not depend on the connection
+	if _, err := e.svc.Patch(context.Background(), Patch{WebURL: sp(" https://lidarr.example.com/ ")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.store.View().Lidarr.WebURL; got != "https://lidarr.example.com" {
+		t.Errorf("stored %q, want it trimmed and without the trailing slash", got)
+	}
+	if got := e.svc.View().Values.WebURL; got != "https://lidarr.example.com" {
+		t.Errorf("view shows %q", got)
+	}
+	if _, err := e.svc.Patch(context.Background(), Patch{WebURL: sp("https://example.com/lidarr/")}); err != nil || e.store.View().Lidarr.WebURL != "https://example.com/lidarr" {
+		t.Errorf("a sub-path is allowed: %v %q", err, e.store.View().Lidarr.WebURL)
+	}
+	if _, err := e.svc.Patch(context.Background(), Patch{WebURL: sp("")}); err != nil || e.store.View().Lidarr.WebURL != "" {
+		t.Errorf("clearing it: %v %q", err, e.store.View().Lidarr.WebURL)
+	}
+	if _, err := e.svc.Patch(context.Background(), Patch{RootFolder: sp("")}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestABadWebAddressIsRefusedAndNothingIsStored(t *testing.T) {
+	e := newEnv(t)
+	e.svc.Patch(context.Background(), Patch{WebURL: sp("https://lidarr.example.com")})
+	for _, bad := range []string{"lidarr.example.com", "ftp://lidarr.example.com", "javascript:alert(1)", "https://user:pw@lidarr.example.com", "https://lidarr.example.com/?x=1", "https://lidarr.example.com/#frag", "https://a b.example.com", "http://", "https://" + strings.Repeat("a", 600) + ".example.com"} {
+		_, err := e.svc.Patch(context.Background(), Patch{WebURL: sp(bad)})
+		var ve *ValidationError
+		if !errors.As(err, &ve) {
+			t.Errorf("%q: err = %v, want a validation error", bad, err)
+		}
+		if got := e.store.View().Lidarr.WebURL; got != "https://lidarr.example.com" {
+			t.Errorf("%q: the stored address changed to %q", bad, got)
+		}
+	}
+}
+
+func TestAPinnedWebAddressIsLockedAndNeverStored(t *testing.T) {
+	e := newEnv(t)
+	t.Setenv(EnvVar(KeyWebURL), "https://pinned.example.com/")
+	e.svc.Reload(context.Background())
+	if _, err := e.svc.Patch(context.Background(), Patch{WebURL: sp("https://other.example.com")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.store.View().Lidarr.WebURL; got != "" {
+		t.Errorf("a pinned field must not be written to the store: %q", got)
+	}
+	v := e.svc.View()
+	if v.Values.WebURL != "https://pinned.example.com" || v.Locks[KeyWebURL].Reason != LockEnv || v.Locks[KeyWebURL].EnvVar != EnvVar(KeyWebURL) {
+		t.Errorf("view: %q, lock %+v", v.Values.WebURL, v.Locks[KeyWebURL])
+	}
+}
+
+func TestReadOnlyAlsoLocksTheWebAddress(t *testing.T) {
+	e := newEnv(t)
+	t.Setenv(readOnlyEnv, "true")
+	if l := e.svc.View().Locks[KeyWebURL]; l.Reason != LockReadOnly {
+		t.Errorf("lock %+v", l)
 	}
 }

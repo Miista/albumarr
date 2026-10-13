@@ -98,6 +98,10 @@ later unmonitored or removed in Lidarr, its sheet shows **Request again**, with 
 it was approved before (by you, or "requested", never naming anyone else) and Lidarr is no
 longer monitoring it. Asking again records a new request next to the old one.
 
+### Open in Lidarr
+
+Admins get an **Open in Lidarr** link on an album's sheet, when Lidarr has the album and an optional **Web address** is set under Settings → Lidarr (where you open Lidarr in a browser, which is not the address albumreq talks to; it opens `<address>/album/<MusicBrainz id>`). Nobody else is sent the address or shown the link.
+
 ### Loading states
 
 While data loads, a page shows grey skeleton shapes laid out like the real content (search results, artist chips and pages, the album sheet's details and tracks, Requests, Account, Issues and the Settings tabs), so nothing jumps when it arrives. Spinners are kept only inside a button whose action is under way.
@@ -296,6 +300,7 @@ sent to an address typed into the page.
 | Lidarr API key | `ALBUMREQ_SETTING_LIDARR_API_KEY` |
 | Root folder | `ALBUMREQ_SETTING_LIDARR_ROOT_FOLDER` |
 | Quality profile ID | `ALBUMREQ_SETTING_LIDARR_QUALITY_PROFILE_ID` |
+| Web address (optional) | `ALBUMREQ_SETTING_LIDARR_WEB_URL` |
 
 `ALBUMREQ_SETTINGS_READONLY=true` locks every setting and refuses all changes
 from the page, for whoever is signed in. With the login off it is the only thing
@@ -312,7 +317,7 @@ Environment variables:
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `ALBUMREQ_SETTING_LIDARR_*` | no | | The four Lidarr settings above. Not needed when you use the Settings page. A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` is ignored, with a warning. |
+| `ALBUMREQ_SETTING_LIDARR_*` | no | | The Lidarr settings above (URL, API key, root folder, quality profile, and the optional web address). Not needed when you use the Settings page. A leftover `ALBUMREQ_SETTING_LIDARR_METADATA_PROFILE_ID` is ignored, with a warning. |
 | `ALBUMREQ_SETTINGS_READONLY` | no | off | `true` locks the Settings page |
 | `ALBUMREQ_SETTING_NOTIFICATIONS_*` | no | | The ntfy settings (see Notifications). Not needed when you use the Settings page. |
 | `ALBUMREQ_NOTIFICATIONS_CHECK_EVERY` | no | `5m` | How often approved requests are checked for arrival (a duration, minimum `10s`) |

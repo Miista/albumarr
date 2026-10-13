@@ -104,7 +104,7 @@ function App() {
     userBusy: {},
     cfg: null, // GET /api/settings (admins)
     cfgError: '',
-    form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0 },
+    form: { url: '', api_key: '', root_folder: '', quality_profile_id: 0, web_url: '' },
     options: null, // root folders and profiles Lidarr offered on the last successful test
     testing: false,
     testResult: null,
@@ -208,6 +208,7 @@ function App() {
         api_key: '',
         root_folder: v.root_folder,
         quality_profile_id: v.quality_profile_id,
+        web_url: v.web_url || '',
       };
     },
 
@@ -298,6 +299,7 @@ function App() {
       if (!this.lock('lidarr.url') && f.url.trim() !== v.url) out.url = f.url.trim();
       if (!this.lock('lidarr.api_key') && f.api_key.trim() !== '') out.api_key = f.api_key.trim();
       if (!this.lock('lidarr.root_folder') && f.root_folder.trim() !== v.root_folder) out.root_folder = f.root_folder.trim();
+      if (!this.lock('lidarr.web_url') && f.web_url.trim() !== (v.web_url || '')) out.web_url = f.web_url.trim();
       for (const k of ['quality_profile_id']) {
         const n = Number(f[k]) || 0;
         if (!this.lock('lidarr.' + k) && n !== v[k]) out[k] = n;
