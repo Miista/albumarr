@@ -7,9 +7,14 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+# Nothing here needs more than read access to the repository; the one job that pushes an
+# image asks for packages: write on its own.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -34,9 +39,16 @@ jobs:
 
       - run: go test ./... -race -count=1
 
-  publish:
+      - name: Check the module cache against go.sum
+        run: go mod verify
+
+      # Known vulnerabilities in what the binary actually calls (the Go toolchain's own
+      # standard library included), not merely in what it depends on.
+      - name: Scan for vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  image:
     needs: test
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,21 +60,50 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # Cross-compile natively with Go; the Dockerfile only copies these in,
-      # so no QEMU emulation is needed for the arm64 image.
+      - name: Work out the version and the image name
+        run: |
+          # v1.2.3 -> 1.2.3; anything else is a development build named by its commit.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+          # Registries want lowercase; the repository's own name may not be.
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # Cross-compile natively with Go; the Dockerfile only copies these in, so no QEMU
+      # emulation is needed for the arm64 image.
       - name: Cross-compile
         run: |
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch \
-              go build -trimpath -o dist/linux/$arch/albumreq .
+              go build -trimpath -ldflags "-s -w -X main.version=$VERSION" \
+              -o dist/linux/$arch/albumreq .
           done
 
       - uses: docker/setup-buildx-action@v3
 
+      # Before anything is published: the image must start, run as an unprivileged user,
+      # become healthy by its own HEALTHCHECK, and say the version it was built as.
+      - name: Smoke test the image
+        run: |
+          docker build --platform linux/amd64 --build-arg TARGETARCH=amd64 -t albumreq:smoke .
+          [ "$(docker run --rm albumreq:smoke version)" = "albumreq $VERSION" ] || { echo "wrong version"; exit 1; }
+          docker run -d --name smoke -e ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/ci albumreq:smoke
+          for _ in $(seq 1 30); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' smoke)
+            [ "$status" = healthy ] && break
+            sleep 2
+          done
+          docker logs smoke
+          [ "$status" = healthy ] || { echo "the image did not become healthy"; exit 1; }
+          [ "$(docker inspect --format '{{.Config.User}}' smoke)" = 65532 ] || { echo "the image must not run as root"; exit 1; }
+
       - name: Log in to GHCR
+        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -70,18 +111,23 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,format=short
 
-      - name: Build and push
+      # A pull request builds both platforms (so a Dockerfile problem shows up before the
+      # merge) but publishes nothing; a push to main or a tag publishes, with a build
+      # provenance attestation and an SBOM attached to the image.
+      - name: Build, and push when this is a push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true

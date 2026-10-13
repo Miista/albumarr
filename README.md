@@ -353,6 +353,53 @@ An environment value Lidarr cannot use (a profile that does not exist, an ID
 that is not a number) leaves requesting off, says why on the Settings page, and
 does not stop the process.
 
+## Running the image
+
+```sh
+docker run -d --name albumreq --restart unless-stopped \
+  -p 127.0.0.1:8768:8768 \
+  -e ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT=https://example.org/you \
+  -v albumreq-data:/app/data \
+  ghcr.io/miista/albumreq:latest
+```
+
+or in a compose file:
+
+```yaml
+services:
+  albumreq:
+    image: ghcr.io/miista/albumreq:latest
+    restart: unless-stopped
+    ports: ["127.0.0.1:8768:8768"]   # or put it behind your reverse proxy instead
+    environment:
+      ALBUMREQ_SETTING_MUSICBRAINZ_CONTACT: https://example.org/you   # required: see Configuration
+    volumes:
+      - albumreq-data:/app/data
+volumes:
+  albumreq-data:
+```
+
+Then open it and set up Lidarr on the Settings page (or pin it with the `ALBUMREQ_SETTING_LIDARR_*`
+variables, see below).
+
+- **Platforms and tags.** `linux/amd64` and `linux/arm64`. `latest` follows the main branch, `1.2.3` and `1.2`
+  follow releases, and a short commit id pins an exact build. Each image carries a build provenance
+  attestation and an SBOM (`docker buildx imagetools inspect ghcr.io/miista/albumreq:1.2.3`).
+- **What is in it.** The static binary and nothing else (a distroless base: no shell, no package manager).
+  `albumreq version` prints the version.
+- **Who it runs as.** An unprivileged user, uid 65532. A named volume is writable as it is; a **bind mount**
+  must be owned by that user (`chown 65532:65532 /path`), or start the container with `--user` set to the
+  directory's owner (`--user 0:0` keeps the old behaviour of earlier builds that ran as root). When the data
+  directory cannot be written the log says so and names the fix.
+- **Health.** The image has a `HEALTHCHECK` (the binary asks its own `/healthz`), so `docker ps` shows
+  `healthy` and an orchestrator can restart it.
+- **Before anyone can reach it.** A fresh install has no login: **the first visitor creates the admin
+  account**. Either keep the port on a private network or loopback until you have done that, or set the
+  `ALBUMREQ_OIDC_*` variables first, which keeps setup closed (see Login and roles).
+- **Updating and backing up.** Pull the new image and recreate the container: the database migrates itself at
+  start, and an older build refuses a database from a newer schema, so keep `backup/albumreq.db` (written
+  every six hours) before an upgrade you may want to undo.
+
 ## Configuration
 
 Environment variables:
@@ -470,15 +517,21 @@ reaparr's. One petite-vue quirk to know: a `v-if` cannot be a direct child of
 
 ### Image
 
-The binary is cross-compiled with Go and copied into a distroless image, the
-same as reaparr:
+The binary is cross-compiled with Go and copied into a distroless image, the same as reaparr. CI does
+exactly this, then starts the image and checks that it becomes healthy and does not run as root before
+anything is published:
 
 ```sh
+VERSION=0.0.0-local
 for arch in amd64 arm64; do
-  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -o dist/linux/$arch/albumreq .
+  CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+    -ldflags "-s -w -X main.version=$VERSION" -o dist/linux/$arch/albumreq .
 done
-docker build --build-arg TARGETARCH=arm64 -t albumreq:local .
+docker build --build-arg TARGETARCH=arm64 -t albumreq:local .   # arm64, or amd64
 ```
+
+The CI workflow also runs `govulncheck`, and Dependabot proposes updates to the Go modules, the actions and
+the base image.
 
 ## Roadmap
 

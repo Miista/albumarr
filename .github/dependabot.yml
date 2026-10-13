@@ -1,0 +1,17 @@
+# Keeps the build's moving parts current, one pull request each, so every change is reviewed
+# and goes through CI before it lands: the Go modules, the actions the workflow uses, and the
+# image's base.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
