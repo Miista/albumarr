@@ -133,7 +133,7 @@ While data loads, a page shows grey skeleton shapes laid out like the real conte
 An album opens as a page of its own (`#album=<MusicBrainz id>`), not a popup: a back link at the top
 says where it goes (**Search**, **Requests**, or the artist's name when you came from an artist's
 page), and the browser's Back button and Escape do the same. The page you came from is kept, so you
-return to the same results at the same scroll position. An album link can be pasted into a new tab.
+return to the same results at the same scroll position. Where an album was opened from is in its address (`#album=<id>&artist=<artist id>` from an artist's page, `&from=requests` from Requests, search results via the `?q=`), so a reload or a pasted link keeps the same back link; an unknown or malformed value is ignored.
 
 ### Browsing by artist
 

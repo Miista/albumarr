@@ -58,7 +58,7 @@ function App() {
     artistGroup: 'albums', // albums | eps | singles | more
 
     selected: null, // the card (or just { id }) of the album page that is open
-    albumFrom: 'Search', // what the album page's back link says
+    albumCtx: { from: 'search', artist: '' }, // where the album page was opened from; it is in the address too, so a reload or a pasted link keeps it
     albumScroll: 0, // where the page it was opened from was scrolled to
     detail: null,
     detailLoading: false,
@@ -787,11 +787,39 @@ function App() {
     },
 
     open(card) {
-      // Where Back goes, so the link can say so; and the scroll position to return to.
-      this.albumFrom = this.page === 'requests' ? 'Requests' : this.artist ? this.artist.name || 'Artist' : 'Search';
+      // Where Back goes goes into the address, so a reload or a pasted link keeps it:
+      // #album=<id>&artist=<id> from an artist's page, #album=<id>&from=requests from Requests.
+      let ctx = { from: 'search', artist: '' };
+      let hash = '#album=' + card.id;
+      if (this.artist && this.page === 'search') {
+        ctx = { from: 'artist', artist: this.artist.id };
+        hash += '&artist=' + this.artist.id;
+      } else if (this.page === 'requests') {
+        ctx = { from: 'requests', artist: '' };
+        hash += '&from=requests';
+      }
+      this.albumCtx = ctx;
       this.albumScroll = window.scrollY;
-      history.pushState({ album: card.id }, '', location.pathname + location.search + '#album=' + card.id);
+      history.pushState({ album: card.id }, '', location.pathname + location.search + hash);
       this.show(card);
+    },
+
+    // backLabel is what the album page's back link says.
+    backLabel() {
+      if (this.albumCtx.from === 'artist') return (this.artist && this.artist.name) || 'Artist';
+      return this.albumCtx.from === 'requests' ? 'Requests' : 'Search';
+    },
+
+    // albumHash reads where an album's address says it was opened from. Anything that is
+    // not a valid ID or a known origin is ignored: the page is then just an album.
+    albumHash(hash) {
+      const q = new URLSearchParams(hash.replace(/^#/, ''));
+      const id = q.get('album');
+      if (!id || !UUID.test(id)) return null;
+      const artist = q.get('artist');
+      if (artist && UUID.test(artist)) return { id, ctx: { from: 'artist', artist } };
+      if (q.get('from') === 'requests') return { id, ctx: { from: 'requests', artist: '' } };
+      return { id, ctx: { from: 'search', artist: '' } };
     },
 
     async show(card) {
@@ -874,9 +902,15 @@ function App() {
       this.restoreScroll();
       // Back to the search URL; if the sheet was opened from a pasted link
       // there is no history entry to pop, so rewrite it instead.
-      if (history.state && history.state.album) history.back();
-      else this.replaceQuery(location.search);
-      if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+      if (history.state && history.state.album) {
+        history.back();
+        return;
+      }
+      // Opened by a reload or a pasted link: there is no earlier page to go back to, so go to
+      // the place the address names.
+      const c = this.albumCtx;
+      const target = c.from === 'artist' ? '#artist=' + c.artist : c.from === 'requests' ? '#/requests' : '';
+      history.replaceState(null, '', location.pathname + location.search + target);
     },
 
     syncFromHash() {
@@ -910,13 +944,24 @@ function App() {
         return;
       }
       if (!/^#album=/.test(location.hash)) this.artist = null;
-      // An album's own hash opens its sheet over whatever page is showing (so Back
-      // from a sheet opened on My requests returns there); anything else is search.
+      // An album's address says where it was opened from, and the page behind it is that
+      // place (so Back returns there); anything else is search.
       if (!/^#album=/.test(location.hash) && this.page !== 'search') this.showPage('search');
-      const m = /^#album=(.+)$/.exec(location.hash);
-      if (m && UUID.test(m[1])) {
-        if (!this.selected || this.selected.id !== m[1]) {
-          this.show(this.albums.find((a) => a.id === m[1]) || { id: m[1], secondaryTypes: [], cover: '/api/cover/' + m[1] });
+      const alb = this.albumHash(location.hash);
+      if (alb) {
+        this.albumCtx = alb.ctx;
+        if (alb.ctx.from === 'artist') {
+          if (this.page !== 'search') this.showPage('search');
+          if (!this.artist || this.artist.id !== alb.ctx.artist) this.showArtist(alb.ctx.artist);
+        } else if (alb.ctx.from === 'requests') {
+          this.artist = null;
+          if (this.page !== 'requests') this.showPage('requests');
+        } else {
+          this.artist = null; // an album opened from search results has no artist page behind it
+          if (this.page !== 'search') this.showPage('search');
+        }
+        if (!this.selected || this.selected.id !== alb.id) {
+          this.show(this.albums.find((a) => a.id === alb.id) || { id: alb.id, secondaryTypes: [], cover: '/api/cover/' + alb.id });
         }
       } else if (this.selected) {
         detailSeq++;
