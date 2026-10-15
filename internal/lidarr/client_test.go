@@ -716,3 +716,79 @@ func TestArtistAlbumStatesFailuresAreErrors(t *testing.T) {
 		}
 	}
 }
+
+// --- ChooseRelease ---
+
+func TestPickRelease(t *testing.T) {
+	r := func(n int, format, date string) releaseInfo {
+		return releaseInfo{TrackCount: n, Format: format, ReleaseDate: date}
+	}
+	for name, tc := range map[string]struct {
+		rs   []releaseInfo
+		want int
+	}{
+		"the box set is not the typical edition": {[]releaseInfo{r(42, `12" Vinyl, CD, Cassette`, "2021-10-29"), r(14, "CD", "2021-10-29"), r(14, "Digital Media", "2021-10-29"), r(23, "Digital Media", "2022-01-01")}, 1},
+		"a CD or digital edition before vinyl":   {[]releaseInfo{r(14, `12" Vinyl`, "2020-01-01"), r(14, "Digital Media", "2021-01-01")}, 1},
+		"then the earliest":                      {[]releaseInfo{r(10, "CD", "2005-01-01"), r(10, "CD", "2001-01-01")}, 1},
+		"an unknown date sorts last":             {[]releaseInfo{r(10, "CD", "0001-01-01T00:00:00Z"), r(10, "CD", "2001-01-01")}, 1},
+		"a tie in count goes to the shorter":     {[]releaseInfo{r(12, "CD", ""), r(10, "CD", "")}, 1},
+		"editions without tracks are ignored":    {[]releaseInfo{r(0, "CD", ""), r(9, "CD", "")}, 1},
+		"none has tracks":                        {[]releaseInfo{r(0, "CD", "")}, -1},
+		"no releases":                            {nil, -1},
+	} {
+		if got := pickRelease(tc.rs); got != tc.want {
+			t.Errorf("%s: picked %d, want %d", name, got, tc.want)
+		}
+	}
+}
+
+func TestChooseReleaseMonitorsOnlyTheTypicalEditionAndKeepsTheRestOfTheAlbum(t *testing.T) {
+	var put map[string]any
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"id":42,"title":"=","monitored":true,"anyReleaseOk":true,"releases":[
+				{"id":1,"foreignReleaseId":"big","trackCount":42,"format":"12\" Vinyl, CD, Cassette","releaseDate":"2021-10-29T00:00:00Z","monitored":true},
+				{"id":2,"foreignReleaseId":"std","trackCount":14,"format":"Digital Media","releaseDate":"2021-10-29T00:00:00Z","monitored":false},
+				{"id":3,"foreignReleaseId":"cd","trackCount":14,"format":"CD","releaseDate":"2021-11-01T00:00:00Z","monitored":false}]}`)
+			return
+		}
+		gotPath = r.Method + " " + r.URL.Path
+		json.NewDecoder(r.Body).Decode(&put)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).ChooseRelease(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "PUT /api/v1/album/42" || put["title"] != "=" || put["anyReleaseOk"] != true || put["monitored"] != true {
+		t.Fatalf("sent %s %v: the rest of the album must come back unchanged", gotPath, put)
+	}
+	rels, _ := put["releases"].([]any)
+	var monitored []float64
+	for _, x := range rels {
+		m := x.(map[string]any)
+		if m["monitored"] == true {
+			monitored = append(monitored, m["id"].(float64))
+		}
+		if m["foreignReleaseId"] == nil {
+			t.Errorf("a release lost its fields: %v", m)
+		}
+	}
+	if len(rels) != 3 || len(monitored) != 1 || monitored[0] != 2 {
+		t.Errorf("monitored releases %v of %d, want only release 2", monitored, len(rels))
+	}
+}
+
+func TestChooseReleaseWritesNothingWhenItIsAlreadyRight(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected %s", r.Method)
+		}
+		fmt.Fprint(w, `{"id":42,"releases":[{"id":1,"trackCount":14,"format":"CD","monitored":true},{"id":2,"trackCount":42,"format":"CD","monitored":false}]}`)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).ChooseRelease(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+}
