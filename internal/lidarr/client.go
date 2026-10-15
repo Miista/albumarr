@@ -301,114 +301,6 @@ func (c *Client) MonitorAlbum(ctx context.Context, albumID int) error {
 	return c.send(ctx, http.MethodPut, "/api/v1/album/monitor", map[string]any{"albumIds": []int{albumID}, "monitored": true})
 }
 
-// releaseInfo is what the choice of edition needs to know about one of an
-// album's releases in Lidarr.
-type releaseInfo struct {
-	TrackCount  int    `json:"trackCount"`
-	Format      string `json:"format"`
-	ReleaseDate string `json:"releaseDate"`
-}
-
-// pickRelease chooses the edition a download is most likely to match, and
-// returns its index in rs, or -1 when none has tracks. It is the rule the album
-// page uses (lidarrmeta.PickEdition): the most common track count (ties go to
-// the shorter list); among those a CD or digital release before a cassette or
-// vinyl one; then the earliest. Lidarr's own choice is the biggest edition, so
-// an album with a box set is monitored as the box set, which no ordinary
-// download is ever complete against.
-func pickRelease(rs []releaseInfo) int {
-	counts := map[int]int{}
-	for _, r := range rs {
-		if r.TrackCount > 0 {
-			counts[r.TrackCount]++
-		}
-	}
-	best := 0
-	for n, c := range counts {
-		if best == 0 || c > counts[best] || (c == counts[best] && n < best) {
-			best = n
-		}
-	}
-	pick := -1
-	for i, r := range rs {
-		if best == 0 || r.TrackCount != best {
-			continue
-		}
-		if pick < 0 || releasePreferred(r, rs[pick]) {
-			pick = i
-		}
-	}
-	return pick
-}
-
-func releasePreferred(a, b releaseInfo) bool {
-	if ra, rb := formatRank(a.Format), formatRank(b.Format); ra != rb {
-		return ra < rb
-	}
-	da, db := knownDate(a.ReleaseDate), knownDate(b.ReleaseDate)
-	if da == "" || db == "" {
-		return da != "" && db == ""
-	}
-	return da < db
-}
-
-func formatRank(format string) int {
-	if strings.Contains(format, "CD") || strings.Contains(format, "Digital") {
-		return 0
-	}
-	return 1
-}
-
-// knownDate drops Lidarr's placeholder for an unknown date ("0001-01-01…").
-func knownDate(d string) string {
-	if strings.HasPrefix(d, "0001") {
-		return ""
-	}
-	return d
-}
-
-// ChooseRelease makes the typical edition of an album the one Lidarr monitors,
-// so that a normal download of the album imports. Lidarr only accepts files for
-// the monitored release ("Album release not requested"), and left to itself
-// picks the biggest. It changes nothing when that edition is already the only
-// one monitored. The album is sent back as Lidarr gave it, with only the
-// releases' monitored flags changed, as the album page's own edit does.
-func (c *Client) ChooseRelease(ctx context.Context, albumID int) error {
-	path := "/api/v1/album/" + strconv.Itoa(albumID)
-	var album map[string]json.RawMessage
-	if err := c.get(ctx, path, nil, &album); err != nil {
-		return err
-	}
-	var infos []releaseInfo
-	var releases []map[string]any
-	if err := json.Unmarshal(album["releases"], &infos); err != nil {
-		return fmt.Errorf("lidarr: decoding the album's releases: %w", err)
-	}
-	if err := json.Unmarshal(album["releases"], &releases); err != nil {
-		return fmt.Errorf("lidarr: decoding the album's releases: %w", err)
-	}
-	pick := pickRelease(infos)
-	if pick < 0 {
-		return nil
-	}
-	changed := false
-	for i, r := range releases {
-		want := i == pick
-		if r["monitored"] != want {
-			r["monitored"] = want
-			changed = true
-		}
-	}
-	if !changed {
-		return nil
-	}
-	var err error
-	if album["releases"], err = json.Marshal(releases); err != nil {
-		return err
-	}
-	return c.send(ctx, http.MethodPut, path, album)
-}
-
 // SearchAlbum asks Lidarr to search its indexers for one album, as the search
 // button on the album does. Lidarr grabs a release if it finds one that fits the
 // quality profile, so this is the call that starts a download.
@@ -694,14 +586,6 @@ func (l *Live) MonitorAlbum(ctx context.Context, albumID int) error {
 		return ErrNotConfigured
 	}
 	return c.MonitorAlbum(ctx, albumID)
-}
-
-func (l *Live) ChooseRelease(ctx context.Context, albumID int) error {
-	c := l.Client()
-	if c == nil {
-		return ErrNotConfigured
-	}
-	return c.ChooseRelease(ctx, albumID)
 }
 
 func (l *Live) SearchAlbum(ctx context.Context, albumID int) error {

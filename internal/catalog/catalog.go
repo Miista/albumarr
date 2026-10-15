@@ -109,7 +109,6 @@ type Library interface {
 	AddAlbum(ctx context.Context, a lidarr.NewAlbum) error
 	MetadataProfileByName(ctx context.Context, name string) (int, error)
 	MonitorAlbum(ctx context.Context, albumID int) error
-	ChooseRelease(ctx context.Context, albumID int) error
 	SearchAlbum(ctx context.Context, albumID int) error
 }
 
@@ -515,12 +514,6 @@ func (c *Catalog) monitorAndSearch(ctx context.Context, st *lidarr.AlbumState) R
 		if err := c.lib.MonitorAlbum(ctx, st.ID); err != nil {
 			return RequestAddedUnsearched
 		}
-	}
-	if st.Statistics.TrackFileCount == 0 {
-		// Best effort: Lidarr's own pick (the biggest edition) can make every
-		// ordinary download fail to import, but searching with it is still
-		// better than not searching. Never changed under files already imported.
-		_ = c.lib.ChooseRelease(ctx, st.ID)
 	}
 	if err := c.lib.SearchAlbum(ctx, st.ID); err != nil {
 		return RequestAddedUnsearched

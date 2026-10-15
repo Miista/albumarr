@@ -144,8 +144,6 @@ type fakeLib struct {
 	profileAsked    []string
 	newMonitored    bool // whether the fake's newly added albums come back monitored
 	monitored       []int
-	chosen          []int // albums whose edition was chosen
-	chooseErr       error
 	added           []lidarr.NewAlbum
 	searched        []int
 	albumCalls      atomic.Int32 // AlbumByForeignID runs from several goroutines
@@ -205,11 +203,6 @@ func (f *fakeLib) MonitorAlbum(_ context.Context, id int) error {
 		f.monitored = append(f.monitored, id)
 	}
 	return f.monitorErr
-}
-
-func (f *fakeLib) ChooseRelease(_ context.Context, id int) error {
-	f.chosen = append(f.chosen, id)
-	return f.chooseErr
 }
 
 func (f *fakeLib) SearchAlbum(_ context.Context, id int) error {
@@ -1092,35 +1085,5 @@ func TestArtistPhotoErrors(t *testing.T) {
 	}
 	if _, _, err := catWith(&fakeMeta{err: errors.New("503")}, fp).ArtistPhoto(context.Background(), edSheeran, PhotoFull); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("metadata down: %v", err)
-	}
-}
-
-func TestRequestChoosesTheEditionBeforeSearching(t *testing.T) {
-	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}}
-	if res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1, artistMBID); err != nil || res != RequestAdded {
-		t.Fatalf("got %q, %v", res, err)
-	}
-	if len(lib.chosen) != 1 || lib.chosen[0] != addedID || len(lib.searched) != 1 {
-		t.Errorf("chosen %v, searched %v: the edition must be chosen for the added album, and it is still searched", lib.chosen, lib.searched)
-	}
-}
-
-func TestRequestSearchesEvenWhenChoosingTheEditionFails(t *testing.T) {
-	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}, chooseErr: errors.New("boom")}
-	if res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1, artistMBID); err != nil || res != RequestAdded {
-		t.Errorf("got %q, %v: a failed edition choice must not fail the request", res, err)
-	}
-	if len(lib.searched) != 1 {
-		t.Errorf("searched %v", lib.searched)
-	}
-}
-
-func TestRequestLeavesTheEditionOfAnAlbumWithFilesAlone(t *testing.T) {
-	lib := &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 3, 50, ""))}}
-	if res, err := requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1, artistMBID); err != nil || res != RequestAdded {
-		t.Fatalf("got %q, %v", res, err)
-	}
-	if len(lib.chosen) != 0 {
-		t.Errorf("chose an edition for album %v, which already has files", lib.chosen)
 	}
 }
