@@ -157,7 +157,7 @@ func newAlbum() NewAlbum {
 	}
 }
 
-func TestAddAlbumSendsAnUnmonitoredAlbumOnAnUnmonitoredArtist(t *testing.T) {
+func TestAddAlbumSendsTheMonitoredAlbumOnAnUnmonitoredArtist(t *testing.T) {
 	var gotMethod, gotPath, gotKey, gotType string
 	var raw map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,15 +177,14 @@ func TestAddAlbumSendsAnUnmonitoredAlbumOnAnUnmonitoredArtist(t *testing.T) {
 		t.Errorf("request = %s %s key=%q type=%q", gotMethod, gotPath, gotKey, gotType)
 	}
 
-	// Nothing is wanted yet: the request chooses the edition first, then monitors.
-	// Every flag is explicit, because a missing key falls back to Lidarr's default,
-	// which is to monitor. The search is a separate call, since Lidarr only honours
-	// searchForNewAlbum for a new artist.
+	// The album is wanted; nothing else is. Every flag is explicit, because a
+	// missing key falls back to Lidarr's default, which is to monitor. The search
+	// is a separate call, since Lidarr only honours searchForNewAlbum for a new artist.
 	artist, _ := raw["artist"].(map[string]any)
 	albumOpts, _ := raw["addOptions"].(map[string]any)
 	want := map[string]any{
 		"foreignAlbumId": "b1392450-e666-3926-a536-22c65f834433",
-		"monitored":      false,
+		"monitored":      true,
 	}
 	for k, v := range want {
 		if raw[k] != v {
