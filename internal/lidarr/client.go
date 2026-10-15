@@ -374,6 +374,13 @@ func knownDate(d string) string {
 	return d
 }
 
+// How long ChooseRelease waits for a just-added album's releases to appear, and
+// how often it looks. Variables, so a test need not wait.
+var (
+	releasesWait = 5 * time.Second
+	releasesPoll = 250 * time.Millisecond
+)
+
 // ChooseRelease makes the typical edition of an album the one Lidarr monitors,
 // so that a normal download of the album imports. Lidarr only accepts files for
 // the monitored release ("Album release not requested"), and left to itself
@@ -383,16 +390,30 @@ func knownDate(d string) string {
 func (c *Client) ChooseRelease(ctx context.Context, albumID int) error {
 	path := "/api/v1/album/" + strconv.Itoa(albumID)
 	var album map[string]json.RawMessage
-	if err := c.get(ctx, path, nil, &album); err != nil {
-		return err
-	}
 	var infos []releaseInfo
 	var releases []map[string]any
-	if err := json.Unmarshal(album["releases"], &infos); err != nil {
-		return fmt.Errorf("lidarr: decoding the album's releases: %w", err)
-	}
-	if err := json.Unmarshal(album["releases"], &releases); err != nil {
-		return fmt.Errorf("lidarr: decoding the album's releases: %w", err)
+	// An album's releases are loaded by its refresh, which for an artist new to
+	// Lidarr may still be running when the add returns: wait for them (briefly)
+	// rather than find none and leave Lidarr's own pick.
+	for deadline := time.Now().Add(releasesWait); ; {
+		album, infos, releases = nil, nil, nil
+		if err := c.get(ctx, path, nil, &album); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(album["releases"], &infos); err != nil {
+			return fmt.Errorf("lidarr: decoding the album's releases: %w", err)
+		}
+		if err := json.Unmarshal(album["releases"], &releases); err != nil {
+			return fmt.Errorf("lidarr: decoding the album's releases: %w", err)
+		}
+		if len(infos) > 0 || time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(releasesPoll):
+		}
 	}
 	pick := pickRelease(infos)
 	if pick < 0 {

@@ -792,3 +792,43 @@ func TestChooseReleaseWritesNothingWhenItIsAlreadyRight(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestChooseReleaseWaitsForTheReleasesOfAJustAddedAlbum(t *testing.T) {
+	defer func(w, p time.Duration) { releasesWait, releasesPoll = w, p }(releasesWait, releasesPoll)
+	releasesWait, releasesPoll = time.Second, time.Millisecond
+	gets, puts := 0, 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			puts++
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if gets++; gets < 3 { // the refresh has not loaded them yet
+			fmt.Fprint(w, `{"id":42,"releases":[]}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":42,"releases":[{"id":1,"trackCount":42,"format":"CD","monitored":true},{"id":2,"trackCount":14,"format":"CD","monitored":false},{"id":3,"trackCount":14,"format":"CD","monitored":false}]}`)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).ChooseRelease(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+	if gets != 3 || puts != 1 {
+		t.Errorf("gets=%d puts=%d: it must wait for the releases, then set the edition once", gets, puts)
+	}
+}
+
+func TestChooseReleaseGivesUpOnAnAlbumThatNeverGetsReleases(t *testing.T) {
+	defer func(w, p time.Duration) { releasesWait, releasesPoll = w, p }(releasesWait, releasesPoll)
+	releasesWait, releasesPoll = 20*time.Millisecond, time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected %s", r.Method)
+		}
+		fmt.Fprint(w, `{"id":42,"releases":[]}`)
+	}))
+	defer srv.Close()
+	if err := New(srv.URL, testKey).ChooseRelease(context.Background(), 42); err != nil {
+		t.Errorf("no releases is not an error, only nothing to choose: %v", err)
+	}
+}
