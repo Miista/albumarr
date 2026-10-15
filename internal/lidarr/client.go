@@ -259,10 +259,16 @@ type NewAlbum struct {
 // (checked on a throwaway: without it only the requested album is monitored, even
 // when the profile imports several). searchForNewAlbum is
 // false on purpose: Lidarr only honours it when it also adds the artist, so the
-// search is a separate, explicit SearchAlbum.
+// search is a separate, explicit SearchAlbum. AnyReleaseOk is true because
+// Lidarr reads a missing flag as false, and then imports only the one edition it
+// monitors, by default the biggest: a box set no ordinary download matches, so
+// the import fails with "Album release not requested". True lets Lidarr switch to
+// the edition that best matches the downloaded files, as it does for an album
+// added from its own page, which sends it.
 type addAlbumBody struct {
 	ForeignAlbumID string `json:"foreignAlbumId"`
 	Monitored      bool   `json:"monitored"`
+	AnyReleaseOk   bool   `json:"anyReleaseOk"`
 	AddOptions     struct {
 		AddType           string `json:"addType"`
 		SearchForNewAlbum bool   `json:"searchForNewAlbum"`
@@ -285,6 +291,7 @@ func (c *Client) AddAlbum(ctx context.Context, a NewAlbum) error {
 	var b addAlbumBody
 	b.ForeignAlbumID = a.AlbumID
 	b.Monitored = true
+	b.AnyReleaseOk = true
 	b.AddOptions.AddType = "manual"
 	b.Artist.ForeignArtistID = a.ArtistID
 	b.Artist.QualityProfileID = a.QualityProfileID

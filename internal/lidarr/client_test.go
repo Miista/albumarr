@@ -185,6 +185,7 @@ func TestAddAlbumSendsTheMonitoredAlbumOnAnUnmonitoredArtist(t *testing.T) {
 	want := map[string]any{
 		"foreignAlbumId": "b1392450-e666-3926-a536-22c65f834433",
 		"monitored":      true,
+		"anyReleaseOk":   true, // a missing flag is false in Lidarr: only the biggest edition would import
 	}
 	for k, v := range want {
 		if raw[k] != v {
