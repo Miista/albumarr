@@ -146,6 +146,7 @@ type fakeLib struct {
 	monitored       []int
 	chosen          []int // albums whose edition was chosen
 	chooseErr       error
+	calls           []string // choose, monitor and search, in the order they were made
 	added           []lidarr.NewAlbum
 	searched        []int
 	albumCalls      atomic.Int32 // AlbumByForeignID runs from several goroutines
@@ -203,18 +204,21 @@ func (f *fakeLib) AddAlbum(_ context.Context, a lidarr.NewAlbum) error {
 func (f *fakeLib) MonitorAlbum(_ context.Context, id int) error {
 	if f.monitorErr == nil {
 		f.monitored = append(f.monitored, id)
+		f.calls = append(f.calls, "monitor")
 	}
 	return f.monitorErr
 }
 
 func (f *fakeLib) ChooseRelease(_ context.Context, id int) error {
 	f.chosen = append(f.chosen, id)
+	f.calls = append(f.calls, "choose")
 	return f.chooseErr
 }
 
 func (f *fakeLib) SearchAlbum(_ context.Context, id int) error {
 	if f.searchErr == nil {
 		f.searched = append(f.searched, id)
+		f.calls = append(f.calls, "search")
 	}
 	return f.searchErr
 }
@@ -1102,6 +1106,22 @@ func TestRequestChoosesTheEditionBeforeSearching(t *testing.T) {
 	}
 	if len(lib.chosen) != 1 || lib.chosen[0] != addedID || len(lib.searched) != 1 {
 		t.Errorf("chosen %v, searched %v: the edition must be chosen for the added album, and it is still searched", lib.chosen, lib.searched)
+	}
+}
+
+func TestRequestChoosesTheEditionBeforeTheAlbumIsWanted(t *testing.T) {
+	// Added unmonitored, so the edition is chosen, then the album monitored, then
+	// searched: never wanted with Lidarr's own pick.
+	lib := &fakeLib{states: map[string]*lidarr.AlbumState{}}
+	requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1, artistMBID)
+	if want := []string{"choose", "monitor", "search"}; !reflect.DeepEqual(lib.calls, want) {
+		t.Errorf("calls = %v, want %v", lib.calls, want)
+	}
+	// An album already in Lidarr but not wanted is handled the same way.
+	lib = &fakeLib{states: map[string]*lidarr.AlbumState{id1: stp(state(7, false, 0, 0, ""))}}
+	requestCatalog(metaWithArtist(), lib).Request(context.Background(), id1, artistMBID)
+	if want := []string{"choose", "monitor", "search"}; !reflect.DeepEqual(lib.calls, want) {
+		t.Errorf("existing album: calls = %v, want %v", lib.calls, want)
 	}
 }
 

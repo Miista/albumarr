@@ -2,7 +2,9 @@
 // needs: whether an album (by MusicBrainz release-group ID) is in the library,
 // the download queue, and a library album's tracks, all reads, plus exactly one
 // write: AddAlbum, which adds an artist and an album to the library without
-// monitoring either, so Lidarr searches for and downloads nothing.
+// monitoring either, so Lidarr searches for and downloads nothing; then the
+// writes that finish a request: choosing the album's edition, monitoring it and
+// searching for it.
 package lidarr
 
 import (
@@ -252,8 +254,9 @@ type NewAlbum struct {
 }
 
 // addAlbumBody is the request Lidarr's UI sends, reduced to what matters. The
-// album is monitored, so Lidarr wants it; the artist is not, and new releases by
-// the artist are not either, so nothing else is wanted. The artist carries no
+// album is not monitored yet (MonitorAlbum does that once its edition is
+// chosen), nor is the artist, nor new releases by the artist, so nothing is wanted
+// until then. The artist carries no
 // addOptions on purpose: Lidarr would apply its "monitor: none" to every album
 // imported with a new artist, the requested one included, after the add returns
 // (checked on a throwaway: without it only the requested album is monitored, even
@@ -277,14 +280,16 @@ type addAlbumBody struct {
 	} `json:"artist"`
 }
 
-// AddAlbum adds the album, monitored, and its artist when Lidarr does not have
-// it yet, unmonitored. An album the artist's metadata profile would normally
-// exclude is still added: Lidarr keeps manually added albums. It does not
-// search; see SearchAlbum.
+// AddAlbum adds the album, and its artist when Lidarr does not have it yet,
+// both unmonitored: nothing is wanted until the request has chosen the album's
+// edition (ChooseRelease) and monitored it (MonitorAlbum), or an RSS sync could
+// grab a release for the wrong edition in between. An album the artist's
+// metadata profile would normally exclude is still added: Lidarr keeps manually
+// added albums. It does not search; see SearchAlbum.
 func (c *Client) AddAlbum(ctx context.Context, a NewAlbum) error {
 	var b addAlbumBody
 	b.ForeignAlbumID = a.AlbumID
-	b.Monitored = true
+	b.Monitored = false
 	b.AddOptions.AddType = "manual"
 	b.Artist.ForeignArtistID = a.ArtistID
 	b.Artist.QualityProfileID = a.QualityProfileID

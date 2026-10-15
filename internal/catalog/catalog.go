@@ -511,16 +511,18 @@ func complete(st lidarr.AlbumState) bool {
 
 // monitorAndSearch makes Lidarr want an album that is in Lidarr, and look for it.
 func (c *Catalog) monitorAndSearch(ctx context.Context, st *lidarr.AlbumState) RequestResult {
+	if st.Statistics.TrackFileCount == 0 {
+		// Before the album is wanted, so nothing can be grabbed for the wrong
+		// edition. Best effort: Lidarr's own pick (the biggest edition) can make
+		// every ordinary download fail to import, but wanting the album with it is
+		// still better than not wanting it. Never changed under files already
+		// imported.
+		_ = c.lib.ChooseRelease(ctx, st.ID)
+	}
 	if !st.Monitored {
 		if err := c.lib.MonitorAlbum(ctx, st.ID); err != nil {
 			return RequestAddedUnsearched
 		}
-	}
-	if st.Statistics.TrackFileCount == 0 {
-		// Best effort: Lidarr's own pick (the biggest edition) can make every
-		// ordinary download fail to import, but searching with it is still
-		// better than not searching. Never changed under files already imported.
-		_ = c.lib.ChooseRelease(ctx, st.ID)
 	}
 	if err := c.lib.SearchAlbum(ctx, st.ID); err != nil {
 		return RequestAddedUnsearched
