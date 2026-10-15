@@ -342,3 +342,25 @@ func TestArtistImagesAndWhichOneIsThePhoto(t *testing.T) {
 		}
 	}
 }
+
+func TestParseTakesTheAlbumsOwnArtistNotTheFirstContributor(t *testing.T) {
+	// "artists" lists every contributor, alphabetically; "artistid" names the artist
+	// Lidarr files the album under.
+	const camila, ed = "01b8b5bf-06cb-45da-85fb-61ada72fcd69", "b8a7c51f-362c-4dcb-a259-bc6e0095f0a6"
+	for name, tc := range map[string]struct{ artistID, want string }{
+		"the named artist":   {ed, ed},
+		"no artistid":        {"", camila},
+		"an unlisted artist": {"ffffffff-ffff-4fff-8fff-ffffffffffff", camila},
+	} {
+		body := `{"id":"51182052-d6d4-49a0-bd87-a88cdb211bed","title":"=","type":"Album","artistid":"` + tc.artistID + `",
+			"artists":[{"artistname":"Camila Cabello","id":"` + camila + `"},{"artistname":"Ed Sheeran","id":"` + ed + `"}],"releases":[]}`
+		a, err := parse([]byte(body))
+		if err != nil || a.ArtistID != tc.want {
+			t.Errorf("%s: artist %q (%v), want %q", name, a.ArtistID, err, tc.want)
+		}
+	}
+	a, _ := parse([]byte(`{"id":"x","artistid":"` + ed + `","artists":[{"artistname":"Camila Cabello","id":"` + camila + `"},{"artistname":"Ed Sheeran","id":"` + ed + `"}],"releases":[]}`))
+	if a.Artist != "Ed Sheeran" {
+		t.Errorf("the name must follow the ID: %q", a.Artist)
+	}
+}

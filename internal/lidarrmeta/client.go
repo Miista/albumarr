@@ -355,7 +355,8 @@ type wire struct {
 		Count int     `json:"count"`
 		Value float64 `json:"value"`
 	} `json:"rating"`
-	Artists []struct {
+	ArtistID string `json:"artistid"` // the album's own artist; "artists" lists every contributor, alphabetically
+	Artists  []struct {
 		Name string `json:"artistname"`
 		ID   string `json:"id"`
 	} `json:"artists"`
@@ -393,8 +394,15 @@ func parse(body []byte) (Album, error) {
 	if w.Overview != nil {
 		a.Overview = *w.Overview
 	}
-	if len(w.Artists) > 0 {
-		a.Artist, a.ArtistID = w.Artists[0].Name, w.Artists[0].ID
+	// The album's artist is the one named by artistid, as Lidarr files it, not the
+	// first contributor: a guest on one track can sort before the artist.
+	for i, x := range w.Artists {
+		if i == 0 || x.ID == w.ArtistID {
+			a.Artist, a.ArtistID = x.Name, x.ID
+		}
+		if x.ID == w.ArtistID {
+			break
+		}
 	}
 	for _, r := range w.Releases {
 		e := Edition{ID: r.ID, Title: r.Title, Date: knownDate(r.ReleaseDate), TrackCount: r.TrackCount}
