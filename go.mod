@@ -3,7 +3,7 @@ module github.com/Miista/albumarr
 go 1.26.9
 
 require (
-	github.com/miista/authy v0.1.1
+	github.com/miista/authy v0.1.2
 	github.com/rs/zerolog v1.35.1
 )
 
