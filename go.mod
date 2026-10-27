@@ -1,6 +1,6 @@
 module github.com/Miista/albumarr
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/miista/authy v0.1.3
