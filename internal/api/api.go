@@ -464,7 +464,7 @@ func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {
 		s.requestFailed(w, r, err, "request for album "+id)
 		return
 	}
-	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s requested album %s: %s", p.Name, id, out.Result))
+	s.log.Info().Str("by", p.Sub).Msg(fmt.Sprintf("%s requested album %s: %s", p.Username, id, out.Result))
 	// Pending is 202: accepted, not yet done. Exists changed nothing. Anything else
 	// is what Lidarr did on an approval, a 201 as before.
 	status := http.StatusCreated

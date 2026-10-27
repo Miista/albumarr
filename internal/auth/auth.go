@@ -51,11 +51,14 @@ func (r Role) AtLeast(min Role) bool { return r >= min }
 
 // Principal is who a request is from, and what they may do.
 type Principal struct {
-	Sub   string // stable ID: the identity provider's, or "local:<name>"
-	Name  string
-	Email string
-	Role  Role
-	Local bool
+	Sub string // stable ID: the identity provider's, or "local:<name>"
+	// Name is what to show people: the provider's display name. Username is the
+	// login handle, for logs; it is the display name if the provider sent none.
+	Name     string
+	Username string
+	Email    string
+	Role     Role
+	Local    bool
 }
 
 // Config says how groups map to roles.
@@ -104,17 +107,20 @@ func New(cfg Config, dir Directory, log zerolog.Logger) *Auth {
 // in place, "no identity" must never read as "anyone".
 func (a *Auth) Principal(r *http.Request) (Principal, bool) {
 	if !a.cfg.GateOn {
-		return Principal{Sub: "anonymous", Name: "anonymous", Role: Admin, Local: true}, true
+		return Principal{Sub: "anonymous", Name: "anonymous", Username: "anonymous", Role: Admin, Local: true}, true
 	}
 	u, ok := a.from(r)
 	if !ok || u.Subject == "" {
 		return Principal{}, false
 	}
-	p := Principal{Sub: u.Subject, Name: u.Name, Email: u.Email, Local: isLocal(u), Role: a.roleFor(u)}
+	p := Principal{Sub: u.Subject, Name: u.DisplayName, Username: u.Username, Email: u.Email, Local: isLocal(u), Role: a.roleFor(u)}
+	if p.Username == "" {
+		p.Username = p.Name
+	}
 	if p.Role == None {
 		return p, true // known, not let in: never added to the directory
 	}
-	if _, err := a.dir.Touch(u.Subject, u.Name, u.Email, p.Local); err != nil {
+	if _, err := a.dir.Touch(u.Subject, p.Name, u.Email, p.Local); err != nil {
 		// Not being able to note that someone was seen must not lock them out.
 		a.log.Warn().Err(err).Msg("could not record a sign-in in the users list")
 	}

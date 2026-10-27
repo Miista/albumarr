@@ -38,7 +38,20 @@ func resolve(cfg Config, dir *fakeDir, u *authy.User) (Principal, bool) {
 }
 
 func idp(sub string, groups ...string) *authy.User {
-	return &authy.User{Subject: sub, Name: sub, Groups: groups}
+	return &authy.User{Subject: sub, Username: sub, DisplayName: sub, Groups: groups}
+}
+
+func TestThePrincipalShowsTheDisplayNameAndLogsTheUsername(t *testing.T) {
+	cfg := Config{GateOn: true, AdminGroup: "admins"}
+	u := &authy.User{Subject: "s", Username: "soren", DisplayName: "Søren", Groups: []string{"admins"}}
+	if p, _ := resolve(cfg, &fakeDir{}, u); p.Name != "Søren" || p.Username != "soren" {
+		t.Errorf("Name = %q, Username = %q", p.Name, p.Username)
+	}
+	// A provider that sent no username: the log still names someone.
+	u = &authy.User{Subject: "s", DisplayName: "Søren", Groups: []string{"admins"}}
+	if p, _ := resolve(cfg, &fakeDir{}, u); p.Name != "Søren" || p.Username != "Søren" {
+		t.Errorf("Name = %q, Username = %q", p.Name, p.Username)
+	}
 }
 
 func TestRolesFromGroups(t *testing.T) {
@@ -61,7 +74,7 @@ func TestRolesFromGroups(t *testing.T) {
 		{"the admin group is case sensitive", both, idp("x", "Admins"), None},
 		{"no user group set: any signed-in person is a user", adminOnly, idp("x", "whatever"), User},
 		{"no groups configured: everyone is a user, nobody an admin", open, idp("x", "admins"), User},
-		{"the local account is the admin", both, &authy.User{Subject: "local:me", Name: "me"}, Admin},
+		{"the local account is the admin", both, &authy.User{Subject: "local:me", Username: "me", DisplayName: "me"}, Admin},
 		{"a subject that merely starts with local is not the local account", both, idp("localadmin", "users"), User},
 		{"a subject that merely starts with local is not the local account, even with no groups", both, idp("local", "x"), None},
 		{"a local account is admin even with no groups configured", open, &authy.User{Subject: "local:me"}, Admin},
